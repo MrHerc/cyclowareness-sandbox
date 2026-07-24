@@ -60,6 +60,9 @@ class JobDetail(JobSummary):
     dynamic: dict[str, Any]
     iocs: dict[str, list[str]]
     score_breakdown: dict[str, Any]
+    cvss: dict[str, Any]
+    verdict: dict[str, Any]
+    mitre: list[dict[str, Any]]
     rule_score: float
     ai_score: float
     feedback: str | None
@@ -82,6 +85,9 @@ class JobDetail(JobSummary):
             dynamic=job.dynamic or {},
             iocs=job.iocs or {},
             score_breakdown=job.score_breakdown or {},
+            cvss=job.cvss or {},
+            verdict=job.verdict or {},
+            mitre=job.mitre or [],
             rule_score=job.rule_score,
             ai_score=job.ai_score,
             feedback=job.feedback,

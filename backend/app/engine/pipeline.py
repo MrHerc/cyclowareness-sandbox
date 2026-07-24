@@ -288,6 +288,19 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
         tiers = _tier_record(static_ran=any(r.ran for r in results), analyzer_gaps=gaps)
         assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
 
+        # Real security-analyst outputs: CVSS v3.1, a VirusTotal-style internal
+        # verdict, and the MITRE ATT&CK techniques the behaviour maps to. All
+        # derived from the same signals — no external call, nothing fabricated.
+        from . import cvss as cvss_mod, mitre as mitre_mod, verdict as verdict_mod
+
+        all_signals = [s for r in results if r.ran for s in r.signals]
+        cvss_res = cvss_mod.assess(
+            sample.family, all_signals, merged, from_url=(job.source == JobSource.URL)
+        )
+        verdict_res = verdict_mod.classify(
+            sample.family, sample.mime, results, merged, assessment.final_score
+        )
+
         job.analysis = {r.analyzer: r.to_dict() for r in results}
         job.iocs = merged.to_dict()
         job.tiers = tiers
@@ -296,6 +309,9 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
         job.ai_score = assessment.ai_score
         job.final_score = assessment.final_score
         job.risk_level = assessment.risk_level
+        job.cvss = cvss_res.to_dict()
+        job.verdict = verdict_res.to_dict()
+        job.mitre = mitre_mod.map_techniques(all_signals)
         job.status = JobStatus.COMPLETED
         job.stage = "complete"
         job.completed_at = utcnow()

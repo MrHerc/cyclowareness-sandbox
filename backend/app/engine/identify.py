@@ -212,6 +212,14 @@ def identify(path: str, original_name: str) -> Identity:
         and not same_text_family
     )
 
+    # A known script extension carries its specific content-type, so downstream
+    # (platform naming, reporting) sees e.g. text/x-powershell rather than the
+    # generic text/plain that a content sniff returns for any script.
+    if family == "script" and claimed in _SCRIPT_EXTENSIONS:
+        mime, magic = _SCRIPT_EXTENSIONS[claimed]
+        if not canonical:
+            canonical = (claimed,)
+
     return Identity(
         mime=mime,
         magic=magic,
