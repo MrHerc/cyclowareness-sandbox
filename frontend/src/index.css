@@ -9,11 +9,11 @@
       product can be re-themed (and printed, and projected) without hunting
       literals through 30 components. Charts and SVG read the same variables.
 
-   2. The brand hue is NOT a status colour. Violet means "Cyclowareness / the
-      loop / the thing you are pointing at". Red, amber and green mean risk, and
-      only risk. An earlier palette used one teal for the brand AND for
-      "healthy" AND for "running" AND for links, so a rising click-rate and a
-      live loop run looked identical.
+   2. The brand hue is NOT a status colour. A professional blue means
+      "Cyclowareness Sandbox / the thing you are pointing at". Red, amber and
+      green mean risk, and only risk. Because the accent is blue, the info tone
+      is cyan (a clearly separate hue), never the brand — an earlier palette
+      reused one colour for brand AND status and they became indistinguishable.
 
    3. Every content tone clears WCAG AA (4.5:1) on the surface it sits on.
 
@@ -44,21 +44,21 @@
   --color-c2: #4d5364;
   --color-c3: #6c7385;
 
-  /* --- brand: fills/strokes use `brand`, text uses `brand-fg` ------------- */
-  --color-brand: #5a33e8;
-  --color-brand-fg: #4c27d9;
-  --color-brand-dim: #efeaff;
+  /* --- brand: professional blue. fills/strokes use `brand`, text `brand-fg` */
+  --color-brand: #2563eb;
+  --color-brand-fg: #1d4ed8;
+  --color-brand-dim: #e7eefe;
 
-  /* --- status: risk only -------------------------------------------------- */
+  /* --- status: risk only (info is cyan, kept distinct from the blue brand) - */
   --color-danger: #c81e1e;
   --color-warning: #9a5b00;
   --color-success: #077d55;
-  --color-info: #1d5fd4;
+  --color-info: #0e7490;
 
   /* --- data series (charts): distinguishable, and never the brand hue ----- */
   --color-series-1: #c81e1e;
   --color-series-2: #077d55;
-  --color-series-3: #1d5fd4;
+  --color-series-3: #0e7490;
 
   /* --- the measurement grid laid over the canvas ------------------------- */
   --color-grid: #dfe2ec;
@@ -127,18 +127,18 @@
   --color-c2: #a3a8bb;
   --color-c3: #8d93a8;
 
-  --color-brand: #7c5cff;
-  --color-brand-fg: #a48fff;
-  --color-brand-dim: #241d42;
+  --color-brand: #5b8cff;
+  --color-brand-fg: #8fb0ff;
+  --color-brand-dim: #16233f;
 
   --color-danger: #ff6b6b;
   --color-warning: #f5b544;
   --color-success: #3ecf8e;
-  --color-info: #6aa8ff;
+  --color-info: #22d3ee;
 
   --color-series-1: #ff6b6b;
   --color-series-2: #3ecf8e;
-  --color-series-3: #6aa8ff;
+  --color-series-3: #22d3ee;
 
   --color-grid: #191c28;
 }
