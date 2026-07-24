@@ -1,0 +1,29 @@
+# Render Blueprint — one Docker web service (API + compiled SPA, same origin).
+# Connect this repo at https://dashboard.render.com/blueprints and Render builds
+# the Dockerfile and deploys. autoDeploy redeploys on every push to the branch.
+services:
+  - type: web
+    name: cyclowareness-sandbox
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    # Standard (2 GB) is REQUIRED, not optional: the analysis stack (YARA +
+    # oletools + pefile loaded together) exceeds the 512 MB tiers, which flap
+    # and restart the worker. 2 GB is rock-solid.
+    plan: standard
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: demo
+      # Signs session tokens. Generated once by Render, never in git.
+      - key: SECRET_KEY
+        generateValue: true
+      - key: SANDBOX_QUARANTINE
+        value: /var/lib/sandbox/quarantine
+      # Turn on live features by setting these on the service (sync:false keeps
+      # them out of git): ANTHROPIC_API_KEY, VT_API_KEY, DYNAMIC_WORKER_TOKEN,
+      # CUCKOO_URL, CAPEV2_URL, ...
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DYNAMIC_WORKER_TOKEN
+        sync: false
