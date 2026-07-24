@@ -65,13 +65,15 @@ export function Submit() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Submit a sample"
-        lede="Upload a file or paste a URL. The sample is quarantined and analysed statically — it is never executed on this server."
-      />
+      <div className="hero-glow">
+        <PageHeader
+          title="Submit a sample"
+          lede="Upload a file or paste a URL. The sample is quarantined and analysed statically — it is never executed on this server."
+        />
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-[1.6fr_1fr]">
-        <Panel tone="feature">
+        <Panel tone="feature" className="rise-in">
           <div className="mb-4">
             <Tabs
               label="Submission type"

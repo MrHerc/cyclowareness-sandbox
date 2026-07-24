@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Cpu, ListChecks, LogOut, Moon, SlidersHorizontal, Sun, Upload } from 'lucide-react'
+import { Cpu, LayoutDashboard, ListChecks, LogOut, Moon, SlidersHorizontal, Sun, Upload } from 'lucide-react'
 import { Brand } from './Brand'
 import { cx } from './ui'
 import { useAuth } from '../lib/auth'
@@ -7,7 +7,8 @@ import { useCapabilities } from '../lib/useCapabilities'
 import { useTheme } from '../lib/useTheme'
 
 const NAV = [
-  { to: '/', label: 'Submit', icon: Upload, end: true },
+  { to: '/', label: 'Overview', icon: LayoutDashboard, end: true },
+  { to: '/submit', label: 'Submit', icon: Upload, end: false },
   { to: '/queue', label: 'Queue', icon: ListChecks, end: false },
   { to: '/integrations', label: 'Integrations', icon: Cpu, end: false },
   { to: '/tuning', label: 'Tuning', icon: SlidersHorizontal, end: false },

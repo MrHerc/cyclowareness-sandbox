@@ -1,3 +1,4 @@
+import { type CSSProperties } from 'react'
 import { CheckCircle2, Circle, Cpu } from 'lucide-react'
 import { LoadState, PageHeader, Panel, Chip, Metric } from '../components/ui'
 import { api } from '../lib/api'
@@ -11,9 +12,9 @@ const KIND_LABEL: Record<string, string> = {
   'threat-intel': 'Threat intelligence',
 }
 
-function EngineCard({ e }: { e: EngineDescriptor }) {
+function EngineCard({ e, i = 0 }: { e: EngineDescriptor; i?: number }) {
   return (
-    <div className="rounded-control border border-hair bg-panel p-4">
+    <div className="rise-in lift rounded-control border border-hair bg-panel p-4" style={{ '--i': i } as CSSProperties}>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-body font-medium text-c1">{e.name}</p>
@@ -76,16 +77,16 @@ export function Integrations() {
 
       <Panel title="Dynamic engines" subtitle="Detonation and behaviour — run off-host on an isolated worker">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {dynamic.map((e) => (
-            <EngineCard key={e.key} e={e} />
+          {dynamic.map((e, i) => (
+            <EngineCard key={e.key} e={e} i={i} />
           ))}
         </div>
       </Panel>
 
       <Panel title="Static and intelligence engines" subtitle="Safe to run in-process — no sample is executed">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {staticIntel.map((e) => (
-            <EngineCard key={e.key} e={e} />
+          {staticIntel.map((e, i) => (
+            <EngineCard key={e.key} e={e} i={i} />
           ))}
         </div>
       </Panel>

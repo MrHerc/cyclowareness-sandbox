@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { Layout } from './components/Layout'
 import { useAuth } from './lib/auth'
 import { Login } from './pages/Login'
+import { Dashboard } from './pages/Dashboard'
 import { Submit } from './pages/Submit'
 import { Queue } from './pages/Queue'
 import { JobDetail } from './pages/JobDetail'
@@ -28,7 +29,8 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<Submit />} />
+        <Route index element={<Dashboard />} />
+        <Route path="submit" element={<Submit />} />
         <Route path="queue" element={<Queue />} />
         <Route path="job/:id" element={<JobDetail />} />
         <Route path="integrations" element={<Integrations />} />
