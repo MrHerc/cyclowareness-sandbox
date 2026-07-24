@@ -1,0 +1,111 @@
+# Cyclowareness Sandbox — full local stack.
+#
+#   api        the web service + SPA (one image, one origin) on :8000
+#   worker     the off-host detonation engine; the ONLY component that executes a
+#              sample, and only inside isolation. Pulls jobs from the api's
+#              dynamic seam over HTTP with a shared worker token.
+#   prometheus scrapes the api's /metrics
+#   grafana    pre-provisioned datasource + dashboard on :3000
+#
+# SECRETS: the values below are demo defaults. For anything reachable, override
+# every secret via an .env file or the shell environment before `docker compose up`
+# (e.g. DYNAMIC_WORKER_TOKEN, SECRET_KEY, ANALYST_PASSWORD, ANTHROPIC_API_KEY).
+
+services:
+  api:
+    build: .
+    image: cyclowareness-sandbox:latest
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: ${APP_ENV:-demo}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////data/sandbox.db}
+      SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-key-change-me}
+      ANALYST_USERNAME: ${ANALYST_USERNAME:-analyst}
+      ANALYST_PASSWORD: ${ANALYST_PASSWORD:-analyst}
+      API_KEYS: ${API_KEYS:-demo-key}
+      MAX_SAMPLE_MB: ${MAX_SAMPLE_MB:-32}
+      SANDBOX_QUARANTINE: /var/lib/sandbox/quarantine
+      # Shared secret the worker presents to claim jobs / fetch bytes / post reports.
+      # Empty disables the dynamic tier. CHANGE THIS.
+      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}
+      # Optional LLM narrative; the numeric verdict never depends on it.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - sandbox-data:/data
+      # Untrusted bytes live here and are never executed by this service.
+      # Mount noexec,nosuid,nodev so the kernel refuses execution even if asked.
+      - type: volume
+        source: sandbox-quarantine
+        target: /var/lib/sandbox/quarantine
+        volume:
+          nocopy: true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - sandbox
+
+  worker:
+    build: ./worker
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      SANDBOX_API_URL: http://api:8000
+      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-10}
+    restart: unless-stopped
+    # The worker is the only component that detonates samples. It must run its
+    # payloads inside isolation (firejail/seccomp/container) or via emulation
+    # (Qiling). These options harden the worker container itself; the worker's
+    # own code is responsible for the inner isolation of each detonation.
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - sandbox
+
+  prometheus:
+    image: prom/prometheus:latest
+    depends_on:
+      - api
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+    networks:
+      - sandbox
+
+  grafana:
+    image: grafana/grafana:latest
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+    networks:
+      - sandbox
+
+networks:
+  sandbox:
+    driver: bridge
+
+volumes:
+  sandbox-data:
+  sandbox-quarantine:
+  prometheus-data:
+  grafana-data:

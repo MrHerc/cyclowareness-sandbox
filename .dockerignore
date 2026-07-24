@@ -1,0 +1,50 @@
+# Keep the build context small and never ship secrets or local data.
+
+# --- version control / CI ---
+.git/
+.github/
+.gitattributes
+
+# --- python ---
+**/__pycache__/
+**/*.py[cod]
+**/*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- node / frontend build artefacts (rebuilt inside the image) ---
+frontend/node_modules/
+frontend/dist/
+backend/frontend_dist/
+
+# --- local data: never bake samples or databases into an image ---
+*.db
+*.sqlite3
+sandbox.db
+smoke*.db
+**/quarantine/
+*-quarantine/
+sample_corpus/
+
+# --- env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- runtime reports ---
+/reports/
+*.report.pdf
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- docs and infra not needed at runtime ---
+docs/
+*.md
+!README.md
