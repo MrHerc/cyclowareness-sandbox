@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- local data (never commit samples or databases) ---
+*.db
+*.sqlite3
+sandbox.db
+smoke*.db
+/quarantine/
+*-quarantine/
+sample_corpus/
+
+# --- env / secrets ---
+.env
+.env.*
+!.env.example
+
+# --- node / frontend build ---
+node_modules/
+frontend/dist/
+backend/frontend_dist/
+
+# --- editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- reports produced at runtime ---
+/reports/
+*.report.pdf
