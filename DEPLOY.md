@@ -24,7 +24,7 @@ GitHub, because that needs your account.
 
    ```bash
    git remote add origin git@github.com:<you>/cyclowareness-sandbox.git
-   git push -u origin master
+   git push -u origin main
    ```
 
 3. **Connect to Render**: at <https://dashboard.render.com/blueprints> choose
