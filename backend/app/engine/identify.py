@@ -115,11 +115,17 @@ def _family_for(mime: str, claimed: str) -> str:
         "application/x-tar",
     ):
         return "archive"
-    if mime in ("application/vnd.android.package-archive", "application/java-archive"):
-        return "archive"
+    if mime == "application/vnd.android.package-archive":
+        return "apk"
+    if mime == "application/java-archive":
+        return "jar"
     if mime.startswith("text/") or mime == "application/hta" or claimed in _SCRIPT_EXTENSIONS:
         return "script"
     if mime == "application/x-iso9660-image":
+        return "diskimage"
+    # A raw .img / .iso with no recognisable magic still gets the disk-image
+    # analyzer, which scans a filesystem-less image for embedded executables.
+    if claimed in (".iso", ".img"):
         return "diskimage"
     return "unknown"
 

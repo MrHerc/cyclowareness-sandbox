@@ -43,8 +43,9 @@ ARCHIVE_MIMES = {
     "application/zip",
     "application/x-rar-compressed",
     "application/x-7z-compressed",
-    "application/java-archive",
-    "application/vnd.android.package-archive",
+    # APK and JAR are ZIP containers too, but they have dedicated deep analyzers
+    # (manifest/permissions, Java class inspection) rather than generic member
+    # promotion, so they are intentionally NOT unpacked here.
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",

@@ -37,6 +37,8 @@ export function familyLabel(family: string): string {
     script: 'Script',
     pdf: 'PDF document',
     archive: 'Archive',
+    apk: 'Android package',
+    jar: 'Java archive',
     diskimage: 'Disk image',
     unknown: 'Unclassified',
   }

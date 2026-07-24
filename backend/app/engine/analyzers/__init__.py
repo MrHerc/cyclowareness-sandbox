@@ -26,7 +26,7 @@ from ..contracts import AnalyzerResult, Sample
 logger = logging.getLogger("sandbox.analyzers")
 
 #: Import order is the order results appear in the report.
-_MODULE_NAMES = ("generic", "pe", "office", "scripts", "pdf", "elf")
+_MODULE_NAMES = ("generic", "pe", "office", "scripts", "pdf", "elf", "apk", "jar", "diskimage", "intel")
 
 _import_failures: dict[str, str] = {}
 

@@ -160,6 +160,16 @@ _CAPABILITY_PREFIXES = (
     "pdf.launch_action",
     "pdf.submit_form",
     "elf.suspicious_strings",
+    "apk.dangerous_permission",
+    "apk.suspicious_api",
+    "apk.accessibility_abuse",
+    "jar.runtime_exec",
+    "jar.reflection",
+    "jar.classloader",
+    "jar.script_engine",
+    "diskimage.embedded_executable",
+    "diskimage.autorun",
+    "intel.vt_malicious",
 )
 
 
