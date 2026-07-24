@@ -1,0 +1,339 @@
+@import "tailwindcss";
+
+/* =============================================================================
+   Cyclowareness design tokens
+   -----------------------------------------------------------------------------
+   Four rules this file exists to enforce:
+
+   1. NOTHING outside this file may name a colour. Every hex lives here, so the
+      product can be re-themed (and printed, and projected) without hunting
+      literals through 30 components. Charts and SVG read the same variables.
+
+   2. The brand hue is NOT a status colour. Violet means "Cyclowareness / the
+      loop / the thing you are pointing at". Red, amber and green mean risk, and
+      only risk. An earlier palette used one teal for the brand AND for
+      "healthy" AND for "running" AND for links, so a rising click-rate and a
+      live loop run looked identical.
+
+   3. Every content tone clears WCAG AA (4.5:1) on the surface it sits on.
+
+   4. **Light is the default.** The instrument reads on a near-white ground:
+      exhibition halls are lit for photography, projectors wash dark UI out, and
+      the first screenshot of this product usually lands on a white slide. Dark
+      is a supported alternative, not the identity.
+
+   The look is meant to read as an INSTRUMENT — cool neutrals, hairline rules, a
+   fine measurement grid, tabular figures, high-chroma accent used sparingly —
+   rather than as a soft pastel dashboard.
+   ========================================================================== */
+
+@theme {
+  /* --- surfaces: canvas < raised < panel, with sunken for wells ----------- */
+  --color-canvas: #f3f4f8;
+  --color-panel: #ffffff;
+  --color-raised: #f8f9fc;
+  --color-sunken: #eaecf3;
+
+  /* --- lines: hairline, structural, emphatic ------------------------------ */
+  --color-hair: #e6e8f0;
+  --color-line: #d6d9e4;
+  --color-line-strong: #b6bbcb;
+
+  /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------ */
+  --color-c1: #12141c;
+  --color-c2: #4d5364;
+  --color-c3: #6c7385;
+
+  /* --- brand: fills/strokes use `brand`, text uses `brand-fg` ------------- */
+  --color-brand: #5a33e8;
+  --color-brand-fg: #4c27d9;
+  --color-brand-dim: #efeaff;
+
+  /* --- status: risk only -------------------------------------------------- */
+  --color-danger: #c81e1e;
+  --color-warning: #9a5b00;
+  --color-success: #077d55;
+  --color-info: #1d5fd4;
+
+  /* --- data series (charts): distinguishable, and never the brand hue ----- */
+  --color-series-1: #c81e1e;
+  --color-series-2: #077d55;
+  --color-series-3: #1d5fd4;
+
+  /* --- the measurement grid laid over the canvas ------------------------- */
+  --color-grid: #dfe2ec;
+
+  /* --- type scale: eight steps, nothing else -------------------------------
+     An earlier version used thirteen sizes across three notations
+     (text-[10px], text-[11px], text-[13px], text-[15px], xs, sm, base, lg, xl,
+     2xl, 3xl, 4xl). An arbitrary scale is the loudest amateur tell in a
+     data-dense interface. */
+  --text-display: 2.125rem;
+  --text-display--line-height: 1.08;
+  --text-display--letter-spacing: -0.025em;
+  --text-display--font-weight: 600;
+
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.2;
+  --text-title--letter-spacing: -0.02em;
+  --text-title--font-weight: 600;
+
+  --text-h: 1.0625rem;
+  --text-h--line-height: 1.35;
+  --text-h--letter-spacing: -0.012em;
+  --text-h--font-weight: 600;
+
+  --text-lead: 0.9375rem;
+  --text-lead--line-height: 1.6;
+
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.55;
+
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.5;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.45;
+
+  --text-label: 0.6875rem;
+  --text-label--line-height: 1.3;
+  --text-label--letter-spacing: 0.09em;
+  --text-label--font-weight: 600;
+
+  --font-sans: "Inter var", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
+
+  /* Small radii read as instrumentation; large ones read as a consumer app. */
+  --radius-panel: 0.5rem;
+  --radius-control: 0.375rem;
+  --radius-chip: 0.25rem;
+}
+
+/* -----------------------------------------------------------------------------
+   Dark theme. Same token names, so no component knows which theme is running.
+   Kept for low-light demo rooms and for anyone who prefers it.
+   -------------------------------------------------------------------------- */
+:root[data-theme="dark"] {
+  --color-canvas: #0a0b0f;
+  --color-panel: #131520;
+  --color-raised: #1b1e2b;
+  --color-sunken: #080910;
+
+  --color-hair: #212432;
+  --color-line: #2c3042;
+  --color-line-strong: #3d4257;
+
+  --color-c1: #f2f3f8;
+  --color-c2: #a3a8bb;
+  --color-c3: #8d93a8;
+
+  --color-brand: #7c5cff;
+  --color-brand-fg: #a48fff;
+  --color-brand-dim: #241d42;
+
+  --color-danger: #ff6b6b;
+  --color-warning: #f5b544;
+  --color-success: #3ecf8e;
+  --color-info: #6aa8ff;
+
+  --color-series-1: #ff6b6b;
+  --color-series-2: #3ecf8e;
+  --color-series-3: #6aa8ff;
+
+  --color-grid: #191c28;
+}
+
+/* =============================================================================
+   Base
+   ========================================================================== */
+
+html {
+  background: var(--color-canvas);
+  color: var(--color-c1);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  /* Data-dense UI: proportional digits make polled columns jitter. Lining
+     tabular figures everywhere is cheaper than remembering `tabular-nums` at
+     forty call sites. */
+  font-variant-numeric: tabular-nums;
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* A 24px measurement grid, at the threshold of visibility. It is what makes
+     the near-white ground read as an instrument surface rather than as blank
+     paper — present when you look for it, absent when you read. Panels sit
+     opaque on top, so it never interferes with data. */
+  background-color: var(--color-canvas);
+  background-image:
+    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-brand) 24%, transparent);
+}
+
+/* Keyboard-only focus ring — the a11y baseline for every interactive element. */
+:focus-visible {
+  outline: 2px solid var(--color-brand);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* =============================================================================
+   Utilities used often enough to earn a name
+   ========================================================================== */
+
+/* Section label: the one place small-caps tracking is allowed. */
+.label {
+  font-size: var(--text-label);
+  line-height: var(--text-label--line-height);
+  letter-spacing: var(--text-label--letter-spacing);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* Hairline between rows in dense lists and tables. */
+.divide-hair > * + * {
+  border-top: 1px solid var(--color-hair);
+}
+
+/* Hashes, job ids, IOCs — anything that must be read character by character. */
+.tech {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: -0.01em;
+  word-break: break-all;
+}
+
+/* =============================================================================
+   Motion. Every animation is state feedback or the loop itself; nothing
+   decorates. All of it collapses under prefers-reduced-motion.
+   ========================================================================== */
+
+@keyframes loop-dash {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+.loop-flow {
+  stroke-dasharray: 3 9;
+  animation: loop-dash 1.4s linear infinite;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.breathe {
+  animation: breathe 2s ease-in-out infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise {
+  animation: rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+.shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-c3) 14%, transparent),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+/* A determinate scan line for a job that is actively being analysed. */
+@keyframes scan {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+.scan::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  width: 25%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-brand) 55%, transparent),
+    transparent
+  );
+  animation: scan 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
