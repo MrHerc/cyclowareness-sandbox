@@ -1,0 +1,28 @@
+# Cyclowareness Sandbox — off-host worker dependencies.
+#
+# The worker is intentionally lean. Only ONE dependency is genuinely required;
+# everything else is an optional engine that is guarded at import time, so the
+# agent runs (and py_compiles) with none of the optional packages installed.
+
+# --- required ---------------------------------------------------------------
+# HTTP client for the /api/dynamic/* seam. The agent falls back to the stdlib
+# urllib if this is somehow absent, but requests is the supported path.
+requests>=2.31
+
+# --- optional: native engine ------------------------------------------------
+# The native Linux engine shells out to the `firejail` and `strace` BINARIES
+# (installed by the Dockerfile via apt), not a Python package — there is nothing
+# to pip-install for it. python-ptrace is only needed if you extend the native
+# engine to attach via ptrace directly instead of parsing strace output; leave
+# it commented unless you do.
+# python-ptrace>=0.9.8   # optional; Linux-only, needs a C toolchain to build
+
+# --- optional: emulation engine ---------------------------------------------
+# Qiling gives the SAFE emulation path (no real execution). It is heavy and
+# Linux-first; the qiling_emu engine guards its import and reports itself
+# unavailable when Qiling is not installed. Uncomment on a worker that emulates.
+# qiling>=1.4.6          # optional; pulls in unicorn, capstone, keystone
+
+# --- optional: external sandboxes -------------------------------------------
+# The Cuckoo/CAPEv2/Joe clients use `requests` (already above). No extra
+# package is needed; they activate only when their *_URL env vars are set.

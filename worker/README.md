@@ -1,0 +1,148 @@
+# Cyclowareness Sandbox — off-host dynamic-analysis worker
+
+This is the program that actually detonates samples. The web service never does
+(see the repository README and `backend/app/engine/native.py`). The worker is a
+**separate, self-contained** program: it shares no code with the backend app and
+talks to it only over the `/api/dynamic/*` HTTP seam, authenticated with a shared
+worker token. You run it on hardware you control — a disposable, network-isolated
+Linux VM — and it claims jobs, runs them through a detonation engine, and posts
+the behaviour back to be merged into the verdict and re-scored.
+
+## The safety model (read this first)
+
+The service's one non-negotiable rule is: **the web service never executes a
+sample; only this off-host worker does, and only inside isolation or emulation.**
+Three engines fulfil that rule differently:
+
+- **Native (Firejail + seccomp + strace)** — real execution of the sample's own
+  code, but *only* inside a Firejail jail with `--net=none` (or a sinkhole),
+  `--seccomp`, `--noroot`, a throwaway private root, and CPU/file/proc rlimits.
+  The sample is traced with `strace -f` and the syscall sequence becomes the
+  evidence. **If `firejail` is not present, this engine refuses to run** — there
+  is no unconfined fallback. Running malware outside its jail is worse than not
+  running it, so the absence of Firejail disables native detonation entirely.
+- **Qiling (emulation)** — the sample's instructions run in an *emulated* CPU and
+  OS; syscalls/API calls are hooked, never executed against the real kernel. This
+  is safe even on a workstation (nothing is truly detonated) and is the
+  demonstrable native-behaviour path when no isolation VM is available.
+- **External sandboxes (Cuckoo / CAPEv2 / Joe)** — the sample is submitted to a
+  detonation service the operator already runs/subscribes to; the worker only
+  normalises the returned behavioural JSON. No execution happens on the worker.
+
+Regardless of engine, every report states plainly whether the sample was
+actually detonated (`ran=true/false`, the engine name, and the confinement used).
+"We could not detonate" is reported honestly as `ran=false` with a reason — it is
+never dressed up as "clean".
+
+**Operational requirement:** run the worker (or its container) on a dedicated,
+disposable VM that is network-isolated and snapshotted between runs. The Docker
+container boundary is **not** a malware-containment boundary; Firejail inside plus
+the isolated host outside are. Never run the worker on the same host as the web
+service.
+
+## How it maps to the brief
+
+The brief scores two dynamic axes, and this worker is where both are earned:
+
+- **Native Engine** — `engines/native_linux.py` is the team's own engine: it
+  confines, executes, traces, and derives behaviour Signals (`spawns_shell`,
+  `network_connect`, `file_write`, `anti_debug` via ptrace, `persistence` via
+  cron/systemd/init, `wx_memory`) plus a timeline and network/file IOCs — with
+  the Firejail safety invariant enforced. `engines/qiling_emu.py` is the safe
+  emulation counterpart of the same idea.
+- **Open-source sandbox integration** — `engines/opensource.py` submits to and
+  normalises Cuckoo, CAPEv2, and Joe Sandbox into the identical Signal
+  vocabulary, so a behavioural finding scores and displays the same no matter
+  which sandbox produced it.
+
+Every engine emits the same `Report` (defined in `engines/base.py`), which maps
+one-to-one onto the backend's `DynamicReportIn`. The backend re-scores using
+exactly the same Signal → score path as static analysis.
+
+## Engine priority
+
+For each job the agent picks the **first available engine that supports the
+sample's family**, in this order:
+
+    native > qiling > cuckoo > capev2 > joe
+
+"Available" is checked at runtime (binary present / package importable / service
+URL configured), so the same binary does the right thing on a Firejail lab box, a
+Qiling-only laptop, or a host wired to an external Cuckoo — unavailable engines
+are silently skipped, never forced.
+
+| Engine | Family support | Available when |
+|--------|----------------|----------------|
+| native | `elf`, `script` | `firejail` **and** `strace` on PATH |
+| qiling | `pe`, `elf` | `qiling` importable **and** a rootfs present |
+| cuckoo | pe/elf/script/office/pdf | `CUCKOO_URL` set |
+| capev2 | pe/elf/script/office/pdf | `CAPEV2_URL` set |
+| joe | pe/elf/script/office/pdf | `JOE_URL` **and** `JOE_APIKEY` set |
+
+## Configuration
+
+All configuration is environment variables (see `config.py`):
+
+| Variable | Required | Default | Meaning |
+|----------|----------|---------|---------|
+| `DYNAMIC_WORKER_TOKEN` | **yes** | — | Shared secret sent as `X-Worker-Token`; must match the backend. Without it the worker exits. |
+| `SANDBOX_API_URL` | no | `http://localhost:8000` | Backend base URL. |
+| `WORKER_NAME` | no | `cyclowareness-worker` | Identity stamped on every report. |
+| `POLL_INTERVAL_SECONDS` | no | `15` | Queue poll cadence. |
+| `ENGINE_TIMEOUT_SECONDS` | no | `120` | Hard wall-clock cap per detonation. |
+| `QUEUE_LIMIT` | no | `20` | Jobs claimed per poll. |
+| `FIREJAIL_BIN` / `STRACE_BIN` | no | `firejail` / `strace` | Native-engine tool paths. |
+| `NATIVE_SINKHOLE` | no | *(none)* | If set, native jails route to this sinkhole instead of `--net=none`. |
+| `QILING_ROOTFS` | no | `/opt/qiling/rootfs` | Base dir of emulated-OS filesystems. |
+| `CUCKOO_URL` / `CUCKOO_TOKEN` | no | — | Cuckoo REST base + optional bearer token. |
+| `CAPEV2_URL` / `CAPEV2_TOKEN` | no | — | CAPEv2 REST base + optional token. |
+| `JOE_URL` / `JOE_APIKEY` | no | — | Joe Sandbox API base + key. |
+
+## Running
+
+### Locally (development, single pass)
+
+```bash
+cd worker
+pip install -r requirements.txt          # only `requests` is required
+export DYNAMIC_WORKER_TOKEN=changeme      # must match the backend
+export SANDBOX_API_URL=http://localhost:8000
+python agent.py --once                    # one queue pass, then exit
+python agent.py                           # continuous poll loop
+```
+
+With no optional engines installed and no external sandbox configured, the worker
+logs each engine as `unavailable` and simply skips jobs it cannot handle — it
+does not fail. Install Qiling, or provide Firejail on a Linux VM, or set an
+external sandbox URL to light up real behaviour.
+
+### Docker (on a disposable, isolated VM)
+
+```bash
+docker build -t cyclowareness-worker .
+docker run --rm \
+  -e SANDBOX_API_URL=http://backend:8000 \
+  -e DYNAMIC_WORKER_TOKEN=changeme \
+  --cap-add=SYS_PTRACE \
+  --security-opt seccomp=unconfined \
+  cyclowareness-worker
+```
+
+The image installs `firejail` and `strace`, so the native engine is live inside
+it. `--cap-add=SYS_PTRACE` lets `strace` attach; Firejail manages its own seccomp
+profile, which is why the container's default seccomp is loosened. On a hardened
+Docker host Firejail may additionally need a user namespace or `--privileged` —
+that friction is intentional: this image belongs on a dedicated analysis VM, not
+a shared cluster.
+
+## Files
+
+- `agent.py` — poll → download → choose engine → run (timeout) → post → cleanup.
+  `--once` for a single pass.
+- `config.py` — environment configuration, dependency-free.
+- `engines/base.py` — the `Engine` interface and the `Report` dataclass /
+  `to_payload()` wire format.
+- `engines/native_linux.py` — the native Firejail+seccomp+strace engine.
+- `engines/qiling_emu.py` — the Qiling emulation engine (guarded import).
+- `engines/opensource.py` — Cuckoo / CAPEv2 / Joe Sandbox clients.
+- `Dockerfile`, `docker-entrypoint.sh` — the Linux image and its startup checks.
