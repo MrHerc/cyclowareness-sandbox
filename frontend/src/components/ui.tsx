@@ -112,7 +112,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ButtonSize = 'sm' | 'md' | 'lg'
 
 const BUTTON_VARIANTS: Record<ButtonVariant, string> = {
-  primary: 'bg-brand text-white border-brand hover:bg-brand/85 hover:border-brand/85',
+  primary: 'bg-brand text-on-brand border-brand hover:bg-brand-hover hover:border-brand-hover',
   secondary: 'bg-raised text-c1 border-line hover:border-line-strong',
   ghost: 'bg-transparent text-c2 border-transparent hover:bg-raised hover:text-c1',
   danger: 'bg-transparent text-danger border-danger/45 hover:bg-danger/10',
@@ -343,6 +343,7 @@ const STATUS_TONE: Record<string, Tone> = {
   malicious: 'danger',
   suspicious: 'warning',
   benign: 'success',
+  clean: 'success',
   // severities
   critical: 'danger',
   high: 'danger',
@@ -718,6 +719,34 @@ export function LoadState({ error, label, onRetry }: { error: string | null; lab
           </Button>
         )}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The counterpart to `LoadState`: the page has data, but polling has stopped
+ * working. Non-destructive on purpose — the last good payload stays on screen,
+ * captioned with the fact that it is frozen and with when it froze. A silent
+ * outage is the dangerous version of this: an analyst watching a queue that
+ * stopped updating has no way to tell it apart from a quiet queue.
+ */
+export function StaleNotice({ error, onRetry }: { error: string | null; onRetry?: () => void }) {
+  return (
+    <div
+      role="status"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-control border border-warning/40 bg-warning/8 px-3 py-2"
+    >
+      <span className="label flex items-center gap-1.5 text-warning">
+        <CircleAlert size={14} aria-hidden /> Not updating
+      </span>
+      <span className="text-sm min-w-0 flex-1 text-c2">
+        {error || 'The connection to the API dropped.'} Everything below is the last data received.
+      </span>
+      {onRetry && (
+        <Button variant="secondary" size="sm" onClick={onRetry}>
+          <RefreshCw size={13} aria-hidden /> Retry
+        </Button>
+      )}
     </div>
   )
 }

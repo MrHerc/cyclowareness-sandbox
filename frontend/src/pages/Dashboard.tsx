@@ -8,6 +8,7 @@ import {
   PageHeader,
   Panel,
   RiskMeter,
+  StaleNotice,
   Status,
   cx,
   timeAgo,
@@ -15,15 +16,24 @@ import {
 import { VerdictDonut, FamilyBars } from '../components/Charts'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
-import { familyLabel } from '../lib/format'
+import { familyLabel, needsAttention, verdictOf } from '../lib/format'
 import { useCountUp } from '../lib/useCountUp'
 import type { JobSummary } from '../lib/types'
 
-const BANDS = [
-  { key: 'critical', label: 'Critical' },
-  { key: 'high', label: 'High' },
-  { key: 'medium', label: 'Suspicious' },
-  { key: 'low', label: 'Low / clean' },
+/**
+ * The dashboard buckets by the engine's verdict, not by the score band. The
+ * band legend it replaces filed every sample under 30 as "Low / clean" — which
+ * put five samples the engine had called malicious under a row captioned clean.
+ *
+ * `unclassified` is not a synonym for clean: it is a job the verdict engine
+ * never saw (analysed before it shipped, or a summary payload that omits it).
+ * Naming it is the honest alternative to guessing a verdict from the score.
+ */
+const VERDICT_BUCKETS = [
+  { key: 'malicious', label: 'Malicious' },
+  { key: 'suspicious', label: 'Suspicious' },
+  { key: 'clean', label: 'Clean' },
+  { key: 'unclassified', label: 'Not classified' },
 ]
 
 const TONE_TEXT: Record<string, string> = {
@@ -62,7 +72,7 @@ function StatTile({
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const { data, error, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 4000)
+  const { data, error, stale, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 4000)
 
   if (!data) {
     return (
@@ -75,12 +85,13 @@ export function Dashboard() {
 
   const completed = data.filter((j) => j.status === 'completed')
   const running = data.filter((j) => j.status === 'running' || j.status === 'queued').length
-  const bandCount = (k: string) => completed.filter((j) => j.risk_level === k).length
+  const bucketOf = (j: JobSummary) => verdictOf(j) ?? 'unclassified'
+  const bucketCount = (k: string) => completed.filter((j) => bucketOf(j) === k).length
   const total = completed.length
-  const highPlus = bandCount('critical') + bandCount('high')
+  const attention = completed.filter(needsAttention)
   const avg = total ? completed.reduce((s, j) => s + j.final_score, 0) / total : 0
 
-  const slices = BANDS.map((b) => ({ key: b.key, label: b.label, value: bandCount(b.key) }))
+  const slices = VERDICT_BUCKETS.map((b) => ({ key: b.key, label: b.label, value: bucketCount(b.key) }))
 
   const familyCounts = new Map<string, number>()
   for (const j of data) familyCounts.set(j.family, (familyCounts.get(j.family) ?? 0) + 1)
@@ -89,9 +100,14 @@ export function Dashboard() {
     .sort((a, b) => b.count - a.count)
     .slice(0, 6)
 
-  const topRisk = [...completed]
-    .filter((j) => j.final_score >= 30)
-    .sort((a, b) => b.final_score - a.final_score)
+  // Verdict first, magnitude second — a malicious sample outranks a suspicious
+  // one whatever their scores, which is the whole point of having a verdict.
+  const RANK: Record<string, number> = { malicious: 2, suspicious: 1 }
+  const topRisk = [...attention]
+    .sort(
+      (a, b) =>
+        (RANK[bucketOf(b)] ?? 0) - (RANK[bucketOf(a)] ?? 0) || b.final_score - a.final_score,
+    )
     .slice(0, 5)
 
   return (
@@ -108,10 +124,24 @@ export function Dashboard() {
         />
       </div>
 
+      {stale && <StaleNotice error={error} onRetry={refresh} />}
+
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Analysed" value={total} caption="completed jobs" i={0} />
-        <StatTile label="High or critical" value={highPlus} tone={highPlus ? 'danger' : 'neutral'} caption="need attention" i={1} />
-        <StatTile label="Suspicious" value={bandCount('medium')} tone={bandCount('medium') ? 'warning' : 'neutral'} caption="medium band" i={2} />
+        <StatTile
+          label="Malicious"
+          value={bucketCount('malicious')}
+          tone={bucketCount('malicious') ? 'danger' : 'neutral'}
+          caption="engine verdict"
+          i={1}
+        />
+        <StatTile
+          label="Needs attention"
+          value={attention.length}
+          tone={attention.length ? 'warning' : 'neutral'}
+          caption="malicious or suspicious"
+          i={2}
+        />
         <StatTile label="Analysing now" value={running} tone={running ? 'brand' : 'neutral'} caption="in the queue" i={3} />
       </div>
 
@@ -127,7 +157,7 @@ export function Dashboard() {
 
       <Panel
         title="Needs attention"
-        subtitle="Highest-scoring samples"
+        subtitle="Everything the engine flagged, worst verdict first"
         className="rise-in"
         actions={
           <Link to="/queue" className="text-sm inline-flex items-center gap-1 text-brand-fg hover:underline">
@@ -137,7 +167,7 @@ export function Dashboard() {
       >
         {topRisk.length === 0 ? (
           <Empty icon={<ShieldCheck size={20} aria-hidden />}>
-            Nothing above the low band yet. Submit a sample to see it here.
+            Nothing flagged yet. Submit a sample to see it here.
           </Empty>
         ) : (
           <div className="divide-hair -my-2">
@@ -155,7 +185,9 @@ export function Dashboard() {
                 </div>
                 <div className="flex shrink-0 items-center gap-3">
                   <RiskMeter score={j.final_score} />
-                  <Status value={j.risk_level} />
+                  {/* The verdict is the label; the band is only the stand-in for
+                      a job that never got one. */}
+                  <Status value={verdictOf(j) ?? j.risk_level} />
                 </div>
               </Link>
             ))}
@@ -163,8 +195,11 @@ export function Dashboard() {
         )}
       </Panel>
 
-      <p className="flex items-center justify-center gap-1.5 text-xs text-c3">
-        <Activity size={12} aria-hidden /> Live — updates every few seconds
+      {/* Never claim "live" while the polls are failing — that promise is the
+          reason an outage went unnoticed for a whole session. */}
+      <p className={cx('flex items-center justify-center gap-1.5 text-xs', stale ? 'text-warning' : 'text-c3')}>
+        <Activity size={12} aria-hidden />
+        {stale ? 'Not live — the last update did not reach the API' : 'Live — updates every few seconds'}
       </p>
     </div>
   )

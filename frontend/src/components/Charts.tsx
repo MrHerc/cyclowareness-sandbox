@@ -1,5 +1,5 @@
 import { Bar, BarChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { brandColor, cssVar, riskColors } from '../lib/chart'
+import { brandColor, cssVar, verdictColors } from '../lib/chart'
 
 interface Slice {
   key: string
@@ -20,12 +20,12 @@ function TooltipBox({ active, payload }: { active?: boolean; payload?: { name?: 
 }
 
 /**
- * Verdict distribution as a donut. Risk bands use the reserved status palette
+ * Verdict distribution as a donut. Verdicts use the reserved status palette
  * (red/amber/green), never the brand accent, and every slice is also named in
  * the legend so identity is never colour-alone.
  */
 export function VerdictDonut({ slices, total }: { slices: Slice[]; total: number }) {
-  const colors = riskColors()
+  const colors = verdictColors()
   const data = slices.filter((s) => s.value > 0)
   const panel = cssVar('--color-panel')
 

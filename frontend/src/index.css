@@ -34,20 +34,34 @@
   --color-raised: #f8f9fc;
   --color-sunken: #eaecf3;
 
-  /* --- lines: hairline, structural, emphatic ------------------------------ */
+  /* --- lines: hairline, structural, emphatic -------------------------------
+     `hair` is decoration and may be faint. `line` is the boundary of a CONTROL
+     — an input, a select, a secondary button — and WCAG 1.4.11 requires 3:1
+     against the surface behind it. The old #d6d9e4 measured 1.34:1 on `raised`,
+     so the only thing marking an input was a shadow of a border that a
+     low-vision analyst could not see at all. */
   --color-hair: #e6e8f0;
-  --color-line: #d6d9e4;
-  --color-line-strong: #b6bbcb;
+  --color-line: #82899e;
+  --color-line-strong: #5b6274;
 
-  /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------ */
+  /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------
+     c3 must clear 4.5:1 on the *darkest* light surface it lands on, which is
+     the canvas (captions sit outside panels) and the sunken well — not just on
+     white. The old #6c7385 measured 4.31:1 on canvas. */
   --color-c1: #12141c;
   --color-c2: #4d5364;
-  --color-c3: #6c7385;
+  --color-c3: #636a7c;
 
-  /* --- brand: professional blue. fills/strokes use `brand`, text `brand-fg` */
+  /* --- brand: professional blue. fills/strokes use `brand`, text `brand-fg`
+     `on-brand` is the only legal foreground on a brand fill, and `brand-hover`
+     replaces an opacity fade: fading the fill toward the surface moves it
+     *toward* the label in light mode, and `bg-brand/85` dropped the primary CTA
+     to 3.98:1 on hover. The hover step darkens (light) / lightens (dark). */
   --color-brand: #2563eb;
   --color-brand-fg: #1d4ed8;
   --color-brand-dim: #e7eefe;
+  --color-brand-hover: #1d4ed8;
+  --color-on-brand: #ffffff;
 
   /* --- status: risk only (info is cyan, kept distinct from the blue brand) - */
   --color-danger: #c81e1e;
@@ -120,8 +134,8 @@
   --color-sunken: #080910;
 
   --color-hair: #212432;
-  --color-line: #2c3042;
-  --color-line-strong: #3d4257;
+  --color-line: #656c85;
+  --color-line-strong: #868da8;
 
   --color-c1: #f2f3f8;
   --color-c2: #a3a8bb;
@@ -130,6 +144,11 @@
   --color-brand: #5b8cff;
   --color-brand-fg: #8fb0ff;
   --color-brand-dim: #16233f;
+  --color-brand-hover: #7ba1ff;
+  /* White on the dark brand is 3.16:1 — a fail on the one control that appears
+     on every page. The dark theme's brand is a light blue, so its foreground
+     has to be dark. */
+  --color-on-brand: #0a0b0f;
 
   --color-danger: #ff6b6b;
   --color-warning: #f5b544;

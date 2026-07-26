@@ -27,9 +27,11 @@ from .contracts import SEVERITY_ORDER, risk_level
 #: STIX bundles and PDF tables are bounded so a pathological job (thousands of
 #: extracted IOCs) cannot produce a multi-megabyte report or a slow render.
 MAX_STIX_INDICATORS = 40
+MAX_STIX_ATTACK_PATTERNS = 30
 MAX_PDF_IOCS_PER_KIND = 40
 MAX_PDF_SIGNALS = 200
 MAX_PDF_MEMBERS = 200
+MAX_PDF_TECHNIQUES = 30
 STR_LIMIT = 300
 
 
@@ -195,6 +197,49 @@ def _what_it_is(job) -> str:
     return text
 
 
+def _verdict(job) -> dict[str, Any]:
+    value = getattr(job, "verdict", None)
+    return value if isinstance(value, dict) else {}
+
+
+def _cvss(job) -> dict[str, Any]:
+    value = getattr(job, "cvss", None)
+    return value if isinstance(value, dict) else {}
+
+
+def _mitre(job) -> list[dict[str, Any]]:
+    value = getattr(job, "mitre", None)
+    if not isinstance(value, list):
+        return []
+    return [t for t in value if isinstance(t, dict)]
+
+
+def _assessed_malicious(job) -> bool:
+    """Did the engine actually call this sample malicious?
+
+    Only this may license an accusation in an export. The multi-engine verdict
+    is the authoritative label; the risk band is the fallback for rows written
+    before the verdict column existed, where nothing else records the call.
+    """
+    label = str(_verdict(job).get("verdict", "") or "").strip().lower()
+    if label:
+        return label == "malicious"
+    return (getattr(job, "risk_level", "low") or "low") in ("high", "critical")
+
+
+def _attack_url(technique_id: str) -> str:
+    """The canonical ATT&CK page for a technique.
+
+    Sub-techniques live under their parent as a path segment ("T1059.001" ->
+    /techniques/T1059/001/), not as a dotted id — a TIP that follows the naive
+    form gets a 404 instead of the reference the analyst needs.
+    """
+    parent, _, sub = technique_id.partition(".")
+    if sub:
+        return f"https://attack.mitre.org/techniques/{parent}/{sub}/"
+    return f"https://attack.mitre.org/techniques/{parent}/"
+
+
 # ============================================================================
 # JSON
 # ============================================================================
@@ -214,6 +259,15 @@ def as_json(job) -> dict:
         "ai_score": _num(getattr(job, "ai_score", 0.0)),
         "final_score": _num(getattr(job, "final_score", 0.0)),
         "risk_level": getattr(job, "risk_level", "low") or "low",
+        # --- analyst-facing assessment ---
+        # The verdict, the CVSS vector and the ATT&CK mapping are the three
+        # outputs that go into a case file. They are computed per job and were
+        # reaching only the UI, so an exported report was missing the whole
+        # assessment; they are carried verbatim so the export and the screen
+        # cannot disagree.
+        "verdict": _verdict(job),
+        "cvss": _cvss(job),
+        "mitre": _mitre(job),
         # --- full detail ---
         "md5": getattr(job, "md5", "") or "",
         "size_bytes": getattr(job, "size_bytes", 0),
@@ -289,6 +343,26 @@ def _ioc_patterns(iocs: dict[str, list[str]]) -> list[tuple[str, str, str]]:
     return out
 
 
+def _observable(stix, kind: str, value: str):
+    """The SCO for an IOC — the fact that the sample contained this value.
+
+    An SCO carries no assessment, which is the point: it is what we publish for
+    a sample we did not call malicious.
+    """
+    if kind == "url":
+        return stix.URL(value=value)
+    if kind == "domain-name":
+        return stix.DomainName(value=value)
+    if kind == "ipv4-addr":
+        return stix.IPv4Address(value=value)
+    if kind == "email-addr":
+        return stix.EmailAddress(value=value)
+    if kind == "file":
+        algo = "SHA-256" if len(value) == 64 else "MD5" if len(value) == 32 else "SHA-1"
+        return stix.File(hashes={algo: value})
+    return None
+
+
 def as_stix(job) -> dict:
     """A STIX 2.1 bundle: file observable, indicators, malware, relationships.
 
@@ -322,15 +396,23 @@ def as_stix(job) -> dict:
     objects.append(file_obs)
 
     # --- malware SDO, only when the verdict warrants naming one ---
+    # Naming malware is a claim, so it follows the engine's own verdict rather
+    # than the risk band alone: a high score with no demonstrated capability is
+    # "suspicious", and publishing a malware SDO for it asserts more than the
+    # engine concluded.
+    verdict = _verdict(job)
+    malicious = _assessed_malicious(job)
+    threat_name = str(verdict.get("threat_name", "") or "").strip()[:STR_LIMIT]
     malware = None
-    if risk in ("high", "critical"):
+    if malicious:
         family = getattr(job, "family", "") or "unknown"
+        ratio = str(verdict.get("detection_ratio", "") or "n/a")
         malware = stix2.Malware(
-            name=f"Cyclowareness Sandbox-detected sample ({family})",
+            name=threat_name or f"Cyclowareness Sandbox-detected sample ({family})",
             is_family=False,
             description=(
                 f"Sample assessed by Cyclowareness Sandbox static analysis as {risk} risk "
-                f"(score {score:.0f}/100). Family: {family}."
+                f"(score {score:.0f}/100), detection ratio {ratio}. Family: {family}."
             )[:STR_LIMIT],
         )
         objects.append(malware)
@@ -343,27 +425,109 @@ def as_stix(job) -> dict:
             )
         )
 
-    # --- indicators for the top IOCs ---
-    iocs = getattr(job, "iocs", None) or {}
-    for pattern, _kind, value in _ioc_patterns(iocs):
-        try:
-            indicator = stix2.Indicator(
-                name=f"Cyclowareness Sandbox IOC: {value}"[:STR_LIMIT],
-                pattern=pattern,
-                pattern_type="stix",
-                indicator_types=["malicious-activity"],
-            )
-        except Exception:
-            # A pathological IOC that will not form a valid pattern is dropped,
-            # not allowed to sink the whole bundle.
+    # --- ATT&CK techniques as attack-pattern SDOs ---
+    # The mapped techniques are a statement about this sample's own evidence, so
+    # they are exported whatever the verdict; only the link to a named malware
+    # is gated. Without them the bundle dropped the entire ATT&CK mapping, which
+    # is the part a SOC actually pivots on.
+    for technique in _mitre(job)[:MAX_STIX_ATTACK_PATTERNS]:
+        tid = str(technique.get("technique_id", "") or "").strip()
+        if not tid:
             continue
-        objects.append(indicator)
+        tactic = str(technique.get("tactic", "") or "").strip()
+        evidence = [str(e) for e in (technique.get("evidence") or []) if e]
+        kwargs: dict[str, Any] = {
+            "name": str(technique.get("name") or tid)[:STR_LIMIT],
+            "external_references": [
+                stix2.ExternalReference(
+                    source_name="mitre-attack",
+                    external_id=tid,
+                    url=_attack_url(tid),
+                )
+            ],
+        }
+        if evidence:
+            kwargs["description"] = f"Mapped from signals: {', '.join(evidence)}"[:STR_LIMIT]
+        if tactic:
+            kwargs["kill_chain_phases"] = [
+                stix2.KillChainPhase(
+                    kill_chain_name="mitre-attack",
+                    phase_name=tactic.lower().replace(" ", "-"),
+                )
+            ]
+        try:
+            attack_pattern = stix2.AttackPattern(**kwargs)
+        except Exception:
+            # A malformed mapping row is dropped rather than sinking the bundle.
+            continue
+        objects.append(attack_pattern)
         if malware is not None:
             objects.append(
                 stix2.Relationship(
-                    relationship_type="indicates",
-                    source_ref=indicator.id,
-                    target_ref=malware.id,
+                    relationship_type="uses",
+                    source_ref=malware.id,
+                    target_ref=attack_pattern.id,
+                )
+            )
+
+    # --- the extracted IOCs ---
+    # An Indicator with indicator_types=["malicious-activity"] is an accusation,
+    # and a TIP turns it straight into a blocklist entry. Emitting one per IOC
+    # regardless of verdict meant analysing notepad.exe published
+    # go.microsoft.com as malicious, and a benign JPEG published seven junk
+    # domains. Accusations now require the sample itself to have been assessed
+    # malicious; everything else ships as observed-data — the fact that the file
+    # contained these values, with no claim attached.
+    iocs = getattr(job, "iocs", None) or {}
+    ioc_rows = _ioc_patterns(iocs)
+    if malicious:
+        for pattern, _kind, value in ioc_rows:
+            try:
+                indicator = stix2.Indicator(
+                    name=f"Cyclowareness Sandbox IOC: {value}"[:STR_LIMIT],
+                    pattern=pattern,
+                    pattern_type="stix",
+                    indicator_types=["malicious-activity"],
+                )
+            except Exception:
+                # A pathological IOC that will not form a valid pattern is
+                # dropped, not allowed to sink the whole bundle.
+                continue
+            objects.append(indicator)
+            if malware is not None:
+                objects.append(
+                    stix2.Relationship(
+                        relationship_type="indicates",
+                        source_ref=indicator.id,
+                        target_ref=malware.id,
+                    )
+                )
+    elif ioc_rows:
+        # SCO ids are deterministic, so the same value twice would put a
+        # duplicate object in the bundle.
+        observed_refs: list[str] = []
+        for _pattern, kind, value in ioc_rows:
+            try:
+                sco = _observable(stix2, kind, value)
+            except Exception:
+                continue
+            if sco is None or sco.id in observed_refs:
+                continue
+            objects.append(sco)
+            observed_refs.append(sco.id)
+        if observed_refs:
+            seen = getattr(job, "created_at", None)
+            if not isinstance(seen, datetime):
+                seen = datetime.now(timezone.utc)
+            elif seen.tzinfo is None:
+                # The job row stores naive UTC; STIX timestamps must be offset-aware.
+                seen = seen.replace(tzinfo=timezone.utc)
+            objects.append(
+                stix2.ObservedData(
+                    first_observed=seen,
+                    last_observed=seen,
+                    number_observed=1,
+                    object_refs=observed_refs,
                 )
             )
 
@@ -491,6 +655,58 @@ def as_pdf(job) -> bytes:
     flow.append(Paragraph(esc(_what_it_is(job)), body))
     flow.append(Paragraph(f"SHA-256: {esc(getattr(job, 'sha256', ''))}", mono))
     flow.append(Paragraph(f"File name (as submitted): {esc(getattr(job, 'original_name', '') or '(none)')}", small))
+
+    # The three analyst-facing outputs. The engine computed all of them and the
+    # PDF showed none, so an exported case file carried no threat name, no CVSS
+    # and no ATT&CK mapping — the report was strictly worse than the screen.
+    verdict = _verdict(job)
+    cvss = _cvss(job)
+    techniques = _mitre(job)
+    if verdict or cvss or techniques:
+        flow.append(Paragraph("Threat classification and severity", h2))
+    if verdict:
+        label = str(verdict.get("verdict", "unknown") or "unknown")
+        label_color = _sev_color(
+            {"malicious": "critical", "suspicious": "medium", "clean": "low"}.get(label, "info")
+        )
+        flow.append(
+            Paragraph(
+                f"<b>Verdict:</b> <b><font color='{label_color.hexval()}'>{esc(label.upper())}</font></b> "
+                f"&mdash; {esc(verdict.get('threat_name') or 'unnamed')} "
+                f"(detection ratio {esc(verdict.get('detection_ratio') or 'n/a')})",
+                body,
+            )
+        )
+    if cvss:
+        cvss_score = _num(cvss.get("base_score", 0.0))
+        cvss_sev = str(cvss.get("severity", "none") or "none")
+        flow.append(
+            Paragraph(
+                f"<b>CVSS v3.1 base score:</b> <b>{cvss_score:.1f}</b> ({esc(cvss_sev.upper())})",
+                body,
+            )
+        )
+        flow.append(Paragraph(esc(cvss.get("vector", "")), mono))
+        flow.append(
+            Paragraph(
+                "CVSS scores a vulnerability's impact; the metrics here are derived from the "
+                "capabilities static analysis observed, and the reason for each metric is carried "
+                "in the JSON export.",
+                small,
+            )
+        )
+    if techniques:
+        flow.append(Paragraph("<b>MITRE ATT&amp;CK techniques</b>", body))
+        for technique in techniques[:MAX_PDF_TECHNIQUES]:
+            flow.append(
+                Paragraph(
+                    f"&bull; <b>{esc(technique.get('technique_id', ''))}</b> "
+                    f"{esc(technique.get('name', ''))} &mdash; {esc(technique.get('tactic', ''))}",
+                    small,
+                )
+            )
+        if len(techniques) > MAX_PDF_TECHNIQUES:
+            flow.append(Paragraph(f"&hellip; and {len(techniques) - MAX_PDF_TECHNIQUES} more", small))
 
     flow.append(Paragraph("Top reasons for this verdict", h2))
     reasons = _top_reasons(job)

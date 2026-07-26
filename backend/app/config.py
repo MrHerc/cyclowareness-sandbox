@@ -84,6 +84,11 @@ class Settings(BaseSettings):
             problems.append("SECRET_KEY is the built-in placeholder")
         if self.analyst_password in ("analyst", "", "password", "changeme"):
             problems.append("ANALYST_PASSWORD is a default/guessable value")
+        # An API key is a bearer credential like any other, and the built-in one
+        # is printed in the README. A production deployment that kept it is
+        # open to anyone who has read the docs.
+        if any(k in ("demo-key", "changeme", "test") for k in self.api_key_list):
+            problems.append("API_KEYS contains a built-in/guessable key")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL is SQLite; use PostgreSQL in production")
         return problems

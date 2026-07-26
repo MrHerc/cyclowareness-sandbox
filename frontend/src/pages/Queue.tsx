@@ -1,4 +1,5 @@
-import { useNavigate } from 'react-router-dom'
+import { type MouseEvent } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { FileSearch } from 'lucide-react'
 import {
   Empty,
@@ -6,6 +7,7 @@ import {
   PageHeader,
   Panel,
   RiskMeter,
+  StaleNotice,
   Status,
   TD,
   TH,
@@ -14,14 +16,29 @@ import {
 } from '../components/ui'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
-import { familyLabel } from '../lib/format'
+import { familyLabel, verdictOf } from '../lib/format'
 import type { JobSummary } from '../lib/types'
 
 const TERMINAL = new Set(['completed', 'failed', 'awaiting_password'])
 
 export function Queue() {
   const navigate = useNavigate()
-  const { data, error, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 3000)
+  const { data, error, stale, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 3000)
+
+  /**
+   * Whole-row click, without the row *being* the control.
+   *
+   * A `<tr onClick>` is invisible to the keyboard and to assistive technology —
+   * no role, no tab stop, no Enter handling — which left every report in this
+   * product unreachable without a mouse (WCAG 2.1.1 and 4.1.2, both Level A).
+   * The real control is the link in the first cell; this handler only widens its
+   * hit area for pointer users, and stands down when the pointer was already on
+   * the link so the click is not handled twice.
+   */
+  const rowClick = (e: MouseEvent<HTMLTableRowElement>, publicId: string) => {
+    if ((e.target as HTMLElement).closest('a')) return
+    navigate(`/job/${publicId}`)
+  }
 
   return (
     <div className="space-y-6">
@@ -29,6 +46,8 @@ export function Queue() {
         title="Analysis queue"
         lede="Every sample submitted to this deployment, newest first."
       />
+
+      {stale && <StaleNotice error={error} onRetry={refresh} />}
 
       <Panel padded={false} className="overflow-hidden">
         {!data ? (
@@ -58,12 +77,18 @@ export function Queue() {
                 {data.map((job) => (
                   <tr
                     key={job.public_id}
-                    onClick={() => navigate(`/job/${job.public_id}`)}
+                    onClick={(e) => rowClick(e, job.public_id)}
                     className="cursor-pointer transition-colors hover:bg-raised"
                   >
                     <TD>
                       <div className="min-w-0">
-                        <div className="truncate font-medium text-c1">{job.original_name || 'sample'}</div>
+                        <Link
+                          to={`/job/${job.public_id}`}
+                          className="block truncate font-medium text-c1 hover:underline"
+                        >
+                          {job.original_name || 'sample'}
+                          <span className="sr-only"> — open analysis report</span>
+                        </Link>
                         <div className="tech text-c3">{job.sha256.slice(0, 24)}…</div>
                       </div>
                     </TD>
@@ -71,7 +96,12 @@ export function Queue() {
                     <TD muted>{job.source === 'url' ? 'URL' : 'Upload'}</TD>
                     <TD>
                       {TERMINAL.has(job.status) && job.status === 'completed' ? (
-                        <RiskMeter score={job.final_score} />
+                        <span className="flex flex-wrap items-center gap-2">
+                          <RiskMeter score={job.final_score} />
+                          {/* The verdict, where there is one — a score alone has
+                              read "20, green" on samples called malicious. */}
+                          {verdictOf(job) && <Status value={verdictOf(job) as string} />}
+                        </span>
                       ) : (
                         <span className="text-sm text-c3">—</span>
                       )}

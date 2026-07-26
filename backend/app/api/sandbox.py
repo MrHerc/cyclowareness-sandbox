@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -146,7 +146,10 @@ def result(
 @router.get("/jobs", response_model=list[JobSummary])
 def list_jobs(
     status: str | None = None,
-    limit: int = 50,
+    # Bounded at the edge, not with ``min(limit, 200)``: that let a negative
+    # through, and SQLite reads ``LIMIT -1`` as unbounded, so one authenticated
+    # ``?limit=-1`` serialised the entire jobs table in a single response.
+    limit: int = Query(default=50, ge=1, le=200),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
@@ -155,7 +158,7 @@ def list_jobs(
         # Top-level jobs only; archive members are shown nested under their parent.
         .where(SandboxJob.parent_job_id.is_(None))
         .order_by(SandboxJob.created_at.desc())
-        .limit(min(limit, 200))
+        .limit(limit)
     )
     if status:
         query = query.where(SandboxJob.status == status)

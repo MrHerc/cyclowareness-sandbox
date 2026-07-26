@@ -1,6 +1,6 @@
 import { type CSSProperties } from 'react'
 import { CheckCircle2, Circle, Cpu } from 'lucide-react'
-import { LoadState, PageHeader, Panel, Chip, Metric } from '../components/ui'
+import { LoadState, PageHeader, Panel, Chip, Metric, StaleNotice } from '../components/ui'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
 import type { Capabilities, EngineDescriptor } from '../lib/types'
@@ -41,7 +41,7 @@ function EngineCard({ e, i = 0 }: { e: EngineDescriptor; i?: number }) {
 }
 
 export function Integrations() {
-  const { data: caps, error, refresh } = usePoll<Capabilities>(() => api.get('/api/capabilities'), 10000)
+  const { data: caps, error, stale, refresh } = usePoll<Capabilities>(() => api.get('/api/capabilities'), 10000)
 
   if (!caps) {
     return (
@@ -62,6 +62,8 @@ export function Integrations() {
         title="Integrations and capabilities"
         lede="What this deployment can honestly do. Static analysis runs here; dynamic engines run on the operator's isolated worker."
       />
+
+      {stale && <StaleNotice error={error} onRetry={refresh} />}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Metric label="Static analyzers" value={caps.static_analyzers.length} size="sm" />

@@ -1,0 +1,15 @@
+Cyclowareness Sandbox schema migrations (Alembic).
+
+Operator commands and the reason this directory exists are documented in the
+header of ../alembic.ini. The service applies migrations itself at boot
+(app.db.init_db), so these commands are only needed to upgrade, roll back or
+adopt a database out of band.
+
+Adding a revision:
+
+    alembic revision --autogenerate -m "what changed"
+
+env.py points autogenerate at app.db.Base.metadata and turns on batch mode for
+SQLite, so a generated revision is valid on both SQLite and PostgreSQL. Review
+it: autogenerate does not detect a table or column rename, and it will not
+backfill a new NOT NULL column for rows that already exist.

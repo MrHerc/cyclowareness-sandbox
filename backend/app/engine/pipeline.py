@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,7 +30,7 @@ from sqlalchemy.orm import Session
 
 from ..util import utcnow
 from . import analyzers, archives, identify as identify_mod, scoring
-from .contracts import AnalyzerResult, IOCs, Sample, Signal
+from .contracts import AnalyzerResult, IOCs, Sample, Signal, risk_level
 from .models import JobSource, JobStatus, SandboxJob
 from .storage import StoredSample
 
@@ -39,6 +40,31 @@ logger = logging.getLogger("sandbox.pipeline")
 #: this the members are still listed in the archive facts, but not individually
 #: analysed — stated in a signal rather than dropped silently.
 MAX_CHILD_JOBS = 25
+
+#: How many child jobs one submission may create across every nesting level
+#: combined. The per-archive cap bounds nothing on its own, because each level
+#: multiplies: a 64 KB zip of zips of zips produced 394 analyses, and a deeper
+#: one recursed until db.flush() hit a RecursionError and left the job wedged at
+#: status='queued' forever.
+MAX_TOTAL_CHILD_JOBS = 200
+
+#: A child job scoring at or above this is named in its parent's report. A
+#: sample with no findings at all lands near 2 (the model's all-zero baseline),
+#: so this separates "we found something" from "we found nothing" — it is not a
+#: bar that merely-suspicious content has to clear, because the score floor in
+#: run() applies regardless of whether this signal fires.
+CHILD_RISK_FLOOR = 10.0
+
+
+@dataclass
+class _ChildBudget:
+    """How many more child jobs this submission may create, at any depth.
+
+    One object is shared by every job in a submission's tree, which is what makes
+    the budget a property of the submission rather than of each archive.
+    """
+
+    remaining: int = MAX_TOTAL_CHILD_JOBS
 
 
 def new_job(
@@ -125,7 +151,13 @@ def _sample_from(job: SandboxJob, path: str) -> Sample:
 
 
 def _archive_stage(
-    db: Session, job: SandboxJob, sample: Sample, password: str | None
+    db: Session,
+    job: SandboxJob,
+    sample: Sample,
+    password: str | None,
+    *,
+    depth: int,
+    budget: _ChildBudget,
 ) -> tuple[AnalyzerResult | None, bool]:
     """Unpack, promote members to child jobs. Returns (result, awaiting_password)."""
     if sample.mime not in archives.ARCHIVE_MIMES:
@@ -140,13 +172,55 @@ def _archive_stage(
     except archives.PasswordRequired:
         return None, True
     except Exception as exc:  # noqa: BLE001
+        # ran=True, deliberately. An `unavailable` result carries no signals, so
+        # a container nothing could open scored as an empty file and the job
+        # completed at "low" with no error: a broken py7zr call and a missing
+        # `unrar` binary both presented as an all-clear. The failure to open the
+        # container IS the finding, and it has to reach scoring to be seen.
         return (
-            AnalyzerResult.unavailable("archive", f"could not be unpacked: {exc}"[:300]),
+            AnalyzerResult(
+                analyzer="archive",
+                ran=True,
+                signals=[
+                    Signal(
+                        id="archive.not_inspected",
+                        title="Container could not be inspected",
+                        severity="medium",
+                        detail=(
+                            "This file is a container, and unpacking it failed. Nothing inside it "
+                            "has been analysed, so this verdict covers the container only — treat "
+                            "the contents as unexamined, not as clean."
+                        ),
+                        evidence={"kind": sample.mime, "error": f"{type(exc).__name__}: {exc}"[:300]},
+                    )
+                ],
+                facts={"inspected": False, "error": f"{type(exc).__name__}: {exc}"[:300]},
+            ),
             False,
         )
 
     members = unpacked.extracted()
     promoted = 0
+
+    if depth >= archives.MAX_DEPTH:
+        # The members are extracted and hashed above; what stops here is the
+        # recursion into them. Silently stopping is the failure mode that let an
+        # attacker bury a payload under enough layers to be invisible.
+        unpacked.signals.append(
+            Signal(
+                id="archive.nesting_limit",
+                title="Nested archives were not followed any deeper",
+                severity="medium",
+                detail=(
+                    f"This container sits {depth} levels down, at the {archives.MAX_DEPTH}-level "
+                    f"nesting limit. Its {len(members)} extractable member(s) were hashed but not "
+                    "analysed, so anything below this point is unexamined."
+                ),
+                evidence={"depth": depth, "limit": archives.MAX_DEPTH, "members": len(members)},
+            )
+        )
+        members = []
+
     for member in members:
         if promoted >= MAX_CHILD_JOBS:
             unpacked.signals.append(
@@ -161,6 +235,21 @@ def _archive_stage(
                 )
             )
             break
+        if budget.remaining <= 0:
+            unpacked.signals.append(
+                Signal(
+                    id="archive.analysis_budget_exhausted",
+                    title="The submission's analysis budget ran out inside this archive",
+                    severity="medium",
+                    detail=(
+                        f"This submission had already produced {MAX_TOTAL_CHILD_JOBS} member "
+                        f"analyses when {len(members) - promoted} further member(s) were reached. "
+                        "They were extracted and hashed but not analysed."
+                    ),
+                    evidence={"limit": MAX_TOTAL_CHILD_JOBS, "not_analysed": len(members) - promoted},
+                )
+            )
+            break
         assert member.stored is not None
         child = new_job(
             db,
@@ -171,7 +260,8 @@ def _archive_stage(
             parent=job,
             archive_path=member.name[:1000],
         )
-        run(db, child)
+        budget.remaining -= 1
+        run(db, child, _depth=depth + 1, _budget=budget)
         promoted += 1
 
     return (
@@ -204,24 +294,117 @@ def _archive_stage(
     )
 
 
-def _worst_child(db: Session, job: SandboxJob) -> SandboxJob | None:
-    children = (
-        db.query(SandboxJob)
-        .filter(SandboxJob.parent_job_id == job.id)
-        .order_by(SandboxJob.final_score.desc())
-        .all()
-    )
-    return children[0] if children else None
+#: Signals that mean "there is content below this point that nobody looked at".
+#: A job carrying one of these is not a clean job; it is an incomplete one, and
+#: that fact has to travel back up to whoever submitted the outer container.
+BLIND_SPOT_SIGNALS = frozenset(
+    {
+        "archive.not_inspected",
+        "archive.nesting_limit",
+        "archive.analysis_budget_exhausted",
+        "archive.members_not_analysed",
+    }
+)
 
 
-def run(db: Session, job: SandboxJob, *, password: str | None = None) -> SandboxJob:
-    """Analyse one job to completion. Synchronous; the caller decides threading."""
-    job.status = JobStatus.RUNNING
-    job.started_at = utcnow()
-    job.error = None
-    db.flush()
+def _descendants(db: Session, job: SandboxJob) -> list[SandboxJob]:
+    """Every job below this one, at any depth.
+
+    Direct children are not enough. Each layer of an archive scores near zero on
+    its own — compressed bytes match no rule — so looking exactly one level down
+    let a 68-point dropper dilute to 24 inside one zip and to 1.7 inside two. The
+    subtree is bounded by MAX_TOTAL_CHILD_JOBS, so walking all of it is cheap.
+    """
+    out: list[SandboxJob] = []
+    frontier = [job.id]
+    seen = {job.id}
+    while frontier:
+        rows = db.query(SandboxJob).filter(SandboxJob.parent_job_id.in_(frontier)).all()
+        frontier = []
+        for row in rows:
+            if row.id in seen:
+                continue
+            seen.add(row.id)
+            frontier.append(row.id)
+            out.append(row)
+    return out
+
+
+def _has_blind_spot(job: SandboxJob) -> bool:
+    for payload in (job.analysis or {}).values():
+        if not payload.get("ran"):
+            continue
+        for signal in payload.get("signals", []):
+            if signal.get("id") in BLIND_SPOT_SIGNALS:
+                return True
+    return False
+
+
+def _inherited_severity(score: float) -> str:
+    """Severity of "something in here is dangerous", banded like the score itself."""
+    if score >= 80:
+        return "critical"
+    if score >= 60:
+        return "high"
+    if score >= 30:
+        return "medium"
+    return "low"
+
+
+def _record_failure(db: Session, job: SandboxJob, exc: Exception) -> SandboxJob:
+    """Write the failure onto the job row, even when the session is the casualty.
+
+    A flush that raises leaves the session in a state where every later flush
+    raises too. That is how jobs ended up stuck at status='queued' with
+    error=NULL forever: nothing could be written, and nothing said so. One
+    rollback-and-retry is enough, because after a rollback the session is usable
+    again and the job row itself was committed before analysis started.
+    """
+    reason = f"{type(exc).__name__}: {exc}"[:1000]
+    job_id = job.id
+    for attempt in (0, 1):
+        try:
+            if attempt:
+                db.rollback()
+                refreshed = db.get(SandboxJob, job_id)
+                if refreshed is None:
+                    return job
+                job = refreshed
+            job.status = JobStatus.FAILED
+            job.error = reason
+            job.completed_at = utcnow()
+            db.flush()
+            return job
+        except Exception:  # noqa: BLE001
+            logger.exception("could not record the failure of job %s", job_id)
+    return job
+
+
+def run(
+    db: Session,
+    job: SandboxJob,
+    *,
+    password: str | None = None,
+    _depth: int = 0,
+    _budget: _ChildBudget | None = None,
+) -> SandboxJob:
+    """Analyse one job to completion. Synchronous; the caller decides threading.
+
+    ``_depth`` and ``_budget`` are set only by the archive-member recursion in
+    ``_archive_stage``; every job in one submission's tree shares one budget
+    object. A caller that omits them is a new submission and gets a fresh one.
+    """
+    budget = _budget if _budget is not None else _ChildBudget()
 
     try:
+        # Inside the try, not before it: this flush is where a poisoned session
+        # or a constraint violation surfaces, and outside the try it left the row
+        # at status='queued' with error=NULL and nobody ever knew the job died.
+        job.status = JobStatus.RUNNING
+        job.started_at = utcnow()
+        job.error = None
+        db.flush()
+
         # The quarantined path is derived from the hash, never from user input.
         from .storage import quarantine_root
 
@@ -233,7 +416,9 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
 
         job.stage = "unpack"
         db.flush()
-        archive_result, awaiting = _archive_stage(db, job, sample, password)
+        archive_result, awaiting = _archive_stage(
+            db, job, sample, password, depth=_depth, budget=budget
+        )
         if awaiting:
             job.status = JobStatus.AWAITING_PASSWORD
             job.stage = "awaiting password"
@@ -248,32 +433,57 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
         if archive_result is not None:
             results.append(archive_result)
 
-        # An archive is exactly as dangerous as its worst member; a clean
-        # container around a dropper must not read as clean.
-        worst = _worst_child(db, job)
-        if worst is not None and worst.final_score >= 30:
-            results.append(
-                AnalyzerResult(
-                    analyzer="archive-contents",
-                    ran=True,
-                    signals=[
-                        Signal(
-                            id="archive.malicious_member",
-                            title="A file inside this archive scored as a risk on its own",
-                            severity="critical" if worst.final_score >= 80 else "high",
-                            detail=(
-                                f"{worst.original_name or worst.sha256[:16]} scored "
-                                f"{worst.final_score:.0f} ({worst.risk_level}). An archive is as "
-                                "dangerous as what it carries."
-                            ),
-                            evidence={
-                                "member": worst.archive_path or worst.original_name,
-                                "sha256": worst.sha256,
-                                "score": worst.final_score,
-                            },
-                        )
-                    ],
+        # An archive is exactly as dangerous as its worst member, at any depth;
+        # a clean container around a dropper must not read as clean.
+        descendants = _descendants(db, job)
+        worst = max(descendants, key=lambda d: d.final_score or 0.0, default=None)
+        worst_score = (worst.final_score or 0.0) if worst is not None else 0.0
+        contents_signals: list[Signal] = []
+
+        if worst is not None and worst_score >= CHILD_RISK_FLOOR:
+            contents_signals.append(
+                Signal(
+                    id="archive.malicious_member",
+                    title="A file inside this archive scored as a risk on its own",
+                    severity=_inherited_severity(worst_score),
+                    detail=(
+                        f"{worst.original_name or worst.sha256[:16]} scored "
+                        f"{worst_score:.0f} ({worst.risk_level}). An archive is as "
+                        "dangerous as what it carries."
+                    ),
+                    evidence={
+                        "member": worst.archive_path or worst.original_name,
+                        "sha256": worst.sha256,
+                        "score": worst_score,
+                    },
                 )
+            )
+
+        # A blind spot found three levels down is still this submission's blind
+        # spot. Left on the descendant alone, the submitted file showed a low
+        # score and no signals at all — which is exactly the implied all-clear
+        # the truncation was supposed to prevent.
+        unexamined = [d for d in descendants if _has_blind_spot(d)]
+        own_gap = any(s.id in BLIND_SPOT_SIGNALS for r in results if r.ran for s in r.signals)
+        if unexamined and not own_gap:
+            contents_signals.append(
+                Signal(
+                    id="archive.contents_not_examined",
+                    title="Part of this archive's contents could not be examined",
+                    severity="medium",
+                    detail=(
+                        f"{len(unexamined)} container(s) nested inside this one were not opened or "
+                        "not fully analysed — a nesting limit, the submission's analysis budget, or "
+                        "a container that could not be unpacked. Anything below those points is "
+                        "unexamined, not clean."
+                    ),
+                    evidence={"containers": len(unexamined)},
+                )
+            )
+
+        if contents_signals:
+            results.append(
+                AnalyzerResult(analyzer="archive-contents", ran=True, signals=contents_signals)
             )
 
         job.stage = "scoring"
@@ -287,6 +497,25 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
         gaps = analyzers.unavailable_analyzers()
         tiers = _tier_record(static_ran=any(r.ran for r in results), analyzer_gaps=gaps)
         assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
+
+        # A container is at least as dangerous as the worst thing anywhere
+        # inside it. Signals alone do not guarantee that — they are severity
+        # bands that saturate — so each layer of zipping roughly halved the
+        # score and two layers took a 68-point dropper to 1.7. The floor is what
+        # makes the claim true rather than merely intended.
+        if worst is not None and worst_score > assessment.final_score:
+            assessment.breakdown["contents_floor"] = {
+                "computed_score": assessment.final_score,
+                "descendant_score": worst_score,
+                "descendant": worst.archive_path or worst.original_name,
+                "sha256": worst.sha256,
+                "reason": (
+                    "The score was raised to that of the worst file found inside this "
+                    "container. A container cannot be safer than its contents."
+                ),
+            }
+            assessment.final_score = worst_score
+            assessment.risk_level = risk_level(worst_score)
 
         # Real security-analyst outputs: CVSS v3.1, a VirusTotal-style internal
         # verdict, and the MITRE ATT&CK techniques the behaviour maps to. All
@@ -320,11 +549,7 @@ def run(db: Session, job: SandboxJob, *, password: str | None = None) -> Sandbox
 
     except Exception as exc:  # noqa: BLE001 — a failed job must stay inspectable
         logger.exception("sandbox job %s failed", job.public_id)
-        job.status = JobStatus.FAILED
-        job.error = f"{type(exc).__name__}: {exc}"[:1000]
-        job.completed_at = utcnow()
-        db.flush()
-        return job
+        return _record_failure(db, job, exc)
 
 
 def resume_with_password(db: Session, job: SandboxJob, password: str) -> SandboxJob:

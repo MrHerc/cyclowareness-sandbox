@@ -9,6 +9,10 @@ the gate, and nothing else does:
 * a **static API key** (``X-API-Key``), for programmatic access to
   ``/api/analyze`` — the REST-endpoint use case the brief rewards.
 
+The two credentials are not equivalent in scope. A session belongs to a person
+who typed a password; an API key is a static string pasted into a CI pipeline or
+a SIEM connector, and is submit-only. ``require_admin`` enforces that split.
+
 The session token is a compact, HMAC-signed, expiring blob built from the
 standard library — no JWT dependency, no asymmetric-key ceremony, and no
 opportunity to accept ``alg: none``. Signature verification and password
@@ -45,6 +49,19 @@ def _b64d(txt: str) -> bytes:
     return base64.urlsafe_b64decode(txt + pad)
 
 
+def _secure_equals(candidate: str, expected: str) -> bool:
+    """Constant-time comparison that survives non-ASCII input.
+
+    ``hmac.compare_digest`` raises ``TypeError`` when a ``str`` argument holds a
+    code point above U+007F, so an ``X-API-Key: 0xE9`` header — or an analyst
+    password containing an Azerbaijani or Turkish letter — turned a failed
+    authentication into an unauthenticated 500, and made any such
+    ``ANALYST_PASSWORD`` permanently unusable. Comparing the UTF-8 encodings
+    keeps the comparison constant-time and accepts any Unicode credential.
+    """
+    return hmac.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
+
+
 def _sign(payload: bytes, key: str) -> str:
     mac = hmac.new(key.encode("utf-8"), payload, hashlib.sha256).digest()
     return _b64e(mac)
@@ -67,7 +84,7 @@ def _verify_token(token: str, settings: Settings) -> Identity | None:
     except (ValueError, Exception):  # noqa: BLE001 — malformed token is just invalid
         return None
     key = ensure_secret_key(settings)
-    if not hmac.compare_digest(sig, _sign(body, key)):
+    if not _secure_equals(sig, _sign(body, key)):
         return None
     try:
         claims = json.loads(body)
@@ -83,14 +100,14 @@ def _verify_token(token: str, settings: Settings) -> Identity | None:
 
 def verify_login(username: str, password: str, settings: Settings) -> bool:
     """Constant-time check against the configured analyst account."""
-    user_ok = hmac.compare_digest(username, settings.analyst_username)
-    pass_ok = hmac.compare_digest(password, settings.analyst_password)
+    user_ok = _secure_equals(username, settings.analyst_username)
+    pass_ok = _secure_equals(password, settings.analyst_password)
     return user_ok and pass_ok
 
 
 def _match_api_key(candidate: str, settings: Settings) -> bool:
     for key in settings.api_key_list:
-        if hmac.compare_digest(candidate, key):
+        if _secure_equals(candidate, key):
             return True
     return False
 
@@ -115,3 +132,19 @@ def require_analyst(
     if x_api_key and _match_api_key(x_api_key.strip(), settings):
         return Identity(subject="api-client", method="api_key")
     raise _UNAUTH
+
+
+def require_admin(identity: Identity = Depends(require_analyst)) -> Identity:
+    """FastAPI dependency for the deployment-wide tuning routes.
+
+    An API key is a submit-only credential handed to a pipeline; it must not also
+    be able to re-weight scoring for every user of the deployment. Those routes
+    therefore demand an interactive session, which only ``POST /api/auth/login``
+    issues against the analyst account.
+    """
+    if identity.method != "session":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administration requires an analyst session, not an API key",
+        )
+    return identity

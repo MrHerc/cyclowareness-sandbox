@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { riskTone, verdictWord } from '../lib/format'
+import { riskTone, verdictHeadline, verdictTone, verdictWord, type Verdict } from '../lib/format'
 import { useCountUp } from '../lib/useCountUp'
 
 const TONE_STROKE: Record<string, string> = {
@@ -14,9 +14,22 @@ const TONE_TEXT: Record<string, string> = {
 }
 
 /** A 270-degree arc gauge for the final 0-100 risk score. The arc draws itself
- * in and the figure counts up on mount; banded by verdict (risk = red/amber/green). */
-export function ScoreGauge({ score, riskLevel }: { score: number; riskLevel: string }) {
-  const tone = riskTone(riskLevel)
+ * in and the figure counts up on mount.
+ *
+ * `verdict`, when the job has one, outranks the score band for both colour and
+ * caption. The score is a magnitude and its band is not a decision: a dropper
+ * the engine called malicious scored 24, and the gauge drew it green and wrote
+ * "Low risk" underneath. */
+export function ScoreGauge({
+  score,
+  riskLevel,
+  verdict,
+}: {
+  score: number
+  riskLevel: string
+  verdict?: Verdict | null
+}) {
+  const tone = verdict ? verdictTone(verdict) : riskTone(riskLevel)
   const size = 176
   const stroke = 12
   const r = (size - stroke) / 2
@@ -70,7 +83,9 @@ export function ScoreGauge({ score, riskLevel }: { score: number; riskLevel: str
           <span className="text-xs text-c3">of 100</span>
         </div>
       </div>
-      <span className={`label mt-1 ${TONE_TEXT[tone]}`}>{verdictWord(riskLevel)}</span>
+      <span className={`label mt-1 ${TONE_TEXT[tone]}`}>
+        {verdict ? verdictHeadline(verdict) : verdictWord(riskLevel)}
+      </span>
     </div>
   )
 }

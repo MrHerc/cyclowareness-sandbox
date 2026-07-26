@@ -7,6 +7,7 @@
 fastapi>=0.115
 uvicorn[standard]>=0.32
 sqlalchemy>=2.0
+alembic>=1.13                 # schema migrations; the only owner of the schema
 pydantic>=2.9
 pydantic-settings>=2.6
 python-multipart>=0.0.12      # multipart upload parsing
@@ -17,7 +18,10 @@ prometheus-client>=0.20       # /metrics (optional; degrades to no-op if absent)
 pefile>=2024.8.26             # PE (.exe/.dll) structure + imports
 oletools>=0.60                # Office macro + OLE analysis (olevba/oleid)
 yara-python>=4.5              # signature scanning
-py7zr>=0.22                   # 7z archive handling
+# py7zr 1.0 removed read()/readall() in favour of the writer-factory API the
+# engine now calls. The old `>=0.22` pin let a fresh install resolve to either,
+# and on 1.x every .7z failed to unpack.
+py7zr>=1.0,<2                 # 7z archive handling
 rarfile>=4.2                  # RAR listing (extraction needs the `unrar` binary)
 pdfminer.six>=20240706        # PDF text + metadata
 reportlab>=4.2                # PDF report generation

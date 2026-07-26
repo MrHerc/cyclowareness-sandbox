@@ -18,6 +18,20 @@ export function riskColors(): Record<string, string> {
   }
 }
 
+/**
+ * Verdict colours. Separate from `riskColors` because a verdict is not a score
+ * band: a sample can be called malicious at a score of 24, and colouring it by
+ * the band would paint that slice green.
+ */
+export function verdictColors(): Record<string, string> {
+  return {
+    malicious: cssVar('--color-danger'),
+    suspicious: cssVar('--color-warning'),
+    clean: cssVar('--color-success'),
+    unclassified: cssVar('--color-c3'),
+  }
+}
+
 export function brandColor(): string {
   return cssVar('--color-brand')
 }

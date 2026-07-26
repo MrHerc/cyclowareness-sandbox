@@ -21,15 +21,25 @@ import {
   LoadState,
   PageHeader,
   Panel,
+  StaleNotice,
   Status,
+  cx,
   timeAgo,
 } from '../components/ui'
 import { ScoreGauge } from '../components/ScoreGauge'
 import { BehaviorGraph } from '../components/BehaviorGraph'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
-import { familyLabel, formatBytes, iocLabel } from '../lib/format'
-import type { JobDetailT, SignalT } from '../lib/types'
+import {
+  cvssOf,
+  familyLabel,
+  formatBytes,
+  iocLabel,
+  verdictHeadline,
+  verdictOf,
+  verdictTone,
+} from '../lib/format'
+import type { JobDetailT, MitreTechnique, SignalT } from '../lib/types'
 
 const SEVERITY_ORDER: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 }
 const SEVERITY_TONE: Record<string, 'danger' | 'warning' | 'neutral'> = {
@@ -38,6 +48,35 @@ const SEVERITY_TONE: Record<string, 'danger' | 'warning' | 'neutral'> = {
   medium: 'warning',
   low: 'neutral',
   info: 'neutral',
+}
+const TONE_TEXT: Record<string, string> = {
+  danger: 'text-danger',
+  warning: 'text-warning',
+  success: 'text-success',
+}
+/** Long form of the CVSS base-metric letters, so the vector is readable. */
+const CVSS_METRIC: Record<string, string> = {
+  AV: 'Attack vector',
+  AC: 'Attack complexity',
+  PR: 'Privileges required',
+  UI: 'User interaction',
+  S: 'Scope',
+  C: 'Confidentiality',
+  I: 'Integrity',
+  A: 'Availability',
+}
+
+/** ATT&CK reads by tactic, not as a flat list of technique IDs. */
+function byTactic(techniques: MitreTechnique[]): [string, MitreTechnique[]][] {
+  const groups = new Map<string, MitreTechnique[]>()
+  // The backend already sorts by the kill-chain order of the tactic, so
+  // insertion order is that order — do not re-sort.
+  for (const t of techniques) {
+    const list = groups.get(t.tactic)
+    if (list) list.push(t)
+    else groups.set(t.tactic, [t])
+  }
+  return Array.from(groups.entries())
 }
 
 function signalsOf(job: JobDetailT): SignalT[] {
@@ -52,19 +91,31 @@ function signalsOf(job: JobDetailT): SignalT[] {
 
 export function JobDetail() {
   const { id = '' } = useParams()
-  const { data: job, error, refresh } = usePoll<JobDetailT>(
+  const { data: job, error, stale, refresh } = usePoll<JobDetailT>(
     () => api.get(`/api/result/${id}`),
     2000,
     [id],
   )
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
+  /**
+   * Every button on this page goes through here. It used to be try/finally with
+   * no catch, so a rejected promise cleared the spinner and vanished: a wrong
+   * archive password (422), a re-analyse on a job that is already running (409)
+   * and an export of a report that no longer exists (404) all looked exactly
+   * like success. The failure has to be shown, and it has to survive the next
+   * poll tick — hence state, not a toast.
+   */
   async function action(name: string, fn: () => Promise<unknown>) {
     setBusy(name)
+    setActionError(null)
     try {
       await fn()
       await refresh()
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e))
     } finally {
       setBusy(null)
     }
@@ -91,6 +142,11 @@ export function JobDetail() {
   const iocEntries = Object.entries(job.iocs || {}).filter(([, v]) => v && v.length)
   const yaraHits = (job.analysis?.yara?.ran && job.analysis.yara.signals) || []
   const filename = job.original_name || 'sample'
+  // All three are absent on jobs analysed before the verdict engine shipped.
+  const verdict = verdictOf(job)
+  const detection = verdict ? job.verdict ?? null : null
+  const cvss = cvssOf(job)
+  const mitre = Array.isArray(job.mitre) ? job.mitre : []
 
   return (
     <div className="space-y-6">
@@ -125,6 +181,14 @@ export function JobDetail() {
         }
         actions={<Status value={job.status} />}
       />
+
+      {actionError && (
+        <Callout tone="danger" title="That action did not go through">
+          {actionError}
+        </Callout>
+      )}
+
+      {stale && <StaleNotice error={error} onRetry={refresh} />}
 
       <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-c2">
         <span>{familyLabel(job.family)}</span>
@@ -172,10 +236,22 @@ export function JobDetail() {
 
       {running && (
         <Panel>
-          <div className="scan relative flex items-center gap-3 overflow-hidden">
-            <div className="h-2 w-2 rounded-full bg-brand breathe" aria-hidden />
+          {/* The animation is a claim that progress is being observed. When the
+              polls are failing it is not, and saying so beats an indefinite
+              "Analysing…" over a stage that stopped changing minutes ago. */}
+          <div className={cx('relative flex items-center gap-3 overflow-hidden', !stale && 'scan')}>
+            <div className={cx('h-2 w-2 rounded-full', stale ? 'bg-warning' : 'bg-brand breathe')} aria-hidden />
             <span className="text-body text-c2">
-              Analysing — <span className="text-c1">{job.stage || job.status}</span>
+              {stale ? (
+                <>
+                  Progress unknown — last seen at{' '}
+                  <span className="text-c1">{job.stage || job.status}</span>
+                </>
+              ) : (
+                <>
+                  Analysing — <span className="text-c1">{job.stage || job.status}</span>
+                </>
+              )}
             </span>
           </div>
         </Panel>
@@ -183,40 +259,186 @@ export function JobDetail() {
 
       {done && (
         <>
-          {/* Verdict hero */}
-          <div className="grid gap-6 lg:grid-cols-[auto_1fr]">
-            <Panel tone="feature" className="flex items-center justify-center lg:w-72">
-              <ScoreGauge score={job.final_score} riskLevel={job.risk_level} />
-            </Panel>
-            <Panel title="Why this verdict">
-              <div className="space-y-3">
-                {(job.score_breakdown?.top_reasons || []).length === 0 ? (
-                  <p className="text-sm text-c2">
-                    No suspicious indicators were found by the analyzers that ran. This is a
-                    &ldquo;nothing found&rdquo; result, not a guarantee of safety.
-                  </p>
+          {/* Verdict hero.
+              What the reader takes as the answer is the threat name and the
+              word above it, and both are driven by the verdict. The 0-100 score
+              is shown beside them as a magnitude, never as the decision — five
+              droppers the engine had called malicious used to render here as a
+              green gauge captioned "Low risk" and nothing else. */}
+          <Panel tone="feature">
+            <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
+              <div className="min-w-0">
+                {verdict ? (
+                  <>
+                    <p className={cx('label', TONE_TEXT[verdictTone(verdict)])}>
+                      {verdictHeadline(verdict)}
+                    </p>
+                    <h2 className={cx('text-display mt-1 break-all', TONE_TEXT[verdictTone(verdict)])}>
+                      {detection?.threat_name || filename}
+                    </h2>
+                    <p className="text-body mt-1.5 text-c2">
+                      <span className="font-semibold text-c1">{detection?.detection_ratio}</span>{' '}
+                      detection engines flagged this sample.
+                      {detection?.category ? ` Classified as ${detection.category} on ${detection.platform}.` : ''}
+                    </p>
+                  </>
                 ) : (
-                  (job.score_breakdown?.top_reasons || []).map((r) => (
-                    <div key={r.id} className="flex items-start gap-2.5">
-                      <Chip tone={SEVERITY_TONE[r.severity] ?? 'neutral'}>{r.severity}</Chip>
-                      <div className="min-w-0">
-                        <p className="text-body font-medium text-c1">{r.title}</p>
-                        {r.detail && <p className="text-sm text-c2">{r.detail}</p>}
-                      </div>
-                    </div>
-                  ))
+                  <>
+                    <p className="label text-c3">No verdict recorded</p>
+                    <h2 className="text-title mt-1 text-c1">This report predates the verdict engine</h2>
+                    <p className="text-body mt-1.5 text-c2">
+                      Re-analyse the sample to classify it. Until then the risk score is all this job
+                      carries, and a low score is not a clean verdict.
+                    </p>
+                  </>
                 )}
-                <div className="mt-2 flex flex-wrap gap-2 border-t border-hair pt-3 text-sm text-c2">
-                  <span>Rule component <span className="font-semibold text-c1">{job.rule_score.toFixed(0)}</span></span>
-                  <span className="text-c3">·</span>
-                  <span>Model component <span className="font-semibold text-c1">{job.ai_score.toFixed(0)}</span></span>
-                  {job.score_breakdown?.formula && (
-                    <span className="tech text-c3">{job.score_breakdown.formula}</span>
-                  )}
-                </div>
+                {cvss && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <Chip tone={SEVERITY_TONE[cvss.severity] ?? 'neutral'}>
+                      CVSS {cvss.base_score.toFixed(1)} {cvss.severity}
+                    </Chip>
+                    <span className="tech text-c3">{cvss.vector}</span>
+                  </div>
+                )}
+              </div>
+              <div className="justify-self-center lg:w-64">
+                <ScoreGauge score={job.final_score} riskLevel={job.risk_level} verdict={verdict} />
+              </div>
+            </div>
+          </Panel>
+
+          {/* Multi-engine detection panel — the familiar per-engine breakdown a
+              scanner report is read for. */}
+          {detection && detection.engines?.length > 0 && (
+            <Panel
+              title="Detection engines"
+              subtitle={`${detection.detection_ratio} flagged this sample`}
+            >
+              <div className="divide-hair -my-2">
+                {[...detection.engines]
+                  .sort((a, b) => Number(b.detected) - Number(a.detected))
+                  .map((e, i) => (
+                    <div key={`${e.engine}-${i}`} className="flex items-center justify-between gap-3 py-2">
+                      <span className="tech min-w-0 flex-1 truncate text-c2">{e.engine}</span>
+                      {e.detected ? (
+                        <span className="flex shrink-0 items-center gap-2">
+                          <span className="text-sm font-medium text-c1">{e.result}</span>
+                          <Chip tone={SEVERITY_TONE[e.severity] ?? 'neutral'}>{e.severity}</Chip>
+                        </span>
+                      ) : (
+                        <span className="text-sm shrink-0 text-c3">Undetected</span>
+                      )}
+                    </div>
+                  ))}
               </div>
             </Panel>
+          )}
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* CVSS */}
+            <Panel title="CVSS v3.1" subtitle="Severity of what this sample can do, not of the file">
+              {cvss ? (
+                <div className="space-y-3">
+                  <div className="flex items-baseline gap-3">
+                    <span
+                      className={cx(
+                        'text-display font-semibold tabular-nums',
+                        TONE_TEXT[SEVERITY_TONE[cvss.severity] ?? 'neutral'] ?? 'text-c1',
+                      )}
+                    >
+                      {cvss.base_score.toFixed(1)}
+                    </span>
+                    <Chip tone={SEVERITY_TONE[cvss.severity] ?? 'neutral'}>{cvss.severity}</Chip>
+                  </div>
+                  <p className="tech text-c3">{cvss.vector}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(cvss.metrics || {}).map(([m, v]) => (
+                      <Chip key={m} tone="neutral">
+                        {CVSS_METRIC[m] ?? m}: {v}
+                      </Chip>
+                    ))}
+                  </div>
+                  {(cvss.rationale || []).length > 0 && (
+                    <div className="space-y-1.5 border-t border-hair pt-3">
+                      {cvss.rationale.map((r, i) => (
+                        <p key={i} className="text-sm text-c2">
+                          <span className="tech text-c1">
+                            {r.metric}:{r.value}
+                          </span>{' '}
+                          {r.why}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-sm text-c2">
+                  No CVSS vector on this job — it was analysed before the scoring engine shipped.
+                </p>
+              )}
+            </Panel>
+
+            {/* MITRE ATT&CK */}
+            <Panel
+              title="MITRE ATT&CK"
+              subtitle={`${mitre.length} technique${mitre.length === 1 ? '' : 's'} mapped from observed evidence`}
+            >
+              {mitre.length === 0 ? (
+                <p className="text-sm text-c2">
+                  No technique was evidenced. A technique is only claimed when a signal supports it.
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {byTactic(mitre).map(([tactic, techniques]) => (
+                    <div key={tactic}>
+                      <GroupLabel>{tactic}</GroupLabel>
+                      <div className="space-y-2">
+                        {techniques.map((t) => (
+                          <div key={t.technique_id} className="min-w-0">
+                            <p className="text-body font-medium text-c1">
+                              <span className="tech text-brand-fg">{t.technique_id}</span> {t.name}
+                            </p>
+                            {t.evidence?.length > 0 && (
+                              <p className="tech text-c3">{t.evidence.join(', ')}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Panel>
           </div>
+
+          <Panel title="Why this score">
+            <div className="space-y-3">
+              {(job.score_breakdown?.top_reasons || []).length === 0 ? (
+                <p className="text-sm text-c2">
+                  No suspicious indicators were found by the analyzers that ran. This is a
+                  &ldquo;nothing found&rdquo; result, not a guarantee of safety.
+                </p>
+              ) : (
+                (job.score_breakdown?.top_reasons || []).map((r) => (
+                  <div key={r.id} className="flex items-start gap-2.5">
+                    <Chip tone={SEVERITY_TONE[r.severity] ?? 'neutral'}>{r.severity}</Chip>
+                    <div className="min-w-0">
+                      <p className="text-body font-medium text-c1">{r.title}</p>
+                      {r.detail && <p className="text-sm text-c2">{r.detail}</p>}
+                    </div>
+                  </div>
+                ))
+              )}
+              <div className="mt-2 flex flex-wrap gap-2 border-t border-hair pt-3 text-sm text-c2">
+                <span>Rule component <span className="font-semibold text-c1">{job.rule_score.toFixed(0)}</span></span>
+                <span className="text-c3">·</span>
+                <span>Model component <span className="font-semibold text-c1">{job.ai_score.toFixed(0)}</span></span>
+                {job.score_breakdown?.formula && (
+                  <span className="tech text-c3">{job.score_breakdown.formula}</span>
+                )}
+              </div>
+            </div>
+          </Panel>
 
           {/* Tier honesty */}
           <Panel title="Analysis tiers">

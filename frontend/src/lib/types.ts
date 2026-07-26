@@ -7,6 +7,51 @@ export interface Session {
   expires_at: number
 }
 
+/**
+ * The analyst-facing outputs of the engine: what it decided, how badly it would
+ * hurt, and what the sample actually does. These three are `?` on purpose —
+ * every job analysed before the verdict engine shipped has them null, and a
+ * report that crashes on an old job is worse than one that omits a section.
+ */
+
+/** One row of the multi-engine detection panel. */
+export interface EngineDetection {
+  engine: string
+  detected: boolean
+  result: string
+  severity: string
+}
+
+export interface VerdictT {
+  /** malicious | suspicious | clean — the headline, and the only thing allowed
+   *  to set its colour. The 0-100 score is a magnitude, not a decision. */
+  verdict: string
+  threat_name: string
+  /** Pre-formatted by the backend, e.g. "7 / 11". */
+  detection_ratio: string
+  detected: number
+  total_engines: number
+  platform: string
+  category: string
+  family: string
+  engines: EngineDetection[]
+}
+
+export interface CvssT {
+  vector: string
+  base_score: number
+  severity: string
+  metrics: Record<string, string>
+  rationale: { metric: string; value: string; why: string }[]
+}
+
+export interface MitreTechnique {
+  technique_id: string
+  name: string
+  tactic: string
+  evidence: string[]
+}
+
 export interface JobSummary {
   public_id: string
   source: string
@@ -22,6 +67,10 @@ export interface JobSummary {
   final_score: number
   created_at: string
   completed_at: string | null
+  /** The list endpoint returns summaries and may omit the verdict entirely; the
+   *  dashboard therefore treats "no verdict" as a distinct state rather than as
+   *  a clean bill of health. */
+  verdict?: VerdictT | null
 }
 
 export interface SignalT {
@@ -96,6 +145,8 @@ export interface JobDetailT extends JobSummary {
   dynamic: DynamicInfo
   iocs: Record<string, string[]>
   score_breakdown: ScoreBreakdown
+  cvss?: CvssT | null
+  mitre?: MitreTechnique[] | null
   rule_score: number
   ai_score: number
   feedback: string | null

@@ -270,22 +270,39 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
                 )
             result.encrypted = needs_password
 
+            # Unlike ZIP, py7zr has no per-member streaming read: it decompresses
+            # into writers we hand it. So the budget is applied twice — once to
+            # the declared sizes, to pick what is worth asking for at all, and
+            # again to the bytes as they arrive, because a 7z header can
+            # understate every size in it.
             budget = MAX_TOTAL_EXPANSION
-            extracted = zf.readall() or {}
-            by_name = {m.name: m for m in result.members}
-            for name, buffer in list(extracted.items())[:MAX_MEMBERS]:
-                member = by_name.get(name)
-                if member is None or member.is_dir:
+            targets: list[str] = []
+            by_name: dict[str, Member] = {}
+            for member in result.members:
+                if member.is_dir:
                     continue
-                data = buffer.read(MAX_MEMBER_BYTES + 1)
-                if len(data) > MAX_MEMBER_BYTES:
+                by_name[member.name] = member
+                if member.size > MAX_MEMBER_BYTES:
                     member.skipped_reason = "larger than the per-member limit"
                     continue
-                if len(data) > budget:
+                if member.ratio > MAX_RATIO and member.size > 1024 * 1024:
+                    member.skipped_reason = "compression ratio exceeds the bomb threshold"
+                    continue
+                if member.size > budget:
                     member.skipped_reason = "total expansion budget exhausted"
                     result.truncated = True
                     continue
-                budget -= len(data)
+                budget -= member.size
+                targets.append(member.name)
+
+            for name, data in _seven_zip_read(zf, targets).items():
+                member = by_name.get(name)
+                if member is None:
+                    continue
+                if len(data) > MAX_MEMBER_BYTES:
+                    member.skipped_reason = "declared size understated the real size"
+                    result.truncated = True
+                    continue
                 member.stored = store_bytes(data)
     except py7zr.exceptions.PasswordRequired as exc:
         raise PasswordRequired("7z") from exc
@@ -297,14 +314,78 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
     return result
 
 
+def _seven_zip_read(zf, targets: list[str]) -> dict[str, bytes]:
+    """Read the selected members into memory, whichever py7zr generation is installed.
+
+    py7zr 0.x offered ``read()``/``readall()``, which return file-like buffers;
+    1.x removed both in favour of a writer factory. The engine shipped calling
+    ``readall()`` while pinned to ``py7zr>=0.22``, so on any current install every
+    .7z raised AttributeError, the archive analyzer was recorded as merely
+    unavailable, and a dropper inside a .7z was reported clean. Both call shapes
+    are supported here so the pin can move without this breaking again.
+    """
+    if not targets:
+        return {}
+
+    factory = _bytes_factory(MAX_MEMBER_BYTES, MAX_TOTAL_EXPANSION)
+    if factory is not None:
+        zf.extract(targets=targets, factory=factory)
+        out: dict[str, bytes] = {}
+        for name, product in factory.products.items():
+            product.seek(0)
+            out[name] = product.read(MAX_MEMBER_BYTES + 1)
+        return out
+
+    buffers = zf.read(targets) or {}
+    return {name: buf.read(MAX_MEMBER_BYTES + 1) for name, buf in buffers.items()}
+
+
+def _bytes_factory(per_member: int, total: int):
+    """A py7zr writer factory that keeps every member under a shared budget.
+
+    py7zr's own ``BytesIOFactory`` takes a single per-file limit and no total, so
+    a 7z declaring five hundred members would be decompressed into five hundred
+    buffers of that size. Returns None on a py7zr too old to have the factory
+    API, which is the signal to fall back to ``read()``.
+    """
+    try:
+        from py7zr.io import Py7zBytesIO, WriterFactory
+    except Exception:  # noqa: BLE001 — py7zr < 1.0 has no io module
+        return None
+
+    class _BudgetedFactory(WriterFactory):
+        def __init__(self) -> None:
+            self.products: dict[str, Py7zBytesIO] = {}
+
+        def create(self, filename: str):
+            # Charged against what has already landed, because the size of a
+            # member is only known once it has been written.
+            spent = sum(p.size() for p in self.products.values())
+            allowance = max(0, min(per_member, total - spent))
+            product = Py7zBytesIO(filename, allowance + 1)
+            self.products[filename] = product
+            return product
+
+        def get(self, filename: str):
+            return self.products[filename]
+
+    return _BudgetedFactory()
+
+
 def _seven_zip_is_encrypted(path: str) -> bool:
     import py7zr
 
     try:
         with py7zr.SevenZipFile(path, mode="r") as zf:
             return bool(zf.needs_password())
-    except Exception:
+    except py7zr.exceptions.PasswordRequired:
         return True
+    except Exception as exc:  # noqa: BLE001
+        # "Cannot open" is not "encrypted". Assuming encryption here parked every
+        # corrupt or truncated .7z at awaiting_password — a prompt no password
+        # can ever satisfy — instead of reporting a container that could not be
+        # inspected, which is the honest and actionable outcome.
+        return "password" in str(exc).lower()
 
 
 # --- RAR ----------------------------------------------------------------------

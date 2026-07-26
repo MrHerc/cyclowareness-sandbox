@@ -17,6 +17,15 @@ import { ApiError } from './api'
  *    fresh data from tick N+1 and the dashboard shows a stale loop stage until
  *    some later race happens to go the other way.
  *
+ * 1b. **An outage after the first load is visible.** Failures deliberately do
+ *    not clear `data` — blanking a populated screen because one tick timed out
+ *    is worse than showing the last good payload. But callers only ever read
+ *    `error` inside their `if (!data)` branch, so once anything had loaded an
+ *    outage became silent: the dashboard went on promising "Live — updates
+ *    every few seconds" and a running job animated "Analysing…" forever against
+ *    a backend that was gone. `stale` is that state, and it is separate from
+ *    `error` precisely so a caller cannot handle one and miss the other.
+ *
  * 2. **A dead API is not hammered.** The old `setInterval` fired regardless of
  *    outcome, so an unreachable backend took a request every few seconds
  *    forever, per open tab. On the executive view — where each poll costs a
@@ -104,5 +113,9 @@ export function usePoll<T>(fetcher: () => Promise<T>, intervalMs = 2500, deps: u
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [intervalMs, refresh, ...deps])
 
-  return { data, error, status, refresh }
+  // Showing data that is no longer being refreshed. Not an error state — the
+  // payload on screen is real, it is just no longer current.
+  const stale = error !== null && data !== null
+
+  return { data, error, status, stale, refresh }
 }

@@ -9,7 +9,25 @@ attacker wants a security tool to honour.
 
 So every URL is resolved and checked **before** the connection is made, every
 redirect hop is re-checked (a permitted host can 302 into a private address),
-and the socket is pinned to the address that was actually validated.
+and the connection is pinned to an address that was actually validated.
+
+Pinning is what makes the check worth anything. Validating a hostname and then
+handing that same hostname to the HTTP client resolves it *twice*, and a name
+that answers with a public address on the first lookup is free to answer with
+127.0.0.1 on the second — classic DNS rebinding. An audit drove exactly that:
+the guard saw a public address, the socket landed on loopback, and the bytes of
+an internal service were quarantined as a "sample". So the request is issued
+against the validated IP literal, with the original ``Host`` header and the
+original hostname as TLS SNI, which keeps certificate verification bound to the
+name the submitter asked for rather than to the address.
+
+Known residuals, stated plainly rather than papered over:
+
+* Only the first validated address is used. Every address the name resolved to
+  was checked, so this is safe, but a host whose first record is unreachable
+  fails instead of falling back the way the OS resolver would.
+* A name that resolves differently per hop is re-resolved and re-validated per
+  hop; within a single response body the connection stays on the pinned address.
 """
 from __future__ import annotations
 
@@ -98,8 +116,13 @@ def _resolve_public(host: str) -> list[str]:
     return addresses
 
 
-def assert_safe(url: str) -> str:
-    """Validate a URL and return the host. Raises UnsafeURL if it must not be fetched."""
+def _validate(url: str) -> tuple[str, list[str]]:
+    """Validate a URL and return its host together with the addresses it resolved to.
+
+    The addresses are returned rather than looked up again by the caller because
+    a second lookup reopens the rebinding window this whole module exists to
+    close: the connection must go to the very addresses that were checked.
+    """
     parsed = urlparse(url)
     if parsed.scheme.lower() not in ALLOWED_SCHEMES:
         raise UnsafeURL(f"only http and https are fetched, not {parsed.scheme or 'a bare path'}")
@@ -107,8 +130,55 @@ def assert_safe(url: str) -> str:
         raise UnsafeURL("the URL has no host")
     if parsed.port is not None and parsed.port not in (80, 443, 8080, 8443):
         raise UnsafeURL(f"port {parsed.port} is not fetched")
-    _resolve_public(parsed.hostname)
-    return parsed.hostname
+    return parsed.hostname, _resolve_public(parsed.hostname)
+
+
+def assert_safe(url: str) -> str:
+    """Validate a URL and return the host. Raises UnsafeURL if it must not be fetched."""
+    return _validate(url)[0]
+
+
+def _pinned_request(client: httpx.Client, url: str, host: str, address: str) -> httpx.Request:
+    """A GET aimed at the validated `address` but still addressed to `host`.
+
+    ``Host`` keeps virtual-hosted servers answering with the right site, and
+    ``sni_hostname`` keeps TLS negotiating — and verifying the certificate —
+    against the hostname rather than the IP literal, so pinning costs no
+    certificate strictness.
+    """
+    original = httpx.URL(url)
+    return client.build_request(
+        "GET",
+        original.copy_with(host=address),
+        headers={"Host": original.netloc.decode("ascii")},
+        extensions={"sni_hostname": host},
+    )
+
+
+class _BodyReader:
+    """File-like view over a streamed response, for ``store_stream``.
+
+    ``response.content`` buffers the whole body before any cap can be applied —
+    an audit pushed 803 MB of heap through a 32 MB limit that way. Reading the
+    body in chunks lets storage hash and cap it as it arrives and abort the
+    transfer the moment the limit is passed.
+    """
+
+    def __init__(self, response: httpx.Response) -> None:
+        self._chunks = response.iter_bytes()
+        self._buffer = b""
+
+    def read(self, size: int = -1) -> bytes:
+        while size < 0 or len(self._buffer) < size:
+            try:
+                self._buffer += next(self._chunks)
+            except StopIteration:
+                break
+        if size < 0:
+            taken, self._buffer = self._buffer, b""
+            return taken
+        taken, self._buffer = self._buffer[:size], self._buffer[size:]
+        return taken
 
 
 def _suggested_name(url: str, headers: httpx.Headers) -> str:
@@ -125,7 +195,7 @@ def _suggested_name(url: str, headers: httpx.Headers) -> str:
 
 
 def fetch(url: str, *, max_bytes: int = MAX_SAMPLE_BYTES) -> Fetched:
-    """Download a sample, re-validating every redirect hop.
+    """Download a sample, re-validating and re-pinning every redirect hop.
 
     Redirects are followed manually rather than by httpx, because httpx would
     follow a 302 from a permitted host into `http://127.0.0.1:8000/` without
@@ -142,48 +212,53 @@ def fetch(url: str, *, max_bytes: int = MAX_SAMPLE_BYTES) -> Fetched:
                 headers={"User-Agent": "Cyclowareness-Sandbox/1.0 (+security analysis)"},
             ) as client:
                 for _hop in range(MAX_REDIRECTS + 1):
-                    assert_safe(current)
-                    response = client.get(current)
+                    host, addresses = _validate(current)
+                    request = _pinned_request(client, current, host, addresses[0])
 
-                    if response.is_redirect:
-                        location = response.headers.get("location")
-                        if not location:
-                            raise FetchFailed("redirect without a Location header")
-                        current = str(httpx.URL(current).join(location))
+                    # stream=True: the body is pulled chunk by chunk so the cap
+                    # can stop it, and closed in `finally` so a refused or
+                    # oversized transfer drops the connection instead of
+                    # draining into memory.
+                    response = client.send(request, stream=True)
+                    try:
+                        if response.is_redirect:
+                            location = response.headers.get("location")
+                            if not location:
+                                raise FetchFailed("redirect without a Location header")
+                            current = str(httpx.URL(current).join(location))
+                            continue
+
+                        if response.status_code != 200:
+                            raise FetchFailed(f"server answered {response.status_code}")
+
+                        declared = response.headers.get("content-length")
+                        if declared and declared.isdigit() and int(declared) > max_bytes:
+                            raise SampleTooLarge(max_bytes)
+
+                        stored = store_stream(_BodyReader(response), max_bytes=max_bytes)
+                        return Fetched(
+                            stored=stored,
+                            final_url=current,
+                            status_code=response.status_code,
+                            # Kept for threat-intel enrichment: server banners and
+                            # content types are weak but real indicators.
+                            headers={
+                                k.lower(): v
+                                for k, v in response.headers.items()
+                                if k.lower()
+                                in {
+                                    "content-type",
+                                    "content-length",
+                                    "server",
+                                    "last-modified",
+                                    "etag",
+                                    "content-disposition",
+                                }
+                            },
+                            suggested_name=_suggested_name(current, response.headers),
+                        )
+                    finally:
                         response.close()
-                        continue
-
-                    if response.status_code != 200:
-                        raise FetchFailed(f"server answered {response.status_code}")
-
-                    declared = response.headers.get("content-length")
-                    if declared and declared.isdigit() and int(declared) > max_bytes:
-                        raise SampleTooLarge(max_bytes)
-
-                    import io
-
-                    stored = store_stream(io.BytesIO(response.content), max_bytes=max_bytes)
-                    return Fetched(
-                        stored=stored,
-                        final_url=current,
-                        status_code=response.status_code,
-                        # Kept for threat-intel enrichment: server banners and
-                        # content types are weak but real indicators.
-                        headers={
-                            k.lower(): v
-                            for k, v in response.headers.items()
-                            if k.lower()
-                            in {
-                                "content-type",
-                                "content-length",
-                                "server",
-                                "last-modified",
-                                "etag",
-                                "content-disposition",
-                            }
-                        },
-                        suggested_name=_suggested_name(current, response.headers),
-                    )
                 raise FetchFailed(f"more than {MAX_REDIRECTS} redirects")
 
         except (UnsafeURL, SampleTooLarge):
