@@ -115,15 +115,39 @@ def assess(
     *,
     from_url: bool = False,
 ) -> CvssResult:
-    """Derive a CVSS v3.1 vector from a sample's family, signals and IOCs."""
+    """Derive a CVSS v3.1 vector from a sample's family, signals and IOCs.
+
+    CVSS describes an *impact*. When the evidence demonstrates no capability,
+    there is no impact to score and this returns 0.0 / none rather than
+    manufacturing a vector — an earlier version granted Integrity:High to any
+    file that produced even one informational signal, which scored ordinary
+    documents at 7.x.
+    """
     signals = list(signals)
     caps = detect_capabilities(signals, iocs)
-    has_exec_capable = bool(signals) and family in {"pe", "elf", "script", "apk", "jar", "office", "pdf"}
     rationale: list[dict[str, str]] = []
 
     def note(metric: str, value: str, why: str) -> str:
         rationale.append({"metric": metric, "value": value, "why": why})
         return value
+
+    if not caps:
+        metrics = {"AV": "L", "AC": "L", "PR": "N", "UI": "R", "S": "U", "C": "N", "I": "N", "A": "N"}
+        return CvssResult(
+            vector=vector_string(metrics),
+            base_score=0.0,
+            severity="none",
+            metrics=metrics,
+            rationale=[{
+                "metric": "-",
+                "value": "none",
+                "why": "No capability was demonstrated by the evidence, so there is no impact to score.",
+            }],
+        )
+
+    # "Can cause code to run" — asserted only by execution/injection evidence,
+    # never merely by the file being of an executable type.
+    has_exec_capable = _has(caps, "execution", "injection")
 
     # Attack Vector: network-reachable threat if it fetches/beacons or arrived as a URL.
     av = note("AV", "N", "Reaches the network (download/C2) or was delivered by URL") if (
@@ -140,9 +164,11 @@ def assess(
     # User Interaction: the user opens/runs the sample (macro, script, app).
     ui = note("UI", "R", "The user must open or run the sample")
 
-    # Scope: persistence / privilege / defence evasion affect components beyond the sample.
-    if _has(caps, "persistence", "privilege", "evasion"):
-        s = note("S", "C", "Affects the wider system (persistence / privilege / defence tampering)")
+    # Scope: only things that genuinely act on components beyond the running
+    # sample. Obfuscation alone does not — plenty of legitimate software is
+    # packed, and treating that as a scope change inflated every installer.
+    if _has(caps, "persistence", "privilege"):
+        s = note("S", "C", "Acts beyond the executing process (persistence / elevation abuse)")
     else:
         s = note("S", "U", "Impact contained to the executing context")
 
@@ -150,15 +176,18 @@ def assess(
     if _has(caps, "credential"):
         c = note("C", "H", "Accesses credentials / device data / messages")
     elif has_exec_capable:
-        c = note("C", "L", "Executes code that can read local data")
+        c = note("C", "L", "Runs code that could read local data")
     else:
-        c = note("C", "N", "No confidentiality impact observed")
+        c = note("C", "N", "No confidentiality impact demonstrated")
 
-    # Integrity: code execution, dropping/modifying files, persistence, injection.
-    if _has(caps, "network", "injection", "persistence", "exploit") or has_exec_capable:
-        i = note("I", "H", "Executes / drops code, injects, or persists")
+    # Integrity: running code, loading hidden code, dropping a payload, or
+    # persisting. Reaching the network on its own is not an integrity impact.
+    if has_exec_capable or _has(caps, "persistence", "dropper", "exploit"):
+        i = note("I", "H", "Runs or loads code, drops a payload, or persists")
+    elif _has(caps, "deception"):
+        i = note("I", "L", "Misrepresents what it is, but no code execution was demonstrated")
     else:
-        i = note("I", "N", "No integrity impact observed")
+        i = note("I", "N", "No integrity impact demonstrated")
 
     # Availability: destructive / ransomware behaviour.
     if _has(caps, "destruction"):

@@ -82,15 +82,34 @@ _PACKER_SECTIONS = {
 #: Capability groups. Matching is prefix-based on the lowercased API name, so
 #: one entry covers the A/W/Ex variants. `min_hits` is what stops a single
 #: ubiquitous API from claiming a capability on its own.
+#: How strongly each capability group argues for offensive intent when it
+#: co-occurs with others. Calibrated against real signed Microsoft system
+#: binaries: notepad.exe, kernel32.dll and shell32.dll all legitimately import
+#: from the low-weight groups, so those must not add up to a detection on their
+#: own. Injection and keylogging carry weight because they have few innocent
+#: readings in combination.
+_GROUP_WEIGHT: dict[str, int] = {
+    "process_injection": 3,
+    "keylogging": 3,
+    "anti_debug": 1,
+    "dynamic_resolution": 1,
+    "persistence": 1,
+    "crypto": 1,
+    "network": 1,
+}
+
 _CAPABILITIES: tuple[tuple[str, str, str, int, tuple[str, ...]], ...] = (
     (
+        # Only APIs whose combination has no ordinary reading. OpenProcess,
+        # ResumeThread, GetThreadContext, VirtualProtectEx and the generic Nt*
+        # memory calls were removed: every Windows shell, debugger and process
+        # manager imports them, and including them made the whole of System32
+        # look like an injector.
         "process_injection", "Process injection primitives imported", "high", 2,
         ("virtualallocex", "writeprocessmemory", "createremotethread",
          "ntcreatethreadex", "rtlcreateuserthread", "queueuserapc",
-         "ntqueueapcthread", "setthreadcontext", "getthreadcontext",
-         "ntunmapviewofsection", "ntmapviewofsection", "ntwritevirtualmemory",
-         "ntallocatevirtualmemory", "virtualprotectex", "openprocess",
-         "resumethread", "createprocessinternal"),
+         "ntqueueapcthread", "setthreadcontext",
+         "ntunmapviewofsection", "ntwritevirtualmemory"),
     ),
     (
         "dynamic_resolution", "Resolves its own API addresses at runtime", "medium", 2,
@@ -111,10 +130,10 @@ _CAPABILITIES: tuple[tuple[str, str, str, int, tuple[str, ...]], ...] = (
          "changeserviceconfig"),
     ),
     (
-        "keylogging", "Keyboard / input capture", "high", 1,
-        # GetForegroundWindow / AttachThreadInput are the classic companions but
-        # they are also ordinary UI code, so they are not in here: a keylogging
-        # finding at "high" has to rest on an API with no innocent reading.
+        # Two required, not one: shell32.dll installs hooks and reads key state
+        # because it IS the Windows shell. One of these APIs on its own is UI
+        # code; the pair is a keylogger's shape.
+        "keylogging", "Keyboard / input capture", "high", 2,
         ("setwindowshookex", "getasynckeystate", "getkeyboardstate",
          "getkeynametext", "getrawinputdata", "registerrawinputdevices"),
     ),
@@ -756,23 +775,65 @@ def _analyze_parsed(
         ))
 
     normalized = [n.lower() for n in _imported_names(pe_obj)]
-    for group, title, severity, min_hits, patterns in _CAPABILITIES:
+    present: dict[str, list[str]] = {}
+    for group, title, _severity, min_hits, patterns in _CAPABILITIES:
         matched = _dedup(
             name for name in normalized
             if any(name.startswith(p) for p in patterns)
         )
         if len(matched) >= min_hits:
+            present[group] = sorted(matched)
+            # An imported API is a FACT about capability, never a detection on
+            # its own. Every group here appears in ordinary software:
+            # GetProcAddress is in essentially every program, IsDebuggerPresent
+            # ships in the MSVC CRT startup, RegSetValue is any app that saves
+            # a setting, and kernel32.dll itself exports the injection
+            # primitives. Reporting these individually as medium/high made
+            # every signed Microsoft DLL score as malware.
             signals.append(Signal(
-                id=f"pe.suspicious_imports.{group}",
+                id=f"pe.imports.{group}",
                 title=title,
-                severity=severity,
+                severity="info",
                 detail=(
                     f"The import table exposes {len(matched)} API(s) in the "
-                    f"'{group}' capability group. Capability, not intent — read "
-                    "the matched APIs."
+                    f"'{group}' capability group. Capability, not intent — this is "
+                    "scored only in combination (see pe.import_combination)."
                 ),
-                evidence={"capability": group, "apis": _take(sorted(matched), 24)},
+                evidence={"capability": group, "apis": _take(present[group], 24)},
             ))
+
+    # Intent is argued by the COMBINATION, and it is argued more weakly when the
+    # binary carries a signature. (Presence only — this analyzer does not
+    # validate the chain, so a signature attenuates the heuristic rather than
+    # clearing the sample.)
+    combo_weight = sum(_GROUP_WEIGHT.get(g, 1) for g in present)
+    signed = bool(facts.get("signature_present"))
+    # A signed binary has to clear a much higher bar. Signing is the strongest
+    # false-positive suppressor available to static analysis, and the platform
+    # DLLs that legitimately hold the widest capability sets are exactly the
+    # ones that carry a signature. (Presence, not chain validation — so this
+    # attenuates the heuristic; it never clears a sample outright.)
+    threshold_high, threshold_medium = (12, 9) if signed else (6, 4)
+    if combo_weight >= threshold_medium:
+        combo_severity = "high" if combo_weight >= threshold_high else "medium"
+        signals.append(Signal(
+            id="pe.import_combination",
+            title="Import table combines several offensive capability groups",
+            severity=combo_severity,
+            detail=(
+                f"{len(present)} capability groups co-occur (weight {combo_weight}): "
+                + ", ".join(sorted(present))
+                + ". No single one of these is unusual; together, and in this "
+                + ("signed" if signed else "unsigned")
+                + " binary, the combination is."
+            ),
+            evidence={
+                "groups": sorted(present),
+                "weight": combo_weight,
+                "signature_present": signed,
+                "threshold": threshold_medium,
+            },
+        ))
 
     # --- overlay --------------------------------------------------------------
     overlay_offset = None
@@ -825,7 +886,10 @@ def _ts_signal(signals: list[Signal], kind: str, raw: int, iso: str | None) -> N
     signals.append(Signal(
         id="pe.timestamp_anomaly",
         title=f"Compile timestamp is {kind}",
-        severity="medium",
+        # Info, not medium: reproducible/deterministic builds put a content hash
+        # in this field, so every modern Microsoft binary reads as "in the
+        # future". Scoring that made the whole of System32 look malicious.
+        severity="info",
         detail=(
             "The PE compile timestamp is a plain header field and is trivially "
             "edited, which is why altered ones are worth reporting. Note the "

@@ -147,7 +147,7 @@ MODEL_PROVENANCE = (
 #: Feature ids whose presence means "this binary can do something", used to
 #: build `capability_signals`.
 _CAPABILITY_PREFIXES = (
-    "pe.suspicious_imports",
+    "pe.import_combination",
     "script.download_and_execute",
     "script.dynamic_execution",
     "script.credential_access",

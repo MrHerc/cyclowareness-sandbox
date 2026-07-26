@@ -39,15 +39,21 @@ _FAMILY_PLATFORM = {
 
 #: capability -> category, in priority order (first match wins). Ordered the way
 #: an analyst names a strain: impact first, then the most recognisable behaviour.
+#: First match wins, so this is ordered by how strongly the capability defines
+#: what the sample IS. Ransom and Exploit can only come from the dynamic tier —
+#: static evidence never demonstrates them, and claiming otherwise is how a
+#: password-protected document got classified as ransomware.
 _CATEGORY_BY_CAP = [
     ("destruction", "Ransom"),
     ("credential", "Spyware"),
     ("exploit", "Exploit"),
     ("network", "Downloader"),
-    ("persistence", "Backdoor"),
     ("injection", "Injector"),
+    ("persistence", "Backdoor"),
+    ("dropper", "Dropper"),
     ("execution", "Trojan"),
     ("privilege", "Riskware"),
+    ("deception", "Riskware"),
     ("discovery", "Riskware"),
 ]
 
@@ -126,8 +132,11 @@ def classify(
 
     platform = _platform(family, mime)
     category = next((cat for cap, cat in _CATEGORY_BY_CAP if cap in caps), None)
+    #: A file we found no capability in is not "Suspicious" — it is a file we
+    #: found nothing in. Naming it after its worst informational signal is how
+    #: a Microsoft-signed binary became "Win32.Downloader.TimestampAnomaly".
     if category is None:
-        category = "Suspicious" if all_signals else "Clean"
+        category = "Clean"
     fam = _family_token(all_signals)
     threat_name = f"{platform}.{category}.{fam}" if category != "Clean" else f"{platform}.Clean"
 
@@ -160,28 +169,49 @@ def classify(
             "severity": worst,
         })
 
-    # Heuristic capability engine.
+    # Heuristic capability engine: fires on demonstrated capability.
     engines.append({
         "engine": "CS-Heuristic",
         "detected": bool(caps),
         "result": threat_name if caps else "undetected",
-        "severity": _worst(all_signals),
+        "severity": _worst(all_signals) if caps else "info",
     })
-    # IOC reputation engine.
-    net = bool(iocs and (iocs.urls or iocs.ips or iocs.domains))
+    # Reputation engine. It must key off indicators that are themselves *bad*
+    # (an IP-literal URL, a lookalike domain, a suspicious TLD) — not off the
+    # mere existence of a URL. Counting "this file contains a link" as a
+    # detection made every README and every PDF invoice a second detection,
+    # which alone pushed them over the malicious threshold.
+    reputation_ids = {
+        "generic.ip_literal_url",
+        "generic.suspicious_tld",
+        "generic.punycode_or_lookalike_domain",
+        "generic.many_urls",
+    }
+    bad_rep = [s for s in all_signals if s.id in reputation_ids]
     engines.append({
         "engine": "CS-Reputation",
-        "detected": net,
-        "result": "Suspicious.Network" if net else "undetected",
-        "severity": "medium" if net else "info",
+        "detected": bool(bad_rep),
+        "result": "Suspicious.Indicator" if bad_rep else "undetected",
+        "severity": _worst(bad_rep) if bad_rep else "info",
     })
 
     detected = sum(1 for e in engines if e["detected"])
     total = len(engines)
 
-    if final_score >= 60 or detected >= max(2, total // 2):
+    # The verdict and the score are two views of the same evidence, so they are
+    # not allowed to contradict each other. Previously a sample could be called
+    # malicious while its own score said 1.8/100 "low" — the single most
+    # trust-destroying thing this product could put in front of an analyst.
+    # The score bands are authoritative; the engine count can only corroborate.
+    # "Malicious" additionally requires that we can NAME what the sample does.
+    # If no capability was demonstrated we have a pile of unexplained anomalies,
+    # which is "suspicious" — reporting malicious there produced the absurd pair
+    # verdict=malicious / threat=Win32.Clean in the same payload.
+    if caps and final_score >= 60:
         verdict = "malicious"
-    elif final_score >= 30 or detected >= 1:
+    elif caps and final_score >= 30 and detected >= 2:
+        verdict = "malicious"
+    elif final_score >= 30 or (detected >= 1 and caps):
         verdict = "suspicious"
     else:
         verdict = "clean"

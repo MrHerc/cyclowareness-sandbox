@@ -56,6 +56,10 @@ _SCRIPT_EXTENSIONS = {
     ".wsf": ("text/xml", "Windows Script File"),
 }
 
+#: How many ZIP entry names identification will read. Bounded because the input
+#: is hostile: a container with a million entries must not stall the analyzer.
+MAX_ZIP_NAMES = 5000
+
 #: Inside a ZIP container, these entries identify what the container really is.
 _ZIP_MARKERS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ("AndroidManifest.xml", "application/vnd.android.package-archive", "Android package", (".apk",)),
@@ -82,17 +86,34 @@ class Identity:
 
 
 def _zip_identity(path: str) -> tuple[str, str, tuple[str, ...]]:
+    """What a ZIP container really is, from the parts it carries.
+
+    Marker matching is by PREFIX over the whole entry list, not an exact name
+    over the first 400 entries. Office writes parts like ``xl/workbook2.xml``
+    when a workbook has been through certain tools, and a name-exact check sent
+    those documents to the archive analyzer instead of the Office one — the
+    macro analysis silently never ran. Reading every name also removes the
+    trivial evasion of padding a container with 400 junk entries.
+    """
     import zipfile
 
     try:
         with zipfile.ZipFile(path) as zf:
-            names = set(zf.namelist()[:400])
+            names = zf.namelist()[:MAX_ZIP_NAMES]
     except Exception:
         return "application/zip", "ZIP archive", (".zip",)
 
     for marker, mime, magic, exts in _ZIP_MARKERS:
-        if marker in names:
-            return mime, magic, exts
+        prefix = marker.rsplit("/", 1)[0] + "/" if "/" in marker else marker
+        stem = marker.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        for name in names:
+            if name == marker:
+                return mime, magic, exts
+            # e.g. marker "xl/workbook.xml" also matches "xl/workbook2.xml"
+            if "/" in marker and name.startswith(prefix):
+                tail = name[len(prefix):]
+                if tail.startswith(stem):
+                    return mime, magic, exts
     return "application/zip", "ZIP archive", (".zip",)
 
 
@@ -201,8 +222,18 @@ def identify(path: str, original_name: str) -> Identity:
     # family differ. A .txt that sniffs as text/csv is not a lie; a .pdf whose
     # bytes are a PE is. Unknown content contradicts nothing, and an unnamed
     # submission makes no claim.
+    # Any plain-text document type sniffing as text is not a lie. The list has
+    # to cover ordinary web/config/source extensions too — a .css file detected
+    # as text/plain was being reported as an extension mismatch, which is the
+    # engine's strongest deception signal.
+    _TEXTUAL_EXTENSIONS = (
+        ".txt", ".csv", ".log", ".md", ".json", ".xml", ".yaml", ".yml", ".ini",
+        ".cfg", ".conf", ".toml", ".css", ".scss", ".html", ".htm", ".svg",
+        ".ts", ".tsx", ".jsx", ".sql", ".rst", ".tex", ".c", ".h", ".cpp",
+        ".java", ".go", ".rs", ".rb", ".php", ".pl", ".lua", ".r", ".m",
+    )
     same_text_family = family == "script" and (
-        claimed in _SCRIPT_EXTENSIONS or claimed in (".txt", ".csv", ".log", ".md", ".json", ".xml")
+        claimed in _SCRIPT_EXTENSIONS or claimed in _TEXTUAL_EXTENSIONS
     )
     mismatch = bool(
         claimed
