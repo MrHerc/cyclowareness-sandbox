@@ -11,8 +11,8 @@ written by hand, so every version and licence below is the one actually present
 in the build. The machine-readable equivalent is [`sbom.json`](sbom.json)
 (CycloneDX 1.5).
 
-- Generated: 2026-07-27T05:36:30Z
-- Distributions recorded: 82 (70 in the runtime closure)
+- Generated: 2026-07-27T05:41:03Z
+- Distributions recorded: 70 (69 in the runtime closure)
 - Scope: the dependency closure declared by `backend/requirements.txt` and
   `worker/requirements.txt`, resolved against the reference environment.
   Packages present in that environment but outside the declared closure are
@@ -33,12 +33,9 @@ Sandbox, and no Cyclowareness source file is a derivative work of any of them.
 
 | Package | Version | Licence (SPDX) | Project |
 |---|---|---|---|
-| `certifi` | 2026.6.17 | MPL-2.0 | <https://github.com/certifi/python-certifi> |
+| `certifi` | 2026.7.22 | MPL-2.0 | <https://github.com/certifi/python-certifi> |
 | `inflate64` | 1.0.4 | LGPL-2.1-or-later | <https://inflate64.readthedocs.io/> |
 | `multivolumefile` | 0.2.3 | LGPL-2.1-or-later | <https://github.com/miurahr/multivolume> |
-| `pcodedmp` | 1.2.6 | GPL-3.0-or-later | <https://github.com/bontchev/pcodedmp> |
-| `psycopg` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
-| `psycopg-binary` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
 | `py7zr` | 1.1.3 | LGPL-2.1-or-later | <https://py7zr.readthedocs.io/> |
 | `pybcj` | 1.0.8 | LGPL-2.1-or-later | <https://pypi.org/project/pybcj> |
 | `pyppmd` | 1.3.1 | LGPL-2.1-or-later | <https://pyppmd.readthedocs.io/> |
@@ -82,24 +79,23 @@ Packages in the closure of `backend/requirements.txt` and
 |---|---|---|---|
 | `alembic` | 1.18.5 | MIT | <https://alembic.sqlalchemy.org> |
 | `annotated-doc` | 0.0.4 | MIT | <https://github.com/fastapi/annotated-doc> |
-| `annotated-types` | 0.7.0 | MIT | <https://github.com/annotated-types/annotated-types> |
-| `anthropic` | 0.116.0 | MIT | <https://github.com/anthropics/anthropic-sdk-python> |
+| `annotated-types` | 0.8.0 | MIT | <https://github.com/annotated-types/annotated-types> |
+| `anthropic` | 0.120.0 | MIT | <https://github.com/anthropics/anthropic-sdk-python> |
 | `antlr4-python3-runtime` | 4.13.2 | BSD-3-Clause | <http://www.antlr.org> |
-| `anyio` | 4.14.1 | MIT | <https://anyio.readthedocs.io/en/latest/> |
+| `anyio` | 4.14.2 | MIT | <https://anyio.readthedocs.io/en/latest/> |
 | `backports.zstd` | 1.6.0 | PSF-2.0 | <https://github.com/rogdham/backports.zstd> |
 | `brotli` | 1.2.0 | MIT | <https://github.com/google/brotli> |
-| `certifi` | 2026.6.17 | MPL-2.0 | <https://github.com/certifi/python-certifi> |
+| `certifi` | 2026.7.22 | MPL-2.0 | <https://github.com/certifi/python-certifi> |
 | `cffi` | 2.1.0 | MIT-0 | <https://cffi.readthedocs.io/> |
 | `charset-normalizer` | 3.4.9 | MIT | <https://charset-normalizer.readthedocs.io/> |
 | `click` | 8.4.2 | BSD-3-Clause | <https://github.com/pallets/click/> |
-| `colorama` | 0.4.6 | BSD-3-Clause | <https://github.com/tartley/colorama> |
 | `colorclass` | 2.2.2 | MIT | <https://github.com/matthewdeanmartin/colorclass> |
 | `cryptography` | 49.0.0 | Apache-2.0 OR BSD-3-Clause | <https://github.com/pyca/cryptography> |
 | `distro` | 1.9.0 | Apache-2.0 | <https://github.com/python-distro/distro> |
 | `docstring_parser` | 0.18.0 | MIT | <https://github.com/rr-/docstring_parser> |
 | `easygui` | 0.98.3 | BSD-3-Clause | <https://github.com/robertlugg/easygui> |
-| `fastapi` | 0.139.0 | MIT | <https://github.com/fastapi/fastapi> |
-| `greenlet` | 3.5.3 | MIT AND PSF-2.0 | <https://greenlet.readthedocs.io> |
+| `fastapi` | 0.140.0 | MIT | <https://github.com/fastapi/fastapi> |
+| `greenlet` | 3.5.4 | MIT AND PSF-2.0 | <https://greenlet.readthedocs.io> |
 | `h11` | 0.16.0 | MIT | <https://github.com/python-hyper/h11> |
 | `httpcore` | 1.0.9 | BSD-3-Clause | <https://www.encode.io/httpcore/> |
 | `httptools` | 0.8.0 | MIT | <https://github.com/MagicStack/httptools> |
@@ -113,10 +109,10 @@ Packages in the closure of `backend/requirements.txt` and
 | `multivolumefile` | 0.2.3 | LGPL-2.1-or-later | <https://github.com/miurahr/multivolume> |
 | `olefile` | 0.47 | BSD-2-Clause | <https://www.decalage.info/python/olefileio> |
 | `oletools` | 0.60.2 | BSD-2-Clause | <https://github.com/decalage2/oletools> |
-| `pcodedmp` | 1.2.6 | GPL-3.0-or-later | <https://github.com/bontchev/pcodedmp> |
 | `pdfminer.six` | 20260107 | MIT | <https://github.com/pdfminer/pdfminer.six> |
 | `pefile` | 2024.8.26 | MIT | <https://github.com/erocarrera/pefile> |
 | `pillow` | 12.3.0 | MIT-CMU | <https://python-pillow.github.io> |
+| `prometheus_client` | 0.26.0 | Apache-2.0 AND BSD-2-Clause | <https://github.com/prometheus/client_python> |
 | `psutil` | 7.2.2 | BSD-3-Clause | <https://github.com/giampaolo/psutil> |
 | `puremagic` | 2.2.0 | MIT | <https://github.com/cdgriffith/puremagic> |
 | `py7zr` | 1.1.3 | LGPL-2.1-or-later | <https://py7zr.readthedocs.io/> |
@@ -130,7 +126,7 @@ Packages in the closure of `backend/requirements.txt` and
 | `pyppmd` | 1.3.1 | LGPL-2.1-or-later | <https://pyppmd.readthedocs.io/> |
 | `python-dotenv` | 1.2.2 | BSD-3-Clause | <https://github.com/theskumar/python-dotenv> |
 | `python-multipart` | 0.0.32 | Apache-2.0 | <https://github.com/Kludex/python-multipart> |
-| `pytz` | 2026.2 | MIT | <http://pythonhosted.org/pytz> |
+| `pytz` | 2026.3.post1 | MIT | <http://pythonhosted.org/pytz> |
 | `PyYAML` | 6.0.3 | MIT | <https://pyyaml.org/> |
 | `rarfile` | 4.4 | ISC | <https://github.com/markokr/rarfile> |
 | `reportlab` | 5.0.0 | BSD-3-Clause | <https://www.reportlab.com/> |
@@ -145,10 +141,10 @@ Packages in the closure of `backend/requirements.txt` and
 | `typing_extensions` | 4.16.0 | PSF-2.0 | <https://github.com/python/typing_extensions> |
 | `typing-inspection` | 0.4.2 | MIT | <https://github.com/pydantic/typing-inspection> |
 | `urllib3` | 2.7.0 | MIT | <https://urllib3.readthedocs.io> |
-| `uvicorn` | 0.49.0 | BSD-3-Clause | <https://uvicorn.dev/> |
+| `uvicorn` | 0.51.0 | BSD-3-Clause | <https://uvicorn.dev/> |
+| `uvloop` | 0.22.1 | MIT License | <https://pypi.org/project/uvloop/> |
 | `watchfiles` | 1.2.0 | MIT | <https://github.com/samuelcolvin/watchfiles> |
-| `websockets` | 16.0 | BSD-3-Clause | <https://github.com/python-websockets/websockets> |
-| `win_unicode_console` | 0.5 | MIT | <https://github.com/Drekin/win-unicode-console> |
+| `websockets` | 16.1.1 | BSD-3-Clause | <https://github.com/python-websockets/websockets> |
 | `yara-python` | 4.5.4 | Apache-2.0 | <https://github.com/VirusTotal/yara-python> |
 
 ## Optional dependencies
@@ -157,9 +153,6 @@ Installed only for a specific deployment choice (e.g. PostgreSQL).
 
 | Package | Version | Licence (SPDX) | Project |
 |---|---|---|---|
-| `psycopg` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
-| `psycopg-binary` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
-| `tzdata` | 2026.3 | Apache-2.0 | <https://github.com/python/tzdata> |
 
 ## Build and test dependencies
 
@@ -167,15 +160,7 @@ Present in the development environment; not required to run the product.
 
 | Package | Version | Licence (SPDX) | Project |
 |---|---|---|---|
-| `coverage` | 7.15.2 | Apache-2.0 | <https://github.com/coveragepy/coveragepy> |
-| `iniconfig` | 2.3.0 | MIT | <https://github.com/pytest-dev/iniconfig> |
-| `packaging` | 26.2 | Apache-2.0 OR BSD-2-Clause | <https://github.com/pypa/packaging> |
 | `pip` | 25.0.1 | MIT | <https://pip.pypa.io/> |
-| `pluggy` | 1.6.0 | MIT | <https://pypi.org/project/pluggy/> |
-| `Pygments` | 2.20.0 | BSD-2-Clause | <https://pygments.org> |
-| `pytest` | 9.1.1 | MIT | <https://docs.pytest.org/en/latest/> |
-| `pytest-asyncio` | 1.4.0 | Apache-2.0 | <https://github.com/pytest-dev/pytest-asyncio> |
-| `pytest-cov` | 7.1.0 | MIT | <https://pytest-cov.readthedocs.io/> |
 
 ## Non-Python components
 

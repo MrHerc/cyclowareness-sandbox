@@ -4,7 +4,7 @@
   "serialNumber": "urn:uuid:22c8db15-85c5-5db5-8eb1-e3217d8201b1",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-27T05:36:30Z",
+    "timestamp": "2026-07-27T05:40:39Z",
     "tools": [
       {
         "vendor": "Cyclowareness",
@@ -20,7 +20,7 @@
     "properties": [
       {
         "name": "cyclowareness:generated_on_platform",
-        "value": "win32"
+        "value": "linux"
       },
       {
         "name": "cyclowareness:generated_on_python",
@@ -92,10 +92,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/annotated-types@0.7.0",
+      "bom-ref": "pkg:pypi/annotated-types@0.8.0",
       "name": "annotated-types",
-      "version": "0.7.0",
-      "purl": "pkg:pypi/annotated-types@0.7.0",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/annotated-types@0.8.0",
       "scope": "required",
       "licenses": [
         {
@@ -114,10 +114,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/anthropic@0.116.0",
+      "bom-ref": "pkg:pypi/anthropic@0.120.0",
       "name": "anthropic",
-      "version": "0.116.0",
-      "purl": "pkg:pypi/anthropic@0.116.0",
+      "version": "0.120.0",
+      "purl": "pkg:pypi/anthropic@0.120.0",
       "scope": "required",
       "licenses": [
         {
@@ -158,10 +158,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/anyio@4.14.1",
+      "bom-ref": "pkg:pypi/anyio@4.14.2",
       "name": "anyio",
-      "version": "4.14.1",
-      "purl": "pkg:pypi/anyio@4.14.1",
+      "version": "4.14.2",
+      "purl": "pkg:pypi/anyio@4.14.2",
       "scope": "required",
       "licenses": [
         {
@@ -224,10 +224,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/certifi@2026.6.17",
+      "bom-ref": "pkg:pypi/certifi@2026.7.22",
       "name": "certifi",
-      "version": "2026.6.17",
-      "purl": "pkg:pypi/certifi@2026.6.17",
+      "version": "2026.7.22",
+      "purl": "pkg:pypi/certifi@2026.7.22",
       "scope": "required",
       "licenses": [
         {
@@ -318,28 +318,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/colorama@0.4.6",
-      "name": "colorama",
-      "version": "0.4.6",
-      "purl": "pkg:pypi/colorama@0.4.6",
-      "scope": "required",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-3-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/tartley/colorama"
-        }
-      ],
-      "description": "Cross-platform colored terminal text."
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/colorclass@2.2.2",
       "name": "colorclass",
       "version": "2.2.2",
@@ -359,28 +337,6 @@
         }
       ],
       "description": "Colorful worry-free console applications for Linux, Mac OS X, and Windows."
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/coverage@7.15.2",
-      "name": "coverage",
-      "version": "7.15.2",
-      "purl": "pkg:pypi/coverage@7.15.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/coveragepy/coveragepy"
-        }
-      ],
-      "description": "Code coverage measurement for Python"
     },
     {
       "type": "library",
@@ -472,10 +428,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi@0.139.0",
+      "bom-ref": "pkg:pypi/fastapi@0.140.0",
       "name": "fastapi",
-      "version": "0.139.0",
-      "purl": "pkg:pypi/fastapi@0.139.0",
+      "version": "0.140.0",
+      "purl": "pkg:pypi/fastapi@0.140.0",
       "scope": "required",
       "licenses": [
         {
@@ -494,10 +450,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/greenlet@3.5.3",
+      "bom-ref": "pkg:pypi/greenlet@3.5.4",
       "name": "greenlet",
-      "version": "3.5.3",
-      "purl": "pkg:pypi/greenlet@3.5.3",
+      "version": "3.5.4",
+      "purl": "pkg:pypi/greenlet@3.5.4",
       "scope": "required",
       "licenses": [
         {
@@ -651,28 +607,6 @@
           "value": "weak-copyleft"
         }
       ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/iniconfig@2.3.0",
-      "name": "iniconfig",
-      "version": "2.3.0",
-      "purl": "pkg:pypi/iniconfig@2.3.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/pytest-dev/iniconfig"
-        }
-      ],
-      "description": "brain-dead simple config-ini parsing"
     },
     {
       "type": "library",
@@ -836,56 +770,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/packaging@26.2",
-      "name": "packaging",
-      "version": "26.2",
-      "purl": "pkg:pypi/packaging@26.2",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "name": "Apache-2.0 OR BSD-2-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/pypa/packaging"
-        }
-      ],
-      "description": "Core utilities for Python packages"
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/pcodedmp@1.2.6",
-      "name": "pcodedmp",
-      "version": "1.2.6",
-      "purl": "pkg:pypi/pcodedmp@1.2.6",
-      "scope": "required",
-      "licenses": [
-        {
-          "license": {
-            "id": "GPL-3.0-or-later"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/bontchev/pcodedmp"
-        }
-      ],
-      "description": "A VBA p-code disassembler",
-      "properties": [
-        {
-          "name": "cyclowareness:copyleft",
-          "value": "strong-copyleft"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/pdfminer-six@20260107",
       "name": "pdfminer.six",
       "version": "20260107",
@@ -974,25 +858,25 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pluggy@1.6.0",
-      "name": "pluggy",
-      "version": "1.6.0",
-      "purl": "pkg:pypi/pluggy@1.6.0",
-      "scope": "optional",
+      "bom-ref": "pkg:pypi/prometheus-client@0.26.0",
+      "name": "prometheus_client",
+      "version": "0.26.0",
+      "purl": "pkg:pypi/prometheus-client@0.26.0",
+      "scope": "required",
       "licenses": [
         {
           "license": {
-            "id": "MIT"
+            "name": "Apache-2.0 AND BSD-2-Clause"
           }
         }
       ],
       "externalReferences": [
         {
           "type": "website",
-          "url": "https://pypi.org/project/pluggy/"
+          "url": "https://github.com/prometheus/client_python"
         }
       ],
-      "description": "plugin and hook calling mechanisms for python"
+      "description": "Python client for the Prometheus monitoring system."
     },
     {
       "type": "library",
@@ -1015,62 +899,6 @@
         }
       ],
       "description": "Cross-platform lib for process and system monitoring."
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/psycopg@3.3.4",
-      "name": "psycopg",
-      "version": "3.3.4",
-      "purl": "pkg:pypi/psycopg@3.3.4",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "LGPL-3.0-only"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://psycopg.org/"
-        }
-      ],
-      "description": "PostgreSQL database adapter for Python",
-      "properties": [
-        {
-          "name": "cyclowareness:copyleft",
-          "value": "weak-copyleft"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/psycopg-binary@3.3.4",
-      "name": "psycopg-binary",
-      "version": "3.3.4",
-      "purl": "pkg:pypi/psycopg-binary@3.3.4",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "LGPL-3.0-only"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://psycopg.org/"
-        }
-      ],
-      "description": "PostgreSQL database adapter for Python -- C optimisation distribution",
-      "properties": [
-        {
-          "name": "cyclowareness:copyleft",
-          "value": "weak-copyleft"
-        }
-      ]
     },
     {
       "type": "library",
@@ -1262,28 +1090,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pygments@2.20.0",
-      "name": "Pygments",
-      "version": "2.20.0",
-      "purl": "pkg:pypi/pygments@2.20.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "BSD-2-Clause"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://pygments.org"
-        }
-      ],
-      "description": "Pygments is a syntax highlighting package written in Python."
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/pyparsing@3.3.2",
       "name": "pyparsing",
       "version": "3.3.2",
@@ -1334,72 +1140,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pytest@9.1.1",
-      "name": "pytest",
-      "version": "9.1.1",
-      "purl": "pkg:pypi/pytest@9.1.1",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://docs.pytest.org/en/latest/"
-        }
-      ],
-      "description": "pytest: simple powerful testing with Python"
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/pytest-asyncio@1.4.0",
-      "name": "pytest-asyncio",
-      "version": "1.4.0",
-      "purl": "pkg:pypi/pytest-asyncio@1.4.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/pytest-dev/pytest-asyncio"
-        }
-      ],
-      "description": "Pytest support for asyncio"
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/pytest-cov@7.1.0",
-      "name": "pytest-cov",
-      "version": "7.1.0",
-      "purl": "pkg:pypi/pytest-cov@7.1.0",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://pytest-cov.readthedocs.io/"
-        }
-      ],
-      "description": "Pytest plugin for measuring coverage."
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/python-dotenv@1.2.2",
       "name": "python-dotenv",
       "version": "1.2.2",
@@ -1444,10 +1184,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pytz@2026.2",
+      "bom-ref": "pkg:pypi/pytz@2026.3.post1",
       "name": "pytz",
-      "version": "2026.2",
-      "purl": "pkg:pypi/pytz@2026.2",
+      "version": "2026.3.post1",
+      "purl": "pkg:pypi/pytz@2026.3.post1",
       "scope": "required",
       "licenses": [
         {
@@ -1752,28 +1492,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/tzdata@2026.3",
-      "name": "tzdata",
-      "version": "2026.3",
-      "purl": "pkg:pypi/tzdata@2026.3",
-      "scope": "optional",
-      "licenses": [
-        {
-          "license": {
-            "id": "Apache-2.0"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/python/tzdata"
-        }
-      ],
-      "description": "Provider of IANA time zone data"
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/urllib3@2.7.0",
       "name": "urllib3",
       "version": "2.7.0",
@@ -1796,10 +1514,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/uvicorn@0.49.0",
+      "bom-ref": "pkg:pypi/uvicorn@0.51.0",
       "name": "uvicorn",
-      "version": "0.49.0",
-      "purl": "pkg:pypi/uvicorn@0.49.0",
+      "version": "0.51.0",
+      "purl": "pkg:pypi/uvicorn@0.51.0",
       "scope": "required",
       "licenses": [
         {
@@ -1815,6 +1533,28 @@
         }
       ],
       "description": "The lightning-fast ASGI server."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvloop@0.22.1",
+      "name": "uvloop",
+      "version": "0.22.1",
+      "purl": "pkg:pypi/uvloop@0.22.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT License"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pypi.org/project/uvloop/"
+        }
+      ],
+      "description": "Fast implementation of asyncio event loop on top of libuv"
     },
     {
       "type": "library",
@@ -1840,10 +1580,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/websockets@16.0",
+      "bom-ref": "pkg:pypi/websockets@16.1.1",
       "name": "websockets",
-      "version": "16.0",
-      "purl": "pkg:pypi/websockets@16.0",
+      "version": "16.1.1",
+      "purl": "pkg:pypi/websockets@16.1.1",
       "scope": "required",
       "licenses": [
         {
@@ -1859,28 +1599,6 @@
         }
       ],
       "description": "An implementation of the WebSocket Protocol (RFC 6455 & 7692)"
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:pypi/win-unicode-console@0.5",
-      "name": "win_unicode_console",
-      "version": "0.5",
-      "purl": "pkg:pypi/win-unicode-console@0.5",
-      "scope": "required",
-      "licenses": [
-        {
-          "license": {
-            "id": "MIT"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/Drekin/win-unicode-console"
-        }
-      ],
-      "description": "Enable Unicode input and display when running Python from Windows console."
     },
     {
       "type": "library",
