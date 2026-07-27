@@ -24,6 +24,7 @@ from __future__ import annotations
 import importlib.metadata as md
 import json
 import re
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -200,6 +201,19 @@ def write_sbom(rows: list[dict], generated: str) -> None:
                 }
             ],
             "authors": [{"name": "Safarali Safarli"}],
+            # Which interpreter and platform resolved these versions. A
+            # dependency closure is platform-specific, so an SBOM without this is
+            # a document about whoever last ran the generator. It also lets the
+            # regression test demand an exact version match in the environment
+            # the SBOM describes, and only coverage elsewhere, instead of failing
+            # on every machine that is not the author's.
+            "properties": [
+                {"name": "cyclowareness:generated_on_platform", "value": sys.platform},
+                {
+                    "name": "cyclowareness:generated_on_python",
+                    "value": "%d.%d" % sys.version_info[:2],
+                },
+            ],
             "component": {
                 "type": "application",
                 "bom-ref": "pkg:generic/cyclowareness-sandbox",

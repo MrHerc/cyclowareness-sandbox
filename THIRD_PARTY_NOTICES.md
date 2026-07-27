@@ -11,7 +11,7 @@ written by hand, so every version and licence below is the one actually present
 in the build. The machine-readable equivalent is [`sbom.json`](sbom.json)
 (CycloneDX 1.5).
 
-- Generated: 2026-07-27T03:12:04Z
+- Generated: 2026-07-27T05:36:30Z
 - Distributions recorded: 82 (70 in the runtime closure)
 - Scope: the dependency closure declared by `backend/requirements.txt` and
   `worker/requirements.txt`, resolved against the reference environment.
