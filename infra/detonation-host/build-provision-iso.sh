@@ -44,11 +44,15 @@ printf '   python-amd64.exe %s bytes\n' "$(stat -c %s "$CACHE/python-amd64.exe")
 
 echo "== mastering =="
 STAGE=$(mktemp -d); trap 'rm -rf "$STAGE"' EXIT
+# Everything at the ROOT of the medium. setup.cmd resolves its payload with
+# `set SRC=%~dp0`, which is the directory setup.cmd itself sits in, and then
+# reads "%SRC%python-amd64.exe" and "%SRC%agent.py". Staging them under
+# payload/ produces an ISO that passes a naive check and then installs neither
+# Python nor the agent, so the guest boots and never answers.
 cp "$HERE/guest/autounattend.xml" "$STAGE/autounattend.xml"
 cp "$HERE/guest/setup.cmd" "$STAGE/setup.cmd"
 cp "$HERE/guest/harden.py" "$STAGE/harden.py"
-mkdir -p "$STAGE/payload"
-cp "$CACHE/agent.py" "$CACHE/python-amd64.exe" "$STAGE/payload/"
+cp "$CACHE/agent.py" "$CACHE/python-amd64.exe" "$STAGE/"
 
 rm -f "$OUT"
 # -iso-level 4 so the answer file keeps its real name in the ISO 9660 tree too.
@@ -59,12 +63,19 @@ rm -f "$OUT"
 xorriso -as mkisofs -iso-level 4 -J -joliet-long -R -V CAPEPROV -o "$OUT" "$STAGE" 2>&1 | tail -1
 
 echo "== verifying =="
-# Windows Setup only looks at the ROOT of the medium; a file one directory down
-# is silently ignored. Checked in both trees, because they can disagree.
-for want in /autounattend.xml /setup.cmd /payload/agent.py /payload/python-amd64.exe; do
+# Windows Setup only looks at the ROOT for the answer file, and setup.cmd reads
+# its payload from its own directory - so everything must be at the root, and
+# the check must assert that rather than merely that the files are somewhere.
+for want in /autounattend.xml /setup.cmd /harden.py /agent.py /python-amd64.exe; do
   xorriso -indev "$OUT" -find "$want" 2>/dev/null | grep -q . \
-    || { echo "   MISSING from the Rock Ridge tree: $want" >&2; exit 1; }
+    || { echo "   MISSING from the root of the ISO: $want" >&2; exit 1; }
 done
+# The paths setup.cmd will actually dereference, read out of setup.cmd itself so
+# renaming a payload file cannot silently desynchronise the two.
+while read -r ref; do
+  xorriso -indev "$OUT" -find "/$ref" 2>/dev/null | grep -q . \
+    || { echo "   setup.cmd references %SRC%$ref, which is not on the ISO" >&2; exit 1; }
+done < <(grep -oE '%SRC%[A-Za-z0-9._-]+' "$HERE/guest/setup.cmd" | sed 's/%SRC%//' | sort -u)
 if command -v isoinfo >/dev/null; then
   isoinfo -i "$OUT" -l 2>/dev/null \
     | sed -n '/Directory listing of \/$/,/^$/p' \

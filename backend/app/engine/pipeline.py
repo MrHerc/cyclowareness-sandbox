@@ -106,11 +106,26 @@ def _tier_record(static_ran: bool, analyzer_gaps: dict[str, str]) -> dict[str, A
             "detail": "Parsers and YARA. The sample is never executed.",
             "unavailable_analyzers": analyzer_gaps,
         },
+        # NEVER True here. Static analysis has just finished; no worker has seen
+        # this sample yet, and whether one is attached says nothing about whether
+        # this particular job was detonated.
+        #
+        # It used to be `dynamic_on`, i.e. the SANDBOX_DYNAMIC_WORKER flag, which
+        # produced two failures at once the moment an operator turned the feature
+        # on. The report asserted "Detonation, syscall tracing and the native
+        # engine ran on an attached isolated worker" for a sample nothing had
+        # executed — a false statement in an artifact this product signs. And
+        # because `_needs_dynamic` skips jobs whose dynamic tier already ran, the
+        # job was then dropped from the worker queue, so it never would be
+        # detonated. Turning the feature on switched it off and lied about it.
+        #
+        # The only writer permitted to set this True is `ingest_report`, which
+        # has an actual worker report in hand and copies `report.ran` from it.
         "dynamic": {
-            "ran": dynamic_on,
+            "ran": False,
             "detail": (
-                "Detonation, syscall tracing and the native engine ran on an attached "
-                "isolated worker."
+                "Queued for detonation on the attached isolated worker; behaviour "
+                "will be merged into this report when the worker posts it."
                 if dynamic_on
                 else native.unavailable_reason()
             ),
