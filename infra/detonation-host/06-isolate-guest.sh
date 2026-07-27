@@ -36,35 +36,12 @@ systemctl enable --now cyclo-guest-isolation.timer
 echo "   timer: $(systemctl is-active cyclo-guest-isolation.timer)"
 
 echo
-echo "== verifying FROM INSIDE THE GUEST (the only test that counts) =="
-ex() {
-  curl -s --max-time 40 -X POST --data-urlencode "command=$1" "$AGENT/execute" 2>/dev/null \
-    | python3 -c 'import sys,json
-try: d=json.load(sys.stdin)
-except Exception: print(""); raise SystemExit
-print((((d.get("stdout") or "")+(d.get("stderr") or "")).strip() or "")[:200].replace(chr(10)," "))'
-}
-curl -s --max-time 8 "$AGENT/" >/dev/null || { echo "agent unreachable - start the guest first" >&2; exit 1; }
-
-fail=0
-for port in 22 80 8000 5432 27017 6379; do
-  v=$(ex "powershell -NoProfile -Command Test-NetConnection -ComputerName 192.168.122.1 -Port $port -InformationLevel Quiet" | grep -oE 'True|False' | head -1)
-  printf "   host:%-6s reachable=%s\n" "$port" "${v:-?}"
-  [[ "$v" == "True" ]] && { echo "   ^^ MUST be False"; fail=1; }
-done
-rs=$(ex "powershell -NoProfile -Command Test-NetConnection -ComputerName 192.168.122.1 -Port 2042 -InformationLevel Quiet" | grep -oE 'True|False' | head -1)
-printf "   host:2042   reachable=%s  (result server, MUST be True)\n" "${rs:-?}"
-[[ "$rs" != "True" ]] && fail=1
-
-for probe in "http://1.1.1.1" "https://www.microsoft.com"; do
-  code=$(ex "curl.exe -s -m 8 -o NUL -w %{http_code} $probe")
-  printf "   egress %-26s -> %s\n" "$probe" "${code:-?}"
-  [[ "$code" =~ ^[1-5][0-9][0-9]$ ]] && { echo "   ^^ MUST be 000"; fail=1; }
-done
-
-echo
-if (( fail )); then
-  echo "CONTAINMENT FAILED - do not detonate anything on this host." >&2
-  exit 1
-fi
-echo "Containment verified. Safe to detonate."
+echo "== verifying =="
+# Delegated to verify-containment.sh, which changes nothing and can be run on
+# its own. Keeping the checks in here made them useless: this script re-applies
+# the rules first, so it was verifying a state it had just created. Proved by
+# experiment - with a hole punched in INPUT, the combined script still printed
+# "Safe to detonate" because it closed the hole before looking, while the
+# verifier run alone correctly failed. Run verify-containment.sh before every
+# real-malware run, not just after installing.
+exec "$HERE/verify-containment.sh"

@@ -33,6 +33,17 @@ iptables -I FORWARD 2 -i $WAN -o $BR -j DROP
 #    guest agent over connections the HOST opens; without this the replies are
 #    dropped on the way back and the whole sandbox goes dark. It does not let the
 #    guest open anything - only answers to what we asked for.
+# 3. DNS is deliberately NOT accepted. libvirt's dnsmasq on this bridge forwards
+#    upstream, so allowing udp/53 handed a detonating sample a working recursive
+#    resolver - and DNS tunnelling is an exfiltration channel that blocking TCP
+#    egress does nothing about. The host's ruleset looked correct; only probing
+#    from inside the guest showed `Resolve-DnsName example.com` returning four
+#    real answers.
+#
+#    Nothing analytically useful is lost. The query still leaves the guest and
+#    still lands in the per-task pcap, so the domain a sample wanted is captured
+#    as an IOC either way - only the answer is withheld. Serving controlled
+#    answers is a sinkhole feature to build deliberately, not a default.
 for spec in "-m conntrack --ctstate ESTABLISHED,RELATED" \
             "-p tcp --dport $RS_PORT" "-p udp --dport 53" "-p udp --dport 67"; do
   iptables -D INPUT -i $BR $spec -j ACCEPT 2>/dev/null
@@ -41,6 +52,5 @@ iptables -D INPUT -i $BR -j DROP 2>/dev/null
 
 iptables -I INPUT 1 -i $BR -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 iptables -I INPUT 2 -i $BR -p tcp --dport $RS_PORT -j ACCEPT
-iptables -I INPUT 3 -i $BR -p udp --dport 53 -j ACCEPT
-iptables -I INPUT 4 -i $BR -p udp --dport 67 -j ACCEPT
-iptables -I INPUT 5 -i $BR -j DROP
+iptables -I INPUT 3 -i $BR -p udp --dport 67 -j ACCEPT
+iptables -I INPUT 4 -i $BR -j DROP
