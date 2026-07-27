@@ -69,6 +69,52 @@ _CATEGORY_BY_CAP = [
     ("discovery", "Riskware"),
 ]
 
+def _category_for(caps: set[str], signals: list) -> str | None:
+    """The headline category: the capability the evidence actually leans on.
+
+    A fixed priority order alone gets this visibly wrong. Formbook is an
+    infostealer, and a real detonation of it produced dozens of credential and
+    injection signals against a couple of wiper-categorised ones — yet
+    `destruction` sits first in the list, so the report read
+    `Win32.Ransom.Formbook`. Anyone who knows the family reads that as the
+    product not knowing what it is looking at, and they are half right.
+
+    So: weigh each candidate capability by how many signals support it, and let
+    the priority order break ties. A sample that really is ransomware still
+    produces overwhelmingly destructive evidence and still comes out `Ransom`;
+    one that merely touched a volume on its way to stealing passwords does not.
+    """
+    from .capabilities import detect as _detect
+
+    if not caps:
+        return None
+    ranked = [(cap, cat) for cap, cat in _CATEGORY_BY_CAP if cap in caps]
+    if not ranked:
+        return None
+
+    # Only HIGH-severity signals count toward support. Weighing every signal
+    # equally was measurably worse than the plain priority order: discovery is
+    # the most common thing any program does, so raw counts crowned `Riskware`
+    # on WannaCry. Severity is what separates "touched a volume" from "encrypted
+    # the disk".
+    support: dict[str, int] = {}
+    for signal in signals:
+        if SEVERITY_ORDER.get(signal.severity, 0) < SEVERITY_ORDER["high"]:
+            continue
+        for cap in _detect([signal]):
+            support[cap] = support.get(cap, 0) + 1
+
+    # Priority still leads; support only overrides it when another capability has
+    # clearly more high-severity evidence. Two is the margin: one stray signal
+    # should not rename a family.
+    lead_cap, lead_cat = ranked[0]
+    lead = support.get(lead_cap, 0)
+    for cap, cat in ranked[1:]:
+        if support.get(cap, 0) >= lead + 2:
+            lead_cap, lead_cat, lead = cap, cat, support[cap]
+    return lead_cat
+
+
 _ENGINE_LABELS = {
     "generic": "CS-Static/Generic",
     "pe": "CS-Static/PE",
@@ -159,7 +205,7 @@ def classify(
     caps = detect_capabilities(all_signals, iocs)
 
     platform = _platform(family, mime)
-    category = next((cat for cap, cat in _CATEGORY_BY_CAP if cap in caps), None)
+    category = _category_for(caps, all_signals)
     #: A file we found no capability in is not "Suspicious" — it is a file we
     #: found nothing in. Naming it after its worst informational signal is how
     #: a Microsoft-signed binary became "Win32.Downloader.TimestampAnomaly".
