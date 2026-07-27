@@ -196,14 +196,25 @@ def test_sbom_lists_the_really_installed_versions() -> None:
     props = {p["name"]: p["value"] for p in sbom.get("metadata", {}).get("properties", [])}
     same_environment = props.get("cyclowareness:generated_on_platform") == sys.platform
 
+    if not same_environment:
+        # The closure is resolved per platform, and the SBOM ships describing the
+        # artifact (the Linux image), not a developer's machine. Off that
+        # platform neither the names nor the versions are checkable — only the
+        # structural assertions in the other tests are. Asserting anyway is how a
+        # procurement artifact acquires a permanently red test that everybody
+        # learns to ignore.
+        pytest.skip(
+            "SBOM describes "
+            f"{props.get('cyclowareness:generated_on_platform')}; running on {sys.platform}"
+        )
+
     for comp in sbom["components"]:
         key = _norm(comp["name"])
         assert key in installed, f"{comp['name']} is in the SBOM but not installed"
-        if same_environment:
-            assert comp["version"] == installed[key], (
-                f"{comp['name']} recorded as {comp['version']}, installed {installed[key]} "
-                "— run `python scripts/generate_sbom.py`"
-            )
+        assert comp["version"] == installed[key], (
+            f"{comp['name']} recorded as {comp['version']}, installed {installed[key]} "
+            "— run `python scripts/generate_sbom.py`"
+        )
 
     # The declared runtime roots must actually be covered, or the SBOM is partial.
     listed = {_norm(c["name"]) for c in sbom["components"]}
