@@ -86,7 +86,11 @@ def _safe_suffix(original_name: str | None) -> str:
     if not original_name or "." not in original_name:
         return ""
     ext = original_name.rsplit(".", 1)[1]
-    return f".{ext.lower()}" if _SUFFIX_RE.match(ext) else ""
+    # fullmatch, not match: in Python `$` also matches immediately before a
+    # trailing newline, so `_safe_suffix("invoice.exe\n")` returned ".exe\n" —
+    # a newline in a value that goes on to build a Content-Disposition header
+    # and a file name on the worker's disk.
+    return f".{ext.lower()}" if _SUFFIX_RE.fullmatch(ext) else ""
 
 
 @router.get("/queue")

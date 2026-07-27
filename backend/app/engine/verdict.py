@@ -23,10 +23,13 @@ from .capabilities import detect as detect_capabilities
 #: Capabilities that justify calling a file a detection rather than a
 #: description. Discovery, evasion, execution and network are true of ordinary
 #: software; destruction, credential theft, exploitation and code injection are
-#: not. Injection earns its place empirically: across three signed installers
-#: detonated on our own host, none demonstrated it at high severity, while every
-#: malware sample that unpacked did.
-ACCUSING_CAPABILITIES = HIGH_CONSEQUENCE | {"injection"}
+#: not.
+#:
+#: This is exactly the set the capability model already holds to a higher
+#: evidentiary standard, and it is an alias rather than a second list so the two
+#: cannot drift apart — a detection threshold and an evidence threshold that
+#: disagree is how a sample gets accused of something the report does not show.
+ACCUSING_CAPABILITIES = HIGH_CONSEQUENCE
 from .contracts import SEVERITY_ORDER, AnalyzerResult, IOCs
 
 _FLAGGING = {"medium", "high", "critical"}

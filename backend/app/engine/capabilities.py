@@ -112,7 +112,16 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
 #: Behaviour reported by the off-host worker arrives as ``native.*`` /
 #: ``dynamic.*`` ids. That tier observed the sample RUNNING, so its evidence is
 #: authoritative; it is matched on the id's final segment against whole tokens.
-_DYNAMIC_PREFIXES = ("native.", "dynamic.", "cuckoo.", "capev2.", "qiling.", "firejail.")
+#:
+#: `joe.` belongs here for the same reason the others do — JoeSandboxEngine
+#: emits `joe.malicious` and `joe.threat.<name>` — and its absence meant a Joe
+#: report demonstrated no capability at all. Since "malicious" additionally
+#: requires a nameable capability, a deployment whose only dynamic engine was
+#: Joe could never reach a malicious verdict: every sample came back
+#: suspicious / `Win32.Clean`.
+_DYNAMIC_PREFIXES = (
+    "native.", "dynamic.", "cuckoo.", "capev2.", "qiling.", "firejail.", "joe.",
+)
 _DYNAMIC_TOKENS: dict[str, tuple[str, ...]] = {
     "execution": ("exec", "spawns_shell", "process_create", "run"),
     "network": ("network", "beacon", "c2", "connect", "dns", "http", "exfil"),
@@ -373,7 +382,17 @@ def detect(signals: Iterable[Signal], iocs: IOCs | None = None) -> set[str]:
             if cap in HIGH_CONSEQUENCE and not conclusive:
                 continue
             caps.add(cap)
-        caps.update(_dynamic_capabilities(sid))
+        # The token pass is subject to the same gate. It used to run
+        # unconditionally here, which quietly re-granted whatever the category
+        # branch above had just refused: `capev2.injection_rwx` at severity
+        # medium matched the token `injection` and handed back the injection
+        # capability, and `credential_dumping_lsass` did the same for
+        # credential. The corpus tests did not catch it because no benign sample
+        # happened to carry a token-matching name — luck, not correctness.
+        for cap in _dynamic_capabilities(sid):
+            if cap in HIGH_CONSEQUENCE and not conclusive:
+                continue
+            caps.add(cap)
     return caps
 
 
