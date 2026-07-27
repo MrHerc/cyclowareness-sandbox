@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import __version__
+from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
 from .config import get_settings
 from .db import init_db
@@ -36,7 +36,17 @@ async def lifespan(app: FastAPI):
             settings.analyst_password,
             settings.api_key_list[0] if settings.api_key_list else "(none)",
         )
-    yield
+    # Retention runs in-process rather than from a cron entry: this ships as an
+    # appliance into environments that are often air-gapped, and an operator who
+    # has to wire up a scheduler is an operator whose disk eventually fills.
+    if retention.start_scheduler():
+        logger.info("retention: %s", retention.policy()["statement"])
+    else:
+        logger.info("retention is not configured — samples and reports are kept indefinitely")
+    try:
+        yield
+    finally:
+        retention.stop_scheduler()
 
 
 app = FastAPI(

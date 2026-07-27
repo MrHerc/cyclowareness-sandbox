@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Response
 
-from .. import metrics, sovereignty
+from .. import metrics, retention, sovereignty
 from ..config import get_settings
 from ..engine import native
 from ..engine import scoring
@@ -86,6 +86,10 @@ def capabilities():
         # calls and here they are" is evidence, and this is the endpoint an
         # operator points an auditor at.
         "sovereignty": sovereignty.status(),
+        # How long this deployment keeps a customer's malware and its evidence.
+        # It belongs next to the sovereignty posture because both answer the same
+        # procurement question: what happens to our data once you have it.
+        "retention": retention.policy(),
         "integrations": integrations,
         "supported_extensions": SUPPORTED_EXTENSIONS,
         "metrics_enabled": metrics.enabled(),

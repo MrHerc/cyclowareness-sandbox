@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     # --- ingest limits ------------------------------------------------------
     max_sample_mb: int = Field(default=32)
 
+    # --- data lifecycle -----------------------------------------------------
+    #: Days before the quarantined bytes are deleted. The sample is live malware
+    #: on the operator's disk: a hazard and a storage cost, needed after the
+    #: analysis only for a re-run. 0 keeps it forever — an unset policy must
+    #: never delete a customer's data, so retention is opt-in, not opt-out.
+    sample_retention_days: int = Field(default=0)
+    #: Days before the report row itself goes. This is the evidence the customer
+    #: bought, so it normally outlives the sample by a long way. 0 keeps forever.
+    report_retention_days: int = Field(default=0)
+    retention_sweep_hours: float = Field(default=6.0)
+
     # --- AI -----------------------------------------------------------------
     #: When set, an LLM writes the human-readable triage narrative. Absent, a
     #: deterministic template does — the numeric verdict is identical either way,

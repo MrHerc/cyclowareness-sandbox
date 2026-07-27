@@ -100,6 +100,12 @@ class SandboxJob(Base):
     #: job: the worker's own report, merged back in the same Signal vocabulary.
     dynamic: Mapped[dict] = mapped_column(JSON, default=dict)
 
+    #: When retention deleted the quarantined bytes. The report outlives the
+    #: sample, so this is how a reader tells "we still hold the file" from "the
+    #: file is gone and this record is what remains of it" — and it is why
+    #: re-analysis can refuse cleanly instead of failing on a missing path.
+    sample_deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
     #: Cyclowareness Impact Rating vector + base score (see engine/impact.py).
     #: Renamed from `cvss` by 0003; the rename carries the existing values, so a
     #: row rated by the previous release still renders.

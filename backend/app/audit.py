@@ -87,6 +87,11 @@ class AuditAction:
     REPORT_EXPORTED = "report.exported"
     SCORING_WEIGHTS_CHANGED = "config.scoring_weights_changed"
     DYNAMIC_REPORT_INGESTED = "sample.dynamic_report_ingested"
+    #: Retention deletions. A deletion nobody can prove happened is not one an
+    #: auditor accepts, and these two lines are the answer to the erasure clause
+    #: in a data-processing agreement.
+    SAMPLE_PURGED = "retention.sample_purged"
+    REPORT_PURGED = "retention.report_purged"
 
 
 class AuditOutcome:

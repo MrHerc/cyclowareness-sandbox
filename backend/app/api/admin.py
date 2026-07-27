@@ -11,9 +11,11 @@ for submission must not reach them.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.orm import Session
 
-from .. import audit
+from .. import audit, retention
 from ..auth import Identity, require_admin
+from ..db import get_db
 from ..engine import scoring
 from ..schemas import WeightsUpdate
 
@@ -52,6 +54,29 @@ def reset_weights(request: Request, identity: Identity = Depends(require_admin))
     restored = scoring.reset_weights()
     _audit_weights(request, identity, current, restored, ok=True)
     return restored
+
+
+@router.get("/retention")
+def get_retention(identity: Identity = Depends(require_admin)):
+    """The configured data-lifecycle policy, in the words a DPA needs."""
+    return retention.policy()
+
+
+@router.post("/retention/run")
+def run_retention(
+    request: Request,
+    db: Session = Depends(get_db),
+    identity: Identity = Depends(require_admin),
+):
+    """Sweep now rather than waiting for the scheduler.
+
+    Operators need this for two real situations: proving to an auditor that the
+    policy does what the document says, and reclaiming disk immediately after
+    shortening the window. Each deletion writes its own line to the chain of
+    custody, so an on-demand sweep is as accountable as a scheduled one.
+    """
+    outcome = retention.sweep(db, actor=identity.subject)
+    return outcome.to_dict()
 
 
 def _audit_weights(

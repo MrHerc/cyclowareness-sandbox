@@ -25,10 +25,13 @@ from app import db as app_db
 from app.engine.models import SandboxJob
 from app.main import app
 
-#: Added by the release under test. Absent from a previous-release database.
+#: Added after the baseline. Absent from a previous-release database.
 #: ``impact`` was added as ``cvss`` and renamed by 0003; either way it is the
-#: column an older database does not have.
-POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre")
+#: column an older database does not have. ``sample_deleted_at`` arrived with
+#: retention in 0005. Every new column has to be listed here, and that is the
+#: point: forgetting one makes the baseline-fidelity assertion fail loudly
+#: rather than letting a migration drift from the schema it claims to reproduce.
+POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre", "sample_deleted_at")
 
 
 def _build_previous_release_schema(engine: sa.Engine) -> None:

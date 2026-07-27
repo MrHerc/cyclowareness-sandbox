@@ -41,6 +41,23 @@ _POST_BASELINE_COLUMNS = {"cvss", "verdict", "mitre"}
 #: it does not have.
 IMPACT_REVISION = "0003_impact_rating"
 _IMPACT_COLUMNS = {"impact", "verdict", "mitre"}
+#: The revision that added retention's deletion marker.
+RETENTION_REVISION = "0005_sample_deleted_at"
+_RETENTION_COLUMNS = {"sample_deleted_at", "impact", "verdict", "mitre"}
+
+#: Newest revision first. A pre-Alembic database is stamped at the first entry
+#: whose marker columns are all present, then upgraded from there.
+#:
+#: A ladder rather than a chain of ifs because it has to be EXTENDED, not
+#: rewritten, and forgetting to extend it is not a cosmetic miss: a customer
+#: whose database was built by the old ``create_all()`` gets stamped too low,
+#: the next migration re-adds a column that already exists, and the service
+#: fails to boot. Every migration that adds a column adds a rung here.
+_ADOPTION_LADDER: tuple[tuple[str, set[str]], ...] = (
+    (RETENTION_REVISION, _RETENTION_COLUMNS),
+    (IMPACT_REVISION, _IMPACT_COLUMNS),
+    (CVSS_REVISION, _POST_BASELINE_COLUMNS),
+)
 
 connect_args: dict = {}
 if settings.database_url.startswith("sqlite"):
@@ -92,10 +109,9 @@ def _legacy_stamp_target(connection: Connection) -> str | None:
     if "alembic_version" in tables or "sandbox_jobs" not in tables:
         return None
     columns = {c["name"] for c in inspect(connection).get_columns("sandbox_jobs")}
-    if _IMPACT_COLUMNS <= columns:
-        return IMPACT_REVISION
-    if _POST_BASELINE_COLUMNS <= columns:
-        return CVSS_REVISION
+    for revision, markers in _ADOPTION_LADDER:
+        if markers <= columns:
+            return revision
     return BASELINE_REVISION
 
 
