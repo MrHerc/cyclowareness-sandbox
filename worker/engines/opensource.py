@@ -23,6 +23,7 @@ import os
 import time
 from typing import Any
 
+from . import baseline
 from .base import Engine, Report
 
 
@@ -409,24 +410,101 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         )
 
     # Network IOCs.
+    #
+    # `dead_hosts` is not an afterthought here, it is the main event. A sandbox
+    # worth running is network-isolated, so a sample's command-and-control never
+    # completes a handshake: the endpoint it *tried* to reach lands in
+    # `dead_hosts` and only successfully-contacted addresses reach `hosts`.
+    # Measured on this deployment with a probe dialling 203.0.113.77:443 and
+    # 198.51.100.23:8080 — both appeared in `dead_hosts`, neither in `hosts`,
+    # while `hosts` held nothing but two CDN addresses. Reading only `hosts`
+    # therefore discards every real indicator and keeps the noise: exactly
+    # backwards, and silent about it.
+    #
+    # A refused connection is still an indicator — arguably a cleaner one, since
+    # it shows intent without the sample getting what it wanted. Both go into the
+    # IOC buckets; which of the two it was is preserved in facts, because
+    # "attempted" and "established" mean different things to an investigator.
     net = data.get("network", {}) or {}
+    established: list[str] = []
+    attempted: list[str] = []
+
     for host in net.get("hosts", []) or []:
         ip = host if isinstance(host, str) else host.get("ip")
         if ip:
             report.add_ioc("ips", ip)
+            established.append(ip)
+
+    for entry in net.get("dead_hosts", []) or []:
+        if isinstance(entry, (list, tuple)):
+            ip = entry[0] if entry else None
+            port = entry[1] if len(entry) > 1 else None
+        elif isinstance(entry, dict):
+            ip, port = entry.get("ip"), entry.get("port")
+        else:
+            ip, port = entry, None
+        if ip:
+            report.add_ioc("ips", str(ip))
+            attempted.append(f"{ip}:{port}" if port else str(ip))
+
     for dom in net.get("domains", []) or []:
         name = dom if isinstance(dom, str) else dom.get("domain")
         if name:
             report.add_ioc("domains", name)
+
+    # DNS carries names the sample asked for even when nothing was reachable,
+    # plus the addresses behind them. Both are indicators.
+    for query in net.get("dns", []) or []:
+        if not isinstance(query, dict):
+            continue
+        request = query.get("request")
+        if request:
+            report.add_ioc("domains", request)
+        # A CNAME chain and its addresses are how one name resolved, not separate
+        # indicators. If the name asked for is platform noise, its whole chain is
+        # too — otherwise suppressing `cdn.onenote.net` still leaks
+        # `cdn.onenote.net.edgekey.net` and `e1553.dspg.akamaiedge.net` into the
+        # report, and the suffix list has to grow forever chasing CDN plumbing.
+        # The request itself is still added above, so the filter records it and
+        # the suppression stays auditable.
+        if request and baseline.noise_reason("domains", request):
+            continue
+        for answer in query.get("answers", []) or []:
+            if not isinstance(answer, dict):
+                continue
+            if answer.get("type") in ("A", "AAAA") and answer.get("data"):
+                report.add_ioc("ips", answer["data"])
+            elif answer.get("type") == "CNAME" and answer.get("data"):
+                report.add_ioc("domains", answer["data"])
+
     for http in net.get("http", []) or []:
         uri = http.get("uri") if isinstance(http, dict) else None
         if uri:
             report.add_ioc("urls", uri)
 
+    if established or attempted:
+        report.facts["network_endpoints"] = {
+            "established": established,
+            "attempted": attempted,
+        }
+
     # A timeline from process behaviour, if present.
     procs = (data.get("behavior", {}) or {}).get("processes", []) or []
     for i, proc in enumerate(procs[:50]):
         report.add_event(i, "process", proc.get("process_name", "process"))
+
+    # Drop the guest OS's own chatter, and say so. An idle Windows guest reaches
+    # ~12 endpoints before a sample does anything; reported as IOCs they make
+    # every detonation look busy and none of it credible. What was removed is
+    # recorded rather than discarded - a filter an analyst cannot inspect is a
+    # filter they cannot trust.
+    report.iocs, suppressed = baseline.partition(report.iocs)
+    if suppressed:
+        report.facts["iocs_suppressed"] = {
+            "count": len(suppressed),
+            "entries": suppressed[:50],
+            "basis": "idle-guest baseline: see worker/engines/baseline.py",
+        }
 
     if not report.signals:
         score = info.get("score")

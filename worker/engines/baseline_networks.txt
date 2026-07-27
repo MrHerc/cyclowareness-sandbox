@@ -1,0 +1,36 @@
+# Networks the IDLE golden guest image contacts on its own.
+#
+# Provenance, so this can be judged rather than trusted:
+#   image    Cyclowareness golden image v2 - Windows 10 22H2 Pro (19045.3803),
+#            CAPE agent 0.22, Defender/firewall/Windows Update off, and
+#            telemetry, MSA sign-in, NCSI active probing, Edge update, Delivery
+#            Optimization and error reporting disabled.
+#   method   three separate CAPE detonations of a sample that only sleeps, on a
+#            network-isolated guest. Every endpoint in `network.hosts` and
+#            `network.dead_hosts` was collected and collapsed to its /24.
+#   measured 2026-07-27. Runs produced 12, 11 and 12 endpoints; their union was
+#            14 addresses, which is why /24 aggregation is used rather than exact
+#            addresses - the same services answer from neighbouring pool members
+#            on every run.
+#
+# WHEN TO REGENERATE: whenever the golden image changes at all - a Windows
+# update, a new bundled app, a different guest OS. A stale baseline suppresses
+# the wrong things, which is the one failure mode that costs an analyst a real
+# finding. Re-run three idle detonations and rebuild this list; do not hand-edit.
+#
+# WHY /24 AND NOT WIDER: these are Akamai and Microsoft edge networks. A /24 is
+# narrow enough that a sample would have to be reached through the exact same
+# block our idle Windows talks to, and every suppression is still recorded on the
+# report so an analyst can see what was removed and disagree.
+
+# Microsoft / Azure edge
+150.171.28.0/24
+172.211.123.0/24
+
+# Akamai edge serving Microsoft content (Edge, Store, Office, OneNote CDNs)
+2.23.244.0/24
+2.23.246.0/24
+23.32.243.0/24
+23.52.181.0/24
+184.31.94.0/24
+184.86.251.0/24
