@@ -9,13 +9,16 @@
 # attached to the domain, and this domain has two CD-ROMs attached: it silently
 # ate a freshly built 5 GB Windows ISO. Remove only the disk we own, by name.
 set -euo pipefail
+HERE=$(cd "$(dirname "$0")" && pwd)
 ISO="${1:?usage: 04-create-guest.sh /path/to/windows.iso}"
-PROV=/var/lib/libvirt/iso/cape-provision.iso
-DISK=/var/lib/libvirt/images/cape1.qcow2
+PROV=${PROV:-/var/lib/libvirt/iso/cape-provision.iso}
+DISK=${DISK:-/var/lib/libvirt/images/cape1.qcow2}
 
-for f in "$ISO" "$PROV"; do
-  [ -f "$f" ] || { echo "missing: $f" >&2; exit 1; }
-done
+[ -f "$ISO" ] || { echo "missing Windows ISO: $ISO — run 03-build-windows-iso.sh" >&2; exit 1; }
+# Build the provisioning CD rather than demanding it. This script used to abort
+# on a missing cape-provision.iso that nothing in the repository produced, so a
+# clean checkout could not follow its own runbook.
+[ -f "$PROV" ] || "$HERE/build-provision-iso.sh"
 
 virsh destroy cape1 2>/dev/null || true
 virsh undefine cape1 2>/dev/null || true

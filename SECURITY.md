@@ -183,13 +183,33 @@ is safer than one they assume exists.
   roles, and rate limiting are out of scope for this build.
 - **Encryption at rest and transport termination** are deployment concerns
   (disk encryption, TLS at the reverse proxy), not application concerns here.
-- **Persistent audit log / SIEM export.** Actions are logged to stdout and
-  metrics are exposed at `/metrics`; a durable, tamper-evident audit trail is
-  deferred.
-- **Sample retention policy enforcement.** A `purge_older_than` helper exists in
-  storage; scheduling it is left to the operator.
+- **SIEM export.** STIX 2.1 and the signed report can be exported on demand;
+  pushing them to a SIEM on a schedule, and TAXII, are not built.
+
+Two items were listed here as deferred and are not any more:
+
+- **Tamper-evident audit trail** — [`app/audit.py`](backend/app/audit.py) records
+  a hash-chained, append-only log (nine event types), served under `/api/audit`
+  with an endpoint that re-walks the chain and reports the first break. It is
+  what the chain-of-custody claim rests on.
+- **Sample retention** — [`app/retention.py`](backend/app/retention.py) enforces
+  two windows (bytes and report), refuses to delete bytes another in-window job
+  shares by content hash, writes an audited receipt for every deletion, and is
+  started by the application lifespan rather than left to the operator's cron.
+
+## Containment of the detonation host
+
+The machine that runs samples is separate from the web tier and is not covered
+by the guarantees above; see
+[`infra/detonation-host/README.md`](infra/detonation-host/README.md). Its
+containment is a runnable gate, not a description:
+`infra/detonation-host/verify-containment.sh` probes from inside the guest and
+exits non-zero if the guest can reach the internet, outbound DNS, or any host
+port other than the result server. Run it before every real-malware run — CAPE's
+own rooter rewrites the host's firewall when it stops.
 
 ## Reporting a vulnerability
 
-This is a hackathon / exhibition build. Report issues through the repository's
-issue tracker; do not attach live malware samples to a report.
+Report issues through the repository's issue tracker; do not attach live malware
+samples to a report. Use the content hash and, where relevant, the MalwareBazaar
+or VirusTotal reference instead.

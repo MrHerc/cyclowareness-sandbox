@@ -89,7 +89,13 @@ class Config:
             capev2_url=_str("CAPEV2_URL").rstrip("/"),
             capev2_token=_str("CAPEV2_TOKEN"),
             joe_url=_str("JOE_URL").rstrip("/"),
-            joe_apikey=_str("JOE_APIKEY"),
+            # JOE_API_KEY is the documented name and the one the backend's
+            # integration descriptor checks to decide whether to show Joe as
+            # configured. This side read only JOE_APIKEY, so an operator who
+            # followed the documentation saw "configured" in the UI while the
+            # worker quietly refused to run the engine. Both are accepted;
+            # the documented spelling wins.
+            joe_apikey=_str("JOE_API_KEY") or _str("JOE_APIKEY"),
         )
 
     def require_token(self) -> None:

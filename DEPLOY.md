@@ -13,6 +13,20 @@ docker compose up --build      # http://localhost:8000
 and Grafana. For just the app: `docker build -t cyclowareness-sandbox . &&
 docker run --rm -p 8000:8000 cyclowareness-sandbox`.
 
+### Where samples live
+
+`SANDBOX_QUARANTINE` sets the quarantine root — the directory holding submitted
+bytes, addressed by content hash and never executed by this service. It defaults
+to a path inside the container, so **mount it if you want samples to survive a
+restart**, and put it on a volume you are willing to have hostile files sitting
+in. Retention deletes from it on a schedule; see `/api/admin/retention`.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `SANDBOX_QUARANTINE` | in-container path | Quarantine root. Mount for persistence. |
+| `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
+| `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
+
 ## Cloud (Render, from GitHub)
 
 The service reads live in seconds; the only manual step is putting the repo on
@@ -44,3 +58,20 @@ sandboxes, deploy the [`worker/`](worker) image on a **disposable, network-isola
 Linux box you control** (see [`worker/README.md`](worker/README.md)), give it the
 same `DYNAMIC_WORKER_TOKEN` and the API's URL, and it will claim jobs, detonate
 off-host, and post behaviour back. Never run the worker on shared infrastructure.
+
+**Two variables, not one.** They do different jobs and both are needed:
+
+| Variable | Set on | Effect |
+|---|---|---|
+| `DYNAMIC_WORKER_TOKEN` | API **and** worker | The shared secret for `/api/dynamic/*`. Without it the seam returns 503 and no worker can attach. |
+| `SANDBOX_DYNAMIC_WORKER` | API only | Declares that a worker exists. Until it is `1`/`true`/`yes`, every report states the sample was not detonated — even with a worker attached and posting. |
+
+The second is deliberately a declaration rather than a probe: claiming
+behavioural analysis is a statement about hardware someone owns, so it should be
+switched on by whoever owns it and never inferred. It was also undocumented until
+now, which meant an operator could follow this page exactly and still see "no
+dynamic worker attached" on every report.
+
+For a full detonation host — Windows guest, containment, golden snapshot — see
+[`infra/detonation-host/README.md`](infra/detonation-host/README.md), and run its
+`verify-containment.sh` before any real sample.

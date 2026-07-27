@@ -57,10 +57,23 @@ CDBOOT matches `BOOTMGR` exactly.
 | *(upstream)* `cape2.sh base` + `mongo` | installs CAPEv2 itself | no |
 | `02-cape-repair.sh` | libvirt-python, result-server address, storage pool, DHCP reservation | no |
 | `03-build-windows-iso.sh` | fetches the ESD, masters a bootable Windows 10 22H2 ISO | no |
-| `04-create-guest.sh <iso>` | defines and boots `cape1`; the install is fully unattended | no |
+| `04-create-guest.sh <iso>` | builds the provisioning CD if absent, then defines and boots `cape1`; the install is fully unattended | no |
 | `05-harden-guest.sh` | silences guest telemetry, reboots, verifies | no |
-| `06-isolate-guest.sh` | **containment gate** — installs the rules and proves them from inside | no |
+| `06-isolate-guest.sh` | installs the containment rules, then runs the gate below | no |
 | `07-golden-snapshot.sh` | takes the running snapshot and proves a revert discards state | no |
+
+Two helpers the numbered steps call, and which are worth running on their own:
+
+| Helper | Does |
+|---|---|
+| `build-provision-iso.sh` | masters the second CD: `autounattend.xml`, `setup.cmd`, `harden.py`, the CAPE agent taken from the local checkout, and a Python runtime. Verifies the answer file is at the root of **both** filesystem trees — plain 8.3 truncates it to `AUTOUNAT.XML`, and Setup then silently ignores it and stops on the language prompt. |
+| `verify-containment.sh` | **the safety gate.** Changes nothing; answers only "is this host safe to detonate on right now". Run it before every real-malware run and after anything that touches the firewall. |
+
+`verify-containment.sh` is separate from `06` on purpose. When the checks lived
+inside `06` they ran *after* it had applied the rules, so it verified a state it
+had just created: with a hole punched allowing guest → host:22, the combined
+script still printed "Safe to detonate", because it closed the hole before
+looking. A gate that cannot fail manufactures confidence.
 
 Nobody clicks anything. `guest/autounattend.xml` partitions the disk, selects
 Windows 10 Pro, skips OOBE, creates `analyst`, and `guest/setup.cmd` installs

@@ -177,7 +177,14 @@ the whole seam returns `503`. Implementation:
 ### `GET /api/dynamic/queue`
 Query: `limit` (default 20, max 100). Completed jobs of a detonatable family
 whose dynamic tier has not run yet. Each item:
-`{ public_id, sha256, family, size_bytes, sample_url }`.
+`{ public_id, sha256, family, size_bytes, sample_url, suffix }`.
+
+`suffix` is the submitted file's extension, sanitised to one dot plus 1–8 ASCII
+alphanumerics (`".ps1"`, `".exe"`, or `""`). Write the sample to a path ending in
+it. It is not cosmetic: a detonation sandbox picks its analysis package from the
+file name, and CAPEv2 handed a `.sample` falls back to `generic`. Measured on one
+PowerShell sample, that was the difference between 250s / 4 processes / 38
+signatures and 28s / 1 process / 8 signatures — with no error either way.
 
 ```bash
 curl http://localhost:8000/api/dynamic/queue -H "X-Worker-Token: $DYNAMIC_WORKER_TOKEN"
@@ -248,6 +255,42 @@ Restores the default `0.6 / 0.4`.
 ```bash
 curl -X POST http://localhost:8000/api/admin/weights/reset -H "X-API-Key: demo-key"
 ```
+
+### `GET /api/admin/retention`
+The configured retention windows and what is currently past them: how many jobs
+would have their sample bytes purged, how many their reports, and how many are
+held because another in-window job shares the same content hash.
+
+### `POST /api/admin/retention/run`
+Applies the policy now rather than waiting for the scheduler. Returns the counts
+actually deleted. Every deletion writes an audit receipt, so a run is
+reconstructable afterwards from `/api/audit` alone.
+
+---
+
+## Chain of custody
+
+Append-only, hash-chained. Each entry commits to its predecessor, so an entry
+cannot be altered or removed without breaking every entry after it.
+
+### `GET /api/audit`
+Query: `limit`, `offset`, `object_id`, `action`. The recorded events —
+submission, password supply, reanalysis, feedback, each export, and each
+retention deletion — with actor, object, timestamp and chain hash. Contains no
+sample content and no secrets.
+
+### `GET /api/audit/verify`
+Re-walks the whole chain and reports whether it is intact, plus the sequence
+number of the first break if not. This is the endpoint an auditor runs; it
+answers the only question that matters about an audit log.
+
+### `GET /api/audit/export`
+The chain as newline-delimited JSON, for archiving or ingesting elsewhere.
+
+### `GET /api/attestation/pubkey`
+The Ed25519 public key that signs report attestations, so a recipient can verify
+a signed report without contacting this deployment again. Pair it with
+[`tools/verify_report.py`](../tools/verify_report.py).
 
 ---
 
