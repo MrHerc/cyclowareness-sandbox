@@ -26,6 +26,13 @@ class JobSummary(BaseModel):
     stage: str
     risk_level: str
     final_score: float
+    #: The engine's answer, carried on the summary because it is the first thing
+    #: anyone looks at. Omitting it made the dashboard's headline metrics read
+    #: "MALICIOUS 0" and "Not classified 5" for five jobs that were every one of
+    #: them malicious - the frontend was already handling a missing verdict
+    #: gracefully, so nothing errored and the numbers were simply wrong. It costs
+    #: nothing: the column is JSON on the row already loaded for this response.
+    verdict: dict | None = None
     created_at: datetime
     completed_at: datetime | None
 
@@ -44,6 +51,7 @@ class JobSummary(BaseModel):
             stage=job.stage,
             risk_level=job.risk_level,
             final_score=job.final_score,
+            verdict=job.verdict,
             created_at=job.created_at,
             completed_at=job.completed_at,
         )
@@ -73,6 +81,11 @@ class JobDetail(JobSummary):
     @classmethod
     def of(cls, job, children=None) -> "JobDetail":  # type: ignore[override]
         base = JobSummary.of(job).model_dump()
+        # The summary now carries the verdict too, but as `dict | None` — a job
+        # mid-analysis has no verdict yet. The detail view promises a dict, and
+        # normalises None to {} below, so drop the summary's copy rather than
+        # passing the same keyword twice.
+        base.pop("verdict", None)
         return cls(
             **base,
             md5=job.md5,
