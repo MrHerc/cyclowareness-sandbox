@@ -273,8 +273,14 @@ export function JobDetail() {
                     <p className={cx('label', TONE_TEXT[verdictTone(verdict)])}>
                       {verdictHeadline(verdict)}
                     </p>
-                    <h2 className={cx('text-display mt-1 break-all', TONE_TEXT[verdictTone(verdict)])}>
-                      {detection?.threat_name || filename}
+                    {/* break-all alone split the name mid-word on a phone —
+                        "Win32.Ransom.Formb / ook", which reads as a rendering
+                        bug rather than as a threat name. A zero-width space
+                        after each dot gives the browser a natural place to wrap,
+                        so it breaks between the platform, the category and the
+                        family instead of through one of them. */}
+                    <h2 className={cx('text-display mt-1 break-words', TONE_TEXT[verdictTone(verdict)])}>
+                      {(detection?.threat_name || filename).replace(/\./g, '.​')}
                     </h2>
                     <p className="text-body mt-1.5 text-c2">
                       <span className="font-semibold text-c1">{detection?.detection_ratio}</span>{' '}
