@@ -17,6 +17,7 @@ decision the operator must make deliberately.
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from fastapi.responses import FileResponse
@@ -64,6 +65,30 @@ def _needs_dynamic(job: SandboxJob) -> bool:
     return job.status == JobStatus.COMPLETED and job.family in _DYNAMIC_FAMILIES
 
 
+#: A file extension, and nothing else: one dot, then 1-8 ASCII alphanumerics.
+_SUFFIX_RE = re.compile(r"^[A-Za-z0-9]{1,8}$")
+
+
+def _safe_suffix(original_name: str | None) -> str:
+    """The submitted name's extension, sanitised — or "" if there isn't a sane one.
+
+    This exists because a detonation sandbox chooses how to *run* a sample from
+    its file name. CAPEv2 handed a ".sample" falls back to its `generic` package;
+    measured on this deployment, that turned a 229s / 4-process / 38-signature
+    PowerShell detonation into a 28s / 1-process / 8-signature one. Nothing
+    errored — the behavioural evidence was just quietly much thinner.
+
+    The extension is the only part of an attacker-controlled string we propagate,
+    and only when it matches ``_SUFFIX_RE``: no dots, separators, spaces or
+    non-ASCII survive, so nothing here can climb a path or smuggle a second
+    extension past the sandbox's own parsing.
+    """
+    if not original_name or "." not in original_name:
+        return ""
+    ext = original_name.rsplit(".", 1)[1]
+    return f".{ext.lower()}" if _SUFFIX_RE.match(ext) else ""
+
+
 @router.get("/queue")
 def dynamic_queue(
     limit: int = 20,
@@ -85,6 +110,9 @@ def dynamic_queue(
             "family": j.family,
             "size_bytes": j.size_bytes,
             "sample_url": f"/api/dynamic/sample/{j.public_id}",
+            # So the worker can write the sample to a path the sandbox will
+            # recognise. See _safe_suffix.
+            "suffix": _safe_suffix(j.original_name),
         }
         for j in candidates
         if _needs_dynamic(j)
@@ -114,7 +142,10 @@ def dynamic_sample(
     return FileResponse(
         str(path),
         media_type="application/octet-stream",
-        filename=f"{job.sha256}.sample",
+        # Content hash plus the sanitised original extension — never the
+        # submitted string. The extension is load-bearing for the sandbox's
+        # package selection; see _safe_suffix.
+        filename=f"{job.sha256}{_safe_suffix(job.original_name)}",
     )
 
 

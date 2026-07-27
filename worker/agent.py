@@ -185,7 +185,14 @@ class Agent:
             return
 
         log.info("job %s family=%s -> engine %s", public_id, family, engine.name)
-        tmp = tempfile.NamedTemporaryFile(prefix="cw-sample-", delete=False)
+        # Keep the extension the backend sanitised for us. A detonation sandbox
+        # picks how to *run* a sample from its file name: CAPEv2 given a
+        # ".sample" falls back to its `generic` package, which on a measured
+        # PowerShell sample cut the run from 229s / 4 processes / 38 signatures
+        # to 28s / 1 process / 8 signatures. Nothing errors — the evidence just
+        # quietly thins out. Older backends do not send `suffix`; "" is fine.
+        suffix = job.get("suffix") or ""
+        tmp = tempfile.NamedTemporaryFile(prefix="cw-sample-", suffix=suffix, delete=False)
         tmp_path = tmp.name
         tmp.close()
         try:
