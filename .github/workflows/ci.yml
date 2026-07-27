@@ -11,7 +11,10 @@ jobs:
     env:
       APP_ENV: demo
       DATABASE_URL: sqlite:///./ci_test.db
-      SANDBOX_QUARANTINE: ${{ runner.temp }}/quarantine
+      # SANDBOX_QUARANTINE is set in the test step, not here: the `runner`
+      # context does not exist while job-level env is evaluated, so referencing
+      # it made the whole workflow invalid — every run failed at startup with no
+      # jobs, which reads in the UI like a broken test rather than a broken file.
     steps:
       - uses: actions/checkout@v4
 
@@ -31,11 +34,21 @@ jobs:
 
       - name: Run tests
         working-directory: backend
+        env:
+          SANDBOX_QUARANTINE: ${{ runner.temp }}/quarantine
         run: |
           mkdir -p "$SANDBOX_QUARANTINE"
-          # Exit code 5 = "no tests collected"; treat that as a pass so an
-          # in-progress test suite does not red the pipeline.
-          pytest -q; rc=$?; if [ $rc -eq 5 ]; then echo "no tests collected yet"; exit 0; fi; exit $rc
+          # `set +e` because GitHub runs this with `bash -e`: without it pytest's
+          # non-zero exit aborts the step before the code below can read it, and
+          # the exit-5 case can never be handled.
+          set +e
+          pytest -q
+          rc=$?
+          set -e
+          # Exit code 5 = "no tests collected"; a pass, so an empty suite does
+          # not red the pipeline.
+          if [ "$rc" -eq 5 ]; then echo "no tests collected"; exit 0; fi
+          exit "$rc"
 
   frontend:
     name: Frontend (build)
