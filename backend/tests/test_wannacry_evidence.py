@@ -81,16 +81,41 @@ def test_most_signals_map_to_a_capability(wannacry) -> None:
     )
 
 
-def test_what_remains_unmapped_is_genuinely_generic(wannacry) -> None:
-    """The leftovers must be uninformative categories, not real evidence we drop."""
-    allowed = {"generic", "malware", "lateral", "command", "static", "ipc", ""}
+def test_every_unmapped_signal_has_a_stated_reason(wannacry) -> None:
+    """Nothing may be dropped silently. Exactly three reasons are legitimate:
+
+    the categories say nothing specific; the signature is one ordinary software
+    trips too (`data_shared_behaviours.txt`); or it carries an accusing category
+    but the sandbox did not rate it high. Anything else is real evidence
+    disappearing, which is the failure this file exists to prevent.
+    """
+    uninformative = {"generic", "malware", "lateral", "command", "static", "ipc", ""}
     for s in wannacry:
         if capabilities.detect([s]):
             continue
         if capabilities.SEVERITY_ORDER.get(s.severity, 0) < 1:
             continue
         cats = {c.lower() for c in (s.evidence or {}).get("categories", [])} or {""}
-        assert cats <= allowed, f"{s.title} dropped despite categories {sorted(cats)}"
+        tail = s.id.split(".", 1)[1]
+        accusing = {
+            c for c in cats
+            if capabilities.SANDBOX_CATEGORY_CAPABILITIES.get(c) in capabilities.HIGH_CONSEQUENCE
+        }
+        reason = (
+            "uninformative" if cats <= uninformative
+            else "shared with benign software" if tail in capabilities.SHARED_BEHAVIOURS
+            else "accusing category below high severity"
+            if accusing and capabilities.SEVERITY_ORDER.get(s.severity, 0)
+            < capabilities.SEVERITY_ORDER["high"]
+            else None
+        )
+        assert reason, f"{s.title} dropped with categories {sorted(cats)} and no stated reason"
+
+
+def test_the_shared_behaviour_list_is_loaded_and_populated() -> None:
+    """An empty list silently restores the false positives it exists to stop."""
+    assert len(capabilities.SHARED_BEHAVIOURS) >= 5
+    assert "mountpoint_manager_access" in capabilities.SHARED_BEHAVIOURS
 
 
 def test_the_detonation_yields_the_expected_capabilities(wannacry) -> None:

@@ -397,6 +397,55 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
     report.facts["external_score"] = info.get("score")
     report.facts.setdefault("external_engine", "cuckoo/cape")
 
+    # --- identification, which is not behaviour --------------------------------
+    # A YARA match on process memory, or an extracted malware configuration, does
+    # not say what the sample *did* - it says what it *is*. That belongs to the
+    # verdict, not the capability model, so it is lifted separately.
+    #
+    # It is also the only thing that separated our corpus cleanly. Measured over
+    # 8 malware and 3 signed installers: an in-memory YARA hit fired on 8/8 and
+    # 0/3, while the sandbox's own aggregate score did not discriminate at all
+    # (the 7-Zip installer scored 9.0, higher than Locky's 8.0).
+    families: list[str] = []
+    for det in data.get("detections") or []:
+        fam = det.get("family") if isinstance(det, dict) else det
+        if fam and str(fam) not in families:
+            families.append(str(fam))
+    configs: list[str] = []
+    cape = data.get("CAPE") or {}
+    if isinstance(cape, dict):
+        for cfg in cape.get("configs") or []:
+            if isinstance(cfg, dict):
+                configs.extend(k for k in cfg if not k.startswith("_"))
+    if families:
+        report.facts["sandbox_families"] = families
+    if configs:
+        report.facts["extracted_configs"] = sorted(set(configs))
+
+    for fam in families:
+        report.add_signal(
+            f"{prefix}.detection.{_slug(fam)}",
+            f"Identified as {fam} by the sandbox",
+            "critical",
+            detail=(
+                f"The sandbox matched {fam} against its malware rules in process "
+                "memory or on disk. This is an identification, not an observed "
+                "behaviour."
+            ),
+            evidence={"family": fam, "categories": ["identification"]},
+        )
+    for cfg in sorted(set(configs)):
+        report.add_signal(
+            f"{prefix}.config.{_slug(cfg)}",
+            f"{cfg} configuration extracted",
+            "critical",
+            detail=(
+                f"The sandbox recovered a working {cfg} configuration block. "
+                "Configuration extraction succeeds only against the real family."
+            ),
+            evidence={"family": cfg, "categories": ["identification"]},
+        )
+
     # Behavioural signatures.
     for sig in data.get("signatures", []) or []:
         sev = _CAPE_SEVERITY.get(int(sig.get("severity", 1) or 1), "low")

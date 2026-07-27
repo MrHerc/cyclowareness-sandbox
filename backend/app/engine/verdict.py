@@ -17,7 +17,16 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
+from .capabilities import HIGH_CONSEQUENCE
 from .capabilities import detect as detect_capabilities
+
+#: Capabilities that justify calling a file a detection rather than a
+#: description. Discovery, evasion, execution and network are true of ordinary
+#: software; destruction, credential theft, exploitation and code injection are
+#: not. Injection earns its place empirically: across three signed installers
+#: detonated on our own host, none demonstrated it at high severity, while every
+#: malware sample that unpacked did.
+ACCUSING_CAPABILITIES = HIGH_CONSEQUENCE | {"injection"}
 from .contracts import SEVERITY_ORDER, AnalyzerResult, IOCs
 
 _FLAGGING = {"medium", "high", "critical"}
@@ -105,8 +114,24 @@ def _platform(family: str, mime: str) -> str:
 
 
 def _family_token(signals: list) -> str:
+    """The family half of the threat name.
+
+    A sandbox that identified the family by name is the best source there is, so
+    it wins outright. Without one, the name is derived from the worst signal —
+    which is a description of a behaviour, not a family, and reads badly: a real
+    WannaCry detonation was named `Win32.Ransom.HardwareIdProfiling`, and Emotet
+    (a loader) came out as `Win32.Ransom.AntisandboxUnhook`. That is the honest
+    fallback rather than a fabricated family, but prefer the real answer.
+    """
     if not signals:
         return "Gen"
+    for signal in signals:
+        evidence = getattr(signal, "evidence", None) or {}
+        fam = evidence.get("family") if isinstance(evidence, dict) else None
+        if fam:
+            token = "".join(p for p in str(fam) if p.isalnum())
+            if token:
+                return token[:20]
     top = max(signals, key=lambda s: SEVERITY_ORDER.get(s.severity, 0))
     tail = top.id.split(".")[-1] if "." in top.id else top.id
     token = "".join(p.capitalize() for p in tail.replace("-", "_").split("_"))
@@ -169,12 +194,62 @@ def classify(
             "severity": worst,
         })
 
-    # Heuristic capability engine: fires on demonstrated capability.
+    # Heuristic capability engine. It fires on a capability worth *accusing* a
+    # sample of - not on any capability at all.
+    #
+    # Firing on `caps` was wrong and measurably so: every program performs
+    # discovery, every installer evades nothing in particular but trips evasion
+    # signatures, and both are in `caps`. On a real corpus that made a signed
+    # 7-Zip installer, Notepad++ and PuTTY all come out "malicious", because one
+    # heuristic detection plus an ordinary risk score crosses the threshold.
+    # Injection is included because it is the one behavioural capability the
+    # benign corpus never demonstrated at high severity.
+    accusing = caps & (ACCUSING_CAPABILITIES)
     engines.append({
         "engine": "CS-Heuristic",
-        "detected": bool(caps),
-        "result": threat_name if caps else "undetected",
-        "severity": _worst(all_signals) if caps else "info",
+        "detected": bool(accusing),
+        "result": threat_name if accusing else "undetected",
+        "severity": _worst(all_signals) if accusing else "info",
+    })
+
+    # Sandbox identification. Distinct from every engine above, because those
+    # reason about what a sample *did* and this one is about what it *is*: a
+    # named family, an extracted configuration block, or a YARA rule matching
+    # known malware in process memory.
+    #
+    # It exists because behaviour alone misses a sample that never got going.
+    # Locky, detonated here, produced eight signatures and no capability — its
+    # C2 was long dead so it never encrypted anything — and scored zero. The
+    # sandbox still matched it in memory. Measured across 8 malware and 3 signed
+    # installers, this fired 8/8 and 0/3, while the sandbox's own aggregate
+    # score did not separate them at all.
+    identification = [
+        s
+        for s in all_signals
+        if (getattr(s, "evidence", None) or {}).get("family")
+        or (
+            SEVERITY_ORDER.get(s.severity, 0) >= SEVERITY_ORDER["high"]
+            and "malware" in {
+                str(c).lower()
+                for c in ((getattr(s, "evidence", None) or {}).get("categories") or [])
+            }
+        )
+    ]
+    named = next(
+        (
+            (getattr(s, "evidence", None) or {}).get("family")
+            for s in identification
+            if (getattr(s, "evidence", None) or {}).get("family")
+        ),
+        None,
+    )
+    engines.append({
+        "engine": "CS-SandboxID",
+        "detected": bool(identification),
+        "result": (f"{platform}.{category}.{fam}" if named else "Sandbox.MemoryMatch")
+        if identification
+        else "undetected",
+        "severity": _worst(identification) if identification else "info",
     })
     # Reputation engine. It must key off indicators that are themselves *bad*
     # (an IP-literal URL, a lookalike domain, a suspicious TLD) — not off the

@@ -25,6 +25,7 @@ binary is *signed* — a good sign) and never assert a capability.
 """
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Iterable
 
 from .contracts import SEVERITY_ORDER, IOCs, Signal
@@ -249,6 +250,45 @@ SANDBOX_CATEGORY_CAPABILITIES: dict[str, str] = {
 }
 
 
+#: Capabilities whose presence in a report is an accusation, not an observation.
+#: Claiming a sample destroys data, steals credentials, exploits a vulnerability
+#: or injects code into another process changes what an analyst does next, so
+#: these are held to a higher standard than "the sandbox filed this signature
+#: under that heading".
+#:
+#: Injection is here on measurement, not principle. Across three signed
+#: installers detonated on our own host, the only injection-category signature
+#: any of them produced was `reads_memory_remote_process` at severity 2 — while
+#: every malware sample that unpacked produced 2 to 20 of them at severity 3.
+#: Ungated, that one medium signature was enough to call the 7-Zip installer
+#: malicious.
+HIGH_CONSEQUENCE = frozenset({"destruction", "credential", "exploit", "injection"})
+
+
+def _load_shared_behaviours() -> frozenset[str]:
+    """Signatures ordinary software also trips, so they cannot alone accuse it.
+
+    A sandbox categorises a signature by the threat class it helps *detect*, not
+    by what it proves. `mountpoint_manager_access` is filed under `ransomware`
+    because ransomware enumerates volumes — but so does every installer. Measured
+    on this deployment before the list existed: the 7-Zip installer scored CIR
+    8.3 with a destruction capability, identical to WannaCry, on five such
+    signatures alone.
+    """
+    path = Path(__file__).with_name("data_shared_behaviours.txt")
+    if not path.is_file():  # pragma: no cover - the file ships with the package
+        return frozenset()
+    names = set()
+    for line in path.read_text(encoding="utf-8").splitlines():
+        name = line.split("#", 1)[0].strip()
+        if name:
+            names.add(name)
+    return frozenset(names)
+
+
+SHARED_BEHAVIOURS: frozenset[str] = _load_shared_behaviours()
+
+
 def _categories_of(signal: Signal) -> tuple[str, ...]:
     """The sandbox's categories for this signal, if it reported any."""
     evidence = getattr(signal, "evidence", None) or {}
@@ -258,6 +298,20 @@ def _categories_of(signal: Signal) -> tuple[str, ...]:
     if isinstance(cats, (list, tuple)):
         return tuple(str(c) for c in cats)
     return ()
+
+
+def _is_conclusive(signal: Signal) -> bool:
+    """May this signal alone support a high-consequence claim?
+
+    Two conditions, both measured rather than assumed: the sandbox rated it
+    high, and it is not a behaviour ordinary software performs. Severity alone
+    is not enough — `mass_file_modification_access` is severity 3 and an
+    installer does it.
+    """
+    if SEVERITY_ORDER.get(signal.severity, 0) < SEVERITY_ORDER["high"]:
+        return False
+    tail = signal.id.split(".", 1)[1] if "." in signal.id else signal.id
+    return tail not in SHARED_BEHAVIOURS
 
 
 #: Reverse index, built once: signal id -> the capabilities it demonstrates.
@@ -305,10 +359,20 @@ def detect(signals: Iterable[Signal], iocs: IOCs | None = None) -> set[str]:
         # inference. The token pass still runs, because engines that report no
         # categories (our native jail, Qiling) rely on it, and because a
         # category and a name can each catch what the other misses.
+        conclusive = _is_conclusive(signal)
         for category in _categories_of(signal):
             cap = SANDBOX_CATEGORY_CAPABILITIES.get(category.strip().lower())
-            if cap:
-                caps.add(cap)
+            if not cap:
+                continue
+            # Discovery, evasion, execution and friends cost little to be
+            # generous about — every running program has them, and an analyst
+            # reading "performs discovery" is not misled. Destruction,
+            # credential theft and exploitation are accusations, and need a
+            # signal the sandbox rated high which ordinary software does not
+            # also trip.
+            if cap in HIGH_CONSEQUENCE and not conclusive:
+                continue
+            caps.add(cap)
         caps.update(_dynamic_capabilities(sid))
     return caps
 

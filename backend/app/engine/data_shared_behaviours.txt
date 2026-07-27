@@ -1,0 +1,19 @@
+# Signatures a detonation sandbox tags with a high-consequence category, but
+# which ordinary software performs too. Presence of one is NOT evidence of the
+# capability; it is a precursor that both benign and malicious code exhibit.
+#
+# Measured, not guessed: every entry was observed in at least one of three
+# signed, widely-used Windows installers (7-Zip 24.08, Notepad++ 8.6.9, PuTTY)
+# detonated on the Cyclowareness host on 2026-07-27. Before this list existed,
+# the 7-Zip installer scored CIR 8.3 with a destruction capability - the same
+# rating as WannaCry - purely on these five.
+#
+# Regenerate by detonating a benign corpus and collecting every signature whose
+# categories intersect the high-consequence set. Grow it; never shrink it to
+# make a sample score higher.
+discover_registry_mount_points  # ransomware,wiper; observed in 2/3 benign installers at severity 2
+mass_file_modification_access  # ransomware,wiper; observed in 1/3 benign installers at severity 3
+mountpoint_manager_access  # ransomware,wiper; observed in 2/3 benign installers at severity 3
+mountpoints_volume_discovery  # ransomware,wiper; observed in 2/3 benign installers at severity 2
+per_file_acl_token_check  # ransomware,wiper; observed in 1/3 benign installers at severity 2
+reads_memory_remote_process  # memory scraping; observed in 1/3 benign installers at severity 2
