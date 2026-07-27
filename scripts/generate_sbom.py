@@ -42,7 +42,15 @@ BACKEND_ROOTS = [
 ]
 WORKER_ROOTS = ["requests"]
 OPTIONAL_ROOTS = ["psycopg", "psycopg-binary"]
-DEV_ROOTS = ["pytest", "pytest-asyncio", "pytest-cov", "coverage", "pip"]
+DEV_ROOTS = ["pytest", "pytest-asyncio", "pytest-cov", "coverage"]
+
+#: Never listed, whatever is installed. These are the toolchain that PUT the
+#: dependencies there, not dependencies of the product: nothing we ship imports
+#: them, and their versions move with any `pip install -U pip`, so including
+#: them makes the SBOM disagree with itself between the build image and CI and
+#: gives a procurement scanner advisories about an installer the customer never
+#: runs.
+TOOLCHAIN_EXCLUDED = {"pip", "setuptools", "wheel", "pkg-resources", "distribute"}
 
 #: uvicorn[standard] extras that are genuinely installed and used in production.
 UVICORN_EXTRAS = {
@@ -149,6 +157,8 @@ def collect() -> tuple[list[dict], list[str]]:
 
     rows = []
     for key in sorted(DISTS):
+        if key in TOOLCHAIN_EXCLUDED:
+            continue  # the installer, not an ingredient — see TOOLCHAIN_EXCLUDED
         if key not in runtime and key not in optional and key not in dev:
             continue  # outside the declared closure: another project's package
         meta = DISTS[key].metadata
