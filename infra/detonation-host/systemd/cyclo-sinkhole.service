@@ -1,0 +1,13 @@
+[Unit]
+Description=Cyclowareness: simulated internet for the detonation guests (INetSim)
+After=network-online.target libvirtd.service
+Wants=libvirtd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/inetsim --conf /etc/inetsim/inetsim.conf --log-dir /var/log/inetsim --data-dir /var/lib/inetsim --report-dir /var/log/inetsim/report
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

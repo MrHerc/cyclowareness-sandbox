@@ -12,16 +12,26 @@
 set -u
 WAN=enp41s0
 BR=virbr0
+HOST_IP=192.168.122.1
 RS_PORT=2042
+# Ports the simulated internet answers on. The guest may reach these AND ONLY
+# these on the host, and only at $HOST_IP - never a wildcard, because CAPE's web
+# UI sits on 0.0.0.0:8000 and rpcbind on 0.0.0.0:111.
+SINKHOLE_TCP="53 21 25 80 110 443 465 990 995 6667"
+SINKHOLE_UDP="53 69 123"
+
+# Delete in a loop: `iptables -D` removes ONE matching rule per call, so a single
+# delete left older duplicates behind and the chain grew on every timer tick.
+drop_all() { while iptables -D "$@" 2>/dev/null; do :; done; }
 
 # --- routed traffic: the guest goes nowhere, in either direction -------------
-iptables -D FORWARD -i $BR -o $WAN -j DROP 2>/dev/null
-iptables -D FORWARD -i $WAN -o $BR -j DROP 2>/dev/null
+drop_all FORWARD -i $BR -o $WAN -j DROP
+drop_all FORWARD -i $WAN -o $BR -j DROP
 iptables -I FORWARD 1 -i $BR -o $WAN -j DROP
 iptables -I FORWARD 2 -i $WAN -o $BR -j DROP
 
 # --- guest -> host ------------------------------------------------------------
-# Order matters twice over:
+# Order matters three ways:
 #
 # 1. The DROP is INSERTED near the top, not appended. ufw's "allow 22/tcp from
 #    anywhere" lives in a chain INPUT jumps to, so an appended DROP is only
@@ -31,26 +41,22 @@ iptables -I FORWARD 2 -i $WAN -o $BR -j DROP
 #
 # 2. ESTABLISHED,RELATED must be accepted BEFORE that DROP. CAPE drives the
 #    guest agent over connections the HOST opens; without this the replies are
-#    dropped on the way back and the whole sandbox goes dark. It does not let the
-#    guest open anything - only answers to what we asked for.
-# 3. DNS is deliberately NOT accepted. libvirt's dnsmasq on this bridge forwards
-#    upstream, so allowing udp/53 handed a detonating sample a working recursive
-#    resolver - and DNS tunnelling is an exfiltration channel that blocking TCP
-#    egress does nothing about. The host's ruleset looked correct; only probing
-#    from inside the guest showed `Resolve-DnsName example.com` returning four
-#    real answers.
+#    dropped on the way back and the whole sandbox goes dark.
 #
-#    Nothing analytically useful is lost. The query still leaves the guest and
-#    still lands in the per-task pcap, so the domain a sample wanted is captured
-#    as an IOC either way - only the answer is withheld. Serving controlled
-#    answers is a sinkhole feature to build deliberately, not a default.
-for spec in "-m conntrack --ctstate ESTABLISHED,RELATED" \
-            "-p tcp --dport $RS_PORT" "-p udp --dport 53" "-p udp --dport 67"; do
-  iptables -D INPUT -i $BR $spec -j ACCEPT 2>/dev/null
-done
-iptables -D INPUT -i $BR -j DROP 2>/dev/null
+# 3. The sinkhole accepts are pinned to -d $HOST_IP. Without that, opening 80
+#    and 443 for the simulator would also open anything else the host ever binds
+#    to a wildcard on those ports.
+drop_all INPUT -i $BR -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+drop_all INPUT -i $BR -p tcp --dport $RS_PORT -j ACCEPT
+drop_all INPUT -i $BR -p udp --dport 67 -j ACCEPT
+for p in $SINKHOLE_TCP; do drop_all INPUT -i $BR -d $HOST_IP -p tcp --dport "$p" -j ACCEPT; done
+for p in $SINKHOLE_UDP; do drop_all INPUT -i $BR -d $HOST_IP -p udp --dport "$p" -j ACCEPT; done
+drop_all INPUT -i $BR -j DROP
 
-iptables -I INPUT 1 -i $BR -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-iptables -I INPUT 2 -i $BR -p tcp --dport $RS_PORT -j ACCEPT
-iptables -I INPUT 3 -i $BR -p udp --dport 67 -j ACCEPT
-iptables -I INPUT 4 -i $BR -j DROP
+n=1
+iptables -I INPUT $n -i $BR -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT; n=$((n+1))
+iptables -I INPUT $n -i $BR -p tcp --dport $RS_PORT -j ACCEPT; n=$((n+1))
+iptables -I INPUT $n -i $BR -p udp --dport 67 -j ACCEPT; n=$((n+1))
+for p in $SINKHOLE_TCP; do iptables -I INPUT $n -i $BR -d $HOST_IP -p tcp --dport "$p" -j ACCEPT; n=$((n+1)); done
+for p in $SINKHOLE_UDP; do iptables -I INPUT $n -i $BR -d $HOST_IP -p udp --dport "$p" -j ACCEPT; n=$((n+1)); done
+iptables -I INPUT $n -i $BR -j DROP
