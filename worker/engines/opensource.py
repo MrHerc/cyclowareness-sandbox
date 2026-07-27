@@ -20,6 +20,7 @@ libs installed). If a submission or poll fails, the engine returns
 from __future__ import annotations
 
 import time
+from typing import Any
 
 from .base import Engine, Report
 
@@ -150,22 +151,147 @@ class CuckooEngine(_HttpSandboxEngine):
         return None
 
 
-class CapeV2Engine(CuckooEngine):
-    """CAPEv2 is Cuckoo-descended and speaks a compatible REST surface.
+class CapeV2Engine(_HttpSandboxEngine):
+    """CAPEv2's own REST surface — which is *not* Cuckoo's, despite the ancestry.
 
-    We reuse the Cuckoo flow and the same report normaliser (CAPE reports carry
-    a superset with the same ``signatures`` / ``network`` structure).
+    This class used to subclass :class:`CuckooEngine` and inherit its request
+    flow. Checked against a real CAPEv2 2.5 instance, every part of that flow was
+    wrong, and each part failed in a way that would have been misread:
+
+    * CAPE serves the API under ``/apiv2/``. ``/tasks/create/file`` is a 404.
+    * Every route is declared ``r"^…/$"`` and the app runs with ``APPEND_SLASH``.
+      A POST to the slashless path does not redirect — Django raises and returns
+      **HTTP 500**, because it cannot replay a POST body to the slash URL. So the
+      one call that matters failed hardest.
+    * Submission answers ``{"data": {"task_ids": [1]}}``, not ``{"task_id": 1}``.
+      Reading ``task_id`` yields ``None``, and the old code turned that into
+      "CAPE did not return a task_id" — reporting a *successful* submission as an
+      unavailable engine.
+    * The report lives at ``tasks/get/report/{id}/json/``; ``tasks/report/{id}``
+      does not exist.
+
+    Status comes from ``tasks/status/{id}/`` (``{"data": "pending"}``) rather than
+    the nested ``task.status`` of Cuckoo's ``tasks/view``.
     """
 
     name = "capev2"
 
+    #: Terminal states. CAPE reports through several stages; only these two mean
+    #: the JSON is on disk. ``completed`` means the machine finished but the
+    #: processing/reporting pass has not, and asking for the report then returns
+    #: ``{"error": true, "error_value": "Task is still being analyzed"}``.
+    _DONE = {"reported"}
+    _FAILED = {"failed_analysis", "failed_processing", "failed_reporting", "banned"}
+
     def _base(self) -> str:
-        return self.config.capev2_url
+        """The API root, tolerating a URL configured with or without /apiv2."""
+        base = (self.config.capev2_url or "").rstrip("/")
+        if not base:
+            return ""
+        return base if base.endswith("/apiv2") else f"{base}/apiv2"
 
     def _headers(self) -> dict:
         if self.config.capev2_token:
             return {"Authorization": f"Token {self.config.capev2_token}"}
         return {}
+
+    @staticmethod
+    def _unwrap(payload: dict) -> tuple[Any, str | None]:
+        """CAPE wraps everything in ``{error, data}``; return ``(data, error)``.
+
+        ``error`` is ``[]`` on success for create and ``False`` for reads, so it
+        is truthiness — not presence — that signals a failure.
+        """
+        if not isinstance(payload, dict):
+            return payload, None
+        if payload.get("error"):
+            return None, str(payload.get("error_value") or payload.get("error"))
+        return payload.get("data", payload), None
+
+    def run(self, sample_path: str, sha256: str, family: str) -> Report:
+        requests = _requests()
+        if requests is None:
+            return Report.unavailable(self.name, self.config.worker_name, "requests not installed")
+        base = self._base()
+        report = self._report(self.config.worker_name)
+        started = time.monotonic()
+
+        try:
+            with open(sample_path, "rb") as fh:
+                resp = requests.post(
+                    f"{base}/tasks/create/file/",
+                    files={"file": (f"{sha256}.sample", fh)},
+                    headers=self._headers(),
+                    timeout=self.config.http_timeout_seconds,
+                )
+            resp.raise_for_status()
+            data, err = self._unwrap(resp.json())
+            if err:
+                return Report.unavailable(self.name, self.config.worker_name, f"CAPE refused the sample: {err}")
+            task_ids = (data or {}).get("task_ids") or []
+            if not task_ids:
+                return Report.unavailable(
+                    self.name, self.config.worker_name, f"CAPE returned no task id: {data!r}"
+                )
+            task_id = task_ids[0]
+            report.facts["task_id"] = task_id
+            report.facts["external_engine"] = "capev2"
+
+            data = self._poll(requests, base, task_id, report)
+            if data is None:
+                report.duration_ms = int((time.monotonic() - started) * 1000)
+                return Report.unavailable(
+                    self.name,
+                    self.config.worker_name,
+                    report.facts.get("cape_failure")
+                    or f"CAPE task {task_id} did not report within "
+                    f"{self.config.engine_timeout_seconds}s",
+                )
+        except Exception as exc:  # network / HTTP / JSON
+            return Report.unavailable(
+                self.name, self.config.worker_name, f"CAPE error: {type(exc).__name__}: {exc}"
+            )
+
+        report.duration_ms = int((time.monotonic() - started) * 1000)
+        report.ran = True
+        _normalise_cuckoo(data, report, prefix="capev2")
+        return report
+
+    def _poll(self, requests, base: str, task_id, report: Report) -> dict | None:
+        deadline = self._timeout_deadline()
+        while time.monotonic() < deadline:
+            status = None
+            try:
+                st = requests.get(
+                    f"{base}/tasks/status/{task_id}/",
+                    headers=self._headers(),
+                    timeout=self.config.http_timeout_seconds,
+                )
+                # The API is rate limited (api.conf defaults to 5/m). A 429 is a
+                # "come back later", not a failed analysis - keep waiting.
+                if st.status_code != 429:
+                    status, _ = self._unwrap(st.json())
+            except Exception:
+                status = None
+
+            if status in self._FAILED:
+                report.facts["cape_failure"] = f"CAPE task {task_id} ended as {status}"
+                return None
+            if status in self._DONE:
+                rep = requests.get(
+                    f"{base}/tasks/get/report/{task_id}/json/",
+                    headers=self._headers(),
+                    timeout=self.config.http_timeout_seconds,
+                )
+                rep.raise_for_status()
+                payload, err = self._unwrap(rep.json())
+                if err:
+                    # 'still being analyzed' races the status flip; retry.
+                    time.sleep(min(self.config.poll_interval_seconds, 10))
+                    continue
+                return payload
+            time.sleep(min(self.config.poll_interval_seconds, 10))
+        return None
 
 
 class JoeSandboxEngine(_HttpSandboxEngine):
@@ -240,18 +366,24 @@ class JoeSandboxEngine(_HttpSandboxEngine):
 
 
 # --- normalisers -------------------------------------------------------------
-def _normalise_cuckoo(data: dict, report: Report) -> None:
-    """Turn a Cuckoo/CAPE report JSON into Signals + IOCs."""
+def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> None:
+    """Turn a Cuckoo/CAPE report JSON into Signals + IOCs.
+
+    ``prefix`` names the engine that actually produced the finding, because the
+    signal id is provenance: a CAPE detonation must not surface downstream as
+    ``cuckoo.*``. The two report schemas genuinely do share ``signatures`` /
+    ``network`` / ``behavior``, which is why one normaliser serves both.
+    """
     info = data.get("info", {}) or {}
     report.facts["external_score"] = info.get("score")
-    report.facts["external_engine"] = "cuckoo/cape"
+    report.facts.setdefault("external_engine", "cuckoo/cape")
 
     # Behavioural signatures.
     for sig in data.get("signatures", []) or []:
         sev = _CAPE_SEVERITY.get(int(sig.get("severity", 1) or 1), "low")
         name = sig.get("name") or sig.get("description", "signature")
         report.add_signal(
-            f"cuckoo.{_slug(name)}",
+            f"{prefix}.{_slug(name)}",
             sig.get("description", name)[:120],
             sev,
             detail=sig.get("description", ""),
@@ -281,7 +413,7 @@ def _normalise_cuckoo(data: dict, report: Report) -> None:
     if not report.signals:
         score = info.get("score")
         report.add_signal(
-            "cuckoo.completed",
+            f"{prefix}.completed",
             "External sandbox completed with no flagged signatures",
             _severity_from_score(float(score or 0)),
             detail=f"Cuckoo/CAPE score: {score}",
