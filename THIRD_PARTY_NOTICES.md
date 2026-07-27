@@ -11,8 +11,8 @@ written by hand, so every version and licence below is the one actually present
 in the build. The machine-readable equivalent is [`sbom.json`](sbom.json)
 (CycloneDX 1.5).
 
-- Generated: 2026-07-27T05:41:03Z
-- Distributions recorded: 70 (69 in the runtime closure)
+- Generated: 2026-07-27T06:04:26Z
+- Distributions recorded: 69 (69 in the runtime closure)
 - Scope: the dependency closure declared by `backend/requirements.txt` and
   `worker/requirements.txt`, resolved against the reference environment.
   Packages present in that environment but outside the declared closure are
@@ -160,7 +160,6 @@ Present in the development environment; not required to run the product.
 
 | Package | Version | Licence (SPDX) | Project |
 |---|---|---|---|
-| `pip` | 25.0.1 | MIT | <https://pip.pypa.io/> |
 
 ## Non-Python components
 
