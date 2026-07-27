@@ -245,8 +245,30 @@ class Agent:
             log.warning("unexpected queue response: %r", queue)
             return 0
         log.info("queue: %d job(s)", len(queue))
-        for job in queue:
-            self.process_job(job)
+        limit = max(1, self.config.max_concurrent_jobs)
+        if limit == 1 or len(queue) == 1:
+            for job in queue:
+                self.process_job(job)
+            return len(queue)
+
+        # Detonations are almost entirely waiting — on the sandbox, on the
+        # guest, on the network — so threads are the right shape and the GIL is
+        # not the constraint. The guests are.
+        #
+        # This loop used to be `for job in queue: self.process_job(job)`, which
+        # meant adding analysis machines to the sandbox bought exactly nothing:
+        # three idle guests while the worker detonated one sample at a time.
+        # process_job owns everything it touches (its own temp file, its own
+        # HTTP calls) and the engines hold no per-run state, so the only thing
+        # needed was to stop serialising it.
+        from concurrent.futures import ThreadPoolExecutor
+
+        log.info("running up to %d detonations concurrently", limit)
+        with ThreadPoolExecutor(max_workers=limit, thread_name_prefix="detonate") as pool:
+            # list() so exceptions surface here rather than being swallowed by
+            # the executor; process_job already converts a failed engine into an
+            # honest ran=False report.
+            list(pool.map(self.process_job, queue))
         return len(queue)
 
     def run_forever(self) -> None:

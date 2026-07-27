@@ -50,6 +50,17 @@ class Config:
     engine_timeout_seconds: int = 120
     #: How many jobs to claim per queue poll.
     queue_limit: int = 20
+    #: How many detonations may be in flight at once.
+    #:
+    #: Set this to the number of analysis machines the sandbox has, and no
+    #: higher — the guests are the scarce resource, and CAPE queues anything
+    #: beyond them, which only makes each task's wall-clock look worse.
+    #:
+    #: The default is 1 because that is what a single-guest install can honour,
+    #: and because the loop was strictly sequential before this existed: adding
+    #: guests to the sandbox bought nothing at all, since the worker detonated
+    #: one sample at a time regardless of how many machines were idle.
+    max_concurrent_jobs: int = 1
     #: HTTP request timeout for talking to the backend (not the engine timeout).
     http_timeout_seconds: int = 30
 
@@ -80,6 +91,7 @@ class Config:
             poll_interval_seconds=_int("POLL_INTERVAL_SECONDS", 15),
             engine_timeout_seconds=_int("ENGINE_TIMEOUT_SECONDS", 120),
             queue_limit=_int("QUEUE_LIMIT", 20),
+            max_concurrent_jobs=max(1, _int("MAX_CONCURRENT_JOBS", 1)),
             http_timeout_seconds=_int("HTTP_TIMEOUT_SECONDS", 30),
             firejail_bin=_str("FIREJAIL_BIN", "firejail"),
             strace_bin=_str("STRACE_BIN", "strace"),
