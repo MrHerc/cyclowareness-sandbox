@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: backend/requirements.lock.txt
 
       - name: Install system deps for the analysis engine
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1 unar
@@ -30,7 +30,11 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements.txt pytest
+          # The lock, so CI installs what the image ships and what sbom.json
+          # describes. Installing from the floored requirements.txt meant CI
+          # resolved whatever was newest that morning, and the SBOM assertion
+          # failed the first time anything upstream released.
+          pip install -r backend/requirements.lock.txt pytest
 
       - name: Run tests
         working-directory: backend
@@ -38,17 +42,13 @@ jobs:
           SANDBOX_QUARANTINE: ${{ runner.temp }}/quarantine
         run: |
           mkdir -p "$SANDBOX_QUARANTINE"
-          # `set +e` because GitHub runs this with `bash -e`: without it pytest's
-          # non-zero exit aborts the step before the code below can read it, and
-          # the exit-5 case can never be handled.
-          set +e
+          # Collecting nothing used to be treated as success, on the reasoning
+          # that an empty suite should not red the pipeline. But pytest returns 5
+          # for any configuration that finds no tests - a renamed directory, a
+          # broken testpaths, an over-broad deselect - so the one thing that
+          # should scream loudest went green and silent. This suite has never had
+          # fewer than 400 tests; collecting none is a failure.
           pytest -q
-          rc=$?
-          set -e
-          # Exit code 5 = "no tests collected"; a pass, so an empty suite does
-          # not red the pipeline.
-          if [ "$rc" -eq 5 ]; then echo "no tests collected"; exit 0; fi
-          exit "$rc"
 
   frontend:
     name: Frontend (build)

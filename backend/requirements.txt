@@ -1,4 +1,24 @@
 # Cyclowareness Sandbox — backend dependencies.
+#
+# THIS FILE IS THE DECLARATION, NOT WHAT GETS INSTALLED. It states floors and the
+# reasoning behind each one. The image and CI install from requirements.lock.txt,
+# the exact closure these floors resolved to, which is also what sbom.json and
+# THIRD_PARTY_NOTICES.md describe.
+#
+# The split exists because an SBOM handed to a procurement team has to describe a
+# build that can be reproduced. Installing from floors meant CI resolved whatever
+# was newest that morning, and the SBOM went stale the first time anything
+# upstream released — `fastapi` recorded as 0.140.0 against 0.140.6 installed.
+#
+# To take an upgrade: edit the floor here, then regenerate BOTH artifacts from
+# the same environment, or they will disagree again:
+#
+#   docker run --rm -v "$PWD":/repo -w /repo python:3.12-slim bash -c '
+#     pip install -q -r backend/requirements.txt
+#     pip freeze --exclude-editable | grep -viE "^(pip|setuptools|wheel)=" | sort \
+#       > backend/requirements.lock.txt
+#     APP_ENV=demo python scripts/generate_sbom.py'
+#
 # Every analysis dependency is a pure-Python or well-audited wheel; NONE of them
 # executes the sample. Detonation happens only in the off-host worker (see
 # ../worker), never in this process.

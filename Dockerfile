@@ -59,8 +59,16 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # Install Python deps first for layer caching.
-COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt \
+#
+# From the LOCK, not the declaration. requirements.txt states floors with the
+# reasoning behind each one; requirements.lock.txt is the exact closure those
+# floors resolved to, and it is what sbom.json and THIRD_PARTY_NOTICES.md
+# describe. Installing from floors made the image un-reproducible and the SBOM
+# false the moment anything upstream released - `fastapi` recorded as 0.140.0
+# against 0.140.6 installed, which is exactly the drift a procurement scanner
+# looks for.
+COPY backend/requirements.txt backend/requirements.lock.txt ./
+RUN pip install --no-cache-dir -r requirements.lock.txt \
     # pcodedmp is GPL-3.0-or-later and arrives as a hard dependency of oletools,
     # so a plain install puts GPL bytes in a proprietary image. We never import
     # it: olevba only reaches it from extract_pcode(), which the Office analyzer

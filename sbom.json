@@ -4,7 +4,7 @@
   "serialNumber": "urn:uuid:22c8db15-85c5-5db5-8eb1-e3217d8201b1",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-27T06:04:22Z",
+    "timestamp": "2026-07-27T16:57:42Z",
     "tools": [
       {
         "vendor": "Cyclowareness",
@@ -428,10 +428,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi@0.140.0",
+      "bom-ref": "pkg:pypi/fastapi@0.140.6",
       "name": "fastapi",
-      "version": "0.140.0",
-      "purl": "pkg:pypi/fastapi@0.140.0",
+      "version": "0.140.6",
+      "purl": "pkg:pypi/fastapi@0.140.6",
       "scope": "required",
       "licenses": [
         {
@@ -767,6 +767,34 @@
         }
       ],
       "description": "Python tools to analyze security characteristics of MS Office and OLE files (also called Structured Storage, Compound File Binary Format or Compound Document File Format), for Malware Analysis and Incident Response #DFIR"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pcodedmp@1.2.6",
+      "name": "pcodedmp",
+      "version": "1.2.6",
+      "purl": "pkg:pypi/pcodedmp@1.2.6",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bontchev/pcodedmp"
+        }
+      ],
+      "description": "A VBA p-code disassembler",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "strong-copyleft"
+        }
+      ]
     },
     {
       "type": "library",
