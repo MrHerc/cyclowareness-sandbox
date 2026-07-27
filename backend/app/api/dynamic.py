@@ -99,14 +99,47 @@ def dynamic_queue(
     db: Session = Depends(get_db),
     _worker: str = Depends(require_worker),
 ):
-    """Completed jobs whose dynamic tier has not run yet — the worker's work list."""
-    candidates = db.execute(
-        select(SandboxJob)
-        .where(SandboxJob.status == JobStatus.COMPLETED)
-        .where(SandboxJob.family.in_(tuple(_DYNAMIC_FAMILIES)))
-        .order_by(SandboxJob.created_at.desc())
-        .limit(min(limit, 100))
-    ).scalars().all()
+    """Completed jobs whose dynamic tier has not run yet — the worker's work list.
+
+    Two things here are load-bearing and both were wrong.
+
+    **Oldest first.** Newest-first starves a backlog under sustained submission:
+    freshly finished jobs keep arriving at the head of the queue and anything
+    that missed its turn is never offered again.
+
+    **Filter, then limit.** `_needs_dynamic` reads a JSON column, so it runs in
+    Python — and applying `LIMIT` in SQL first meant the endpoint fetched N rows,
+    discarded the ones already detonated, and returned whatever was left. Once
+    the newest N had all run it returned an EMPTY queue while the backlog sat
+    untouched. Measured on this deployment: 71 jobs with `dynamic.ran = false`,
+    and the worker being told there was no work. Nothing errored; the pipeline
+    simply stopped.
+
+    So scan in pages until `limit` jobs are found or the table is exhausted, with
+    a hard ceiling on how far to look so one poll cannot walk a huge table.
+    """
+    wanted = min(max(limit, 1), 100)
+    #: How many rows to consider at most. A worker polls every few seconds, so a
+    #: page it cannot fill this time it fills on the next one.
+    SCAN_CEILING = 2000
+    PAGE = 200
+
+    candidates: list[SandboxJob] = []
+    offset = 0
+    while len(candidates) < wanted and offset < SCAN_CEILING:
+        page = db.execute(
+            select(SandboxJob)
+            .where(SandboxJob.status == JobStatus.COMPLETED)
+            .where(SandboxJob.family.in_(tuple(_DYNAMIC_FAMILIES)))
+            .order_by(SandboxJob.created_at.asc())
+            .offset(offset)
+            .limit(PAGE)
+        ).scalars().all()
+        if not page:
+            break
+        candidates.extend(j for j in page if _needs_dynamic(j))
+        offset += PAGE
+
     return [
         {
             "public_id": j.public_id,
@@ -118,8 +151,7 @@ def dynamic_queue(
             # recognise. See _safe_suffix.
             "suffix": _safe_suffix(j.original_name),
         }
-        for j in candidates
-        if _needs_dynamic(j)
+        for j in candidates[:wanted]
     ]
 
 

@@ -57,13 +57,33 @@ def test_the_wording_still_tells_the_operator_a_worker_is_attached(completed_job
 
 
 def test_the_job_reaches_the_worker_queue(client, completed_job) -> None:
-    """The bug's second half: a job marked as run is never offered for running."""
+    """The bug's second half: a job marked as run is never offered for running.
+
+    Drained the way a worker drains it, rather than by looking at the head. The
+    queue is FIFO and the suite shares one database, so a job created by this
+    test sits behind everything earlier tests left waiting — being absent from
+    the first page means "there is a backlog", not "it was excluded".
+    """
     public_id, _ = completed_job
-    queue = client.get(
-        "/api/dynamic/queue", headers={"X-Worker-Token": WORKER_TOKEN}
-    ).json()
-    assert any(item["public_id"] == public_id for item in queue), (
-        "a detonatable job did not reach the queue; with the flag on it would "
+    for _ in range(40):
+        batch = client.get(
+            "/api/dynamic/queue?limit=100", headers={"X-Worker-Token": WORKER_TOKEN}
+        ).json()
+        if not batch:
+            break
+        ids = [item["public_id"] for item in batch]
+        if public_id in ids:
+            return
+        for other in ids:
+            client.post(
+                f"/api/dynamic/report/{other}",
+                json={"engine": "capev2", "worker": "drain", "ran": True,
+                      "unavailable_reason": None, "signals": [], "facts": {},
+                      "iocs": {}, "duration_ms": 1, "timeline": []},
+                headers={"X-Worker-Token": WORKER_TOKEN},
+            )
+    raise AssertionError(
+        "a detonatable job never reached the queue; with the flag on it would "
         "never be detonated"
     )
 
