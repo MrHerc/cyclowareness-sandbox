@@ -1,0 +1,1283 @@
+{
+  "engine": "capev2",
+  "worker": "cyclowareness-detonation-01",
+  "ran": true,
+  "unavailable_reason": null,
+  "signals": [
+    {
+      "id": "capev2.antivm_checks_available_memory",
+      "title": "Checks available memory",
+      "severity": "low",
+      "detail": "Checks available memory",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "antivm"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.queries_computer_name",
+      "title": "Queries computer hostname",
+      "severity": "low",
+      "detail": "Queries computer hostname",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "system_discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.queries_user_name",
+      "title": "Queries the username",
+      "severity": "low",
+      "detail": "Queries the username",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "system_discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.queries_keyboard_layout",
+      "title": "Queries the keyboard layout",
+      "severity": "low",
+      "detail": "Queries the keyboard layout",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "location_discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.queries_locale_api",
+      "title": "Queries the computer locale (possible geofencing)",
+      "severity": "low",
+      "detail": "Queries the computer locale (possible geofencing)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "location_discovery",
+          "geofence"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.accesses_public_folder",
+      "title": "A file was accessed within the Public folder.",
+      "severity": "low",
+      "detail": "A file was accessed within the Public folder.",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "generic"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.antidebug_setunhandledexceptionfilter",
+      "title": "SetUnhandledExceptionFilter detected (possible anti-debug)",
+      "severity": "low",
+      "detail": "SetUnhandledExceptionFilter detected (possible anti-debug)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti-debug"
+        ],
+        "confidence": 40
+      }
+    },
+    {
+      "id": "capev2.cmdline_terminate",
+      "title": "Executed a command line with /C or /R argument to terminate command shell on completion which can be used to hide execut",
+      "severity": "low",
+      "detail": "Executed a command line with /C or /R argument to terminate command shell on completion which can be used to hide execution",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "command"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.generates_crypto_key",
+      "title": "Uses Windows APIs to generate a cryptographic key",
+      "severity": "low",
+      "detail": "Uses Windows APIs to generate a cryptographic key",
+      "evidence": {
+        "marks": 0,
+        "categories": [],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.dll_load_uncommon_file_types",
+      "title": "A file with an unusual extension was attempted to be loaded as a DLL.",
+      "severity": "low",
+      "detail": "A file with an unusual extension was attempted to be loaded as a DLL.",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti-debug"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.stealth_timeout",
+      "title": "Possible date expiration check, exits too soon after checking local time",
+      "severity": "low",
+      "detail": "Possible date expiration check, exits too soon after checking local time",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "stealth"
+        ],
+        "confidence": 40
+      }
+    },
+    {
+      "id": "capev2.language_check_registry",
+      "title": "Checks system language via registry key (possible geofencing)",
+      "severity": "low",
+      "detail": "Checks system language via registry key (possible geofencing)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "location_discovery",
+          "geofence"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.anomalous_deletefile",
+      "title": "Anomalous file deletion behavior detected (10+)",
+      "severity": "medium",
+      "detail": "Anomalous file deletion behavior detected (10+)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "malware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.mouse_movement_detect",
+      "title": "Checks for mouse movement",
+      "severity": "medium",
+      "detail": "Checks for mouse movement",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti-sandbox"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.antisandbox_sleep",
+      "title": "A process attempted to delay the analysis task.",
+      "severity": "medium",
+      "detail": "A process attempted to delay the analysis task.",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti-sandbox"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.antisandbox_system_parameters_info",
+      "title": "Queries or modifies system parameters associated with user presence detection or sandbox evasion",
+      "severity": "medium",
+      "detail": "Queries or modifies system parameters associated with user presence detection or sandbox evasion",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti-sandbox",
+          "anti-analysis"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.privilege_elevation_check",
+      "title": "Queries process token information to check for Administrator privileges or UAC elevation status",
+      "severity": "medium",
+      "detail": "Queries process token information to check for Administrator privileges or UAC elevation status",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery",
+          "privilege_escalation"
+        ],
+        "confidence": 80
+      }
+    },
+    {
+      "id": "capev2.query_fips_reconnaissance",
+      "title": "Queried the FIPS cryptography policy, can be used to adapt C2 network encryption or by legitimate encryption software",
+      "severity": "medium",
+      "detail": "Queried the FIPS cryptography policy, can be used to adapt C2 network encryption or by legitimate encryption software",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery",
+          "c2"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.dead_connect",
+      "title": "Attempts to connect to a dead IP:Port (12 unique times)",
+      "severity": "medium",
+      "detail": "Attempts to connect to a dead IP:Port (12 unique times)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "network"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.mountpoints_volume_discovery",
+      "title": "Queries the mount points and then resolves volume paths to enumerate storage devices",
+      "severity": "medium",
+      "detail": "Queries the mount points and then resolves volume paths to enumerate storage devices",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery",
+          "ransomware",
+          "wiper"
+        ],
+        "confidence": 20
+      }
+    },
+    {
+      "id": "capev2.per_file_acl_token_check",
+      "title": "Performs high-volume NtQueryInformationToken calls for TokenUser and TokenGroups, indicative of wiper/ransomware checkin",
+      "severity": "medium",
+      "detail": "Performs high-volume NtQueryInformationToken calls for TokenUser and TokenGroups, indicative of wiper/ransomware checking whether it has write permission to each file",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "wiper",
+          "ransomware"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.reads_memory_remote_process",
+      "title": "Reads from the memory of another process",
+      "severity": "medium",
+      "detail": "Reads from the memory of another process",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "memory scraping",
+          "injection"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.enumerates_running_processes",
+      "title": "Enumerates running processes",
+      "severity": "medium",
+      "detail": "Enumerates running processes",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.process_interest",
+      "title": "Expresses interest in specific running processes",
+      "severity": "medium",
+      "detail": "Expresses interest in specific running processes",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "generic"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.reads_self",
+      "title": "Reads data out of its own binary image",
+      "severity": "medium",
+      "detail": "Reads data out of its own binary image",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "generic"
+        ],
+        "confidence": 30
+      }
+    },
+    {
+      "id": "capev2.accesses_recyclebin",
+      "title": "Manipulates data from or to the Recycle Bin",
+      "severity": "medium",
+      "detail": "Manipulates data from or to the Recycle Bin",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "execution"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.terminates_remote_process",
+      "title": "Terminates another process",
+      "severity": "medium",
+      "detail": "Terminates another process",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "persistence",
+          "stealth"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.packer_entropy",
+      "title": "The binary likely contains encrypted or compressed data",
+      "severity": "medium",
+      "detail": "The binary likely contains encrypted or compressed data",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "packer"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.discover_registry_mount_points",
+      "title": "Queries registry mount points to identify historical or connected removable/network drives",
+      "severity": "medium",
+      "detail": "Queries registry mount points to identify historical or connected removable/network drives",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery",
+          "ransomware",
+          "wiper"
+        ],
+        "confidence": 20
+      }
+    },
+    {
+      "id": "capev2.dropper",
+      "title": "Drops a binary and executes it",
+      "severity": "medium",
+      "detail": "Drops a binary and executes it",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "dropper"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.injection_rwx",
+      "title": "Creates RWX memory",
+      "severity": "medium",
+      "detail": "Creates RWX memory",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "injection"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.script_tool_executed",
+      "title": "A scripting utility was executed",
+      "severity": "medium",
+      "detail": "A scripting utility was executed",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "command"
+        ],
+        "confidence": 80
+      }
+    },
+    {
+      "id": "capev2.uses_windows_utilities",
+      "title": "Uses Windows utilities for basic functionality",
+      "severity": "medium",
+      "detail": "Uses Windows utilities for basic functionality",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "command",
+          "lateral"
+        ],
+        "confidence": 80
+      }
+    },
+    {
+      "id": "capev2.hardware_id_profiling",
+      "title": "Queries the Volume Serial Number or Physical Hardware ID, possibly for anti-sandbox, victim profiling or environmental k",
+      "severity": "high",
+      "detail": "Queries the Volume Serial Number or Physical Hardware ID, possibly for anti-sandbox, victim profiling or environmental keying",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "recon",
+          "anti-sandbox"
+        ],
+        "confidence": 80
+      }
+    },
+    {
+      "id": "capev2.antisandbox_windows_activation",
+      "title": "Queries Windows licensing, activation, or genuine status, possibly to detect unactivated sandbox or analysis environment",
+      "severity": "high",
+      "detail": "Queries Windows licensing, activation, or genuine status, possibly to detect unactivated sandbox or analysis environments.",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "anti_sandbox",
+          "evasion",
+          "discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.bcdedit_command",
+      "title": "Modifies boot configuration settings",
+      "severity": "high",
+      "detail": "Modifies boot configuration settings",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "generic"
+        ],
+        "confidence": 20
+      }
+    },
+    {
+      "id": "capev2.mountpoint_manager_access",
+      "title": "Repeatedly opens the MountPointManager device to enumerate drive letters and resolve volume paths to discover all attach",
+      "severity": "high",
+      "detail": "Repeatedly opens the MountPointManager device to enumerate drive letters and resolve volume paths to discover all attached drives and network shares",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware",
+          "wiper",
+          "discovery"
+        ],
+        "confidence": 60
+      }
+    },
+    {
+      "id": "capev2.infostealer_browser",
+      "title": "Steals private information from local Internet browsers",
+      "severity": "high",
+      "detail": "Steals private information from local Internet browsers",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "infostealer"
+        ],
+        "confidence": 30
+      }
+    },
+    {
+      "id": "capev2.infostealer_cookies",
+      "title": "Touches a file containing cookies, possibly for information gathering",
+      "severity": "high",
+      "detail": "Touches a file containing cookies, possibly for information gathering",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "infostealer"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.interprocess_comms_mutex",
+      "title": "Inter-process synchronization via mutexes, possibly for routing local C2 traffic or injection",
+      "severity": "high",
+      "detail": "Inter-process synchronization via mutexes, possibly for routing local C2 traffic or injection",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "lateral_movement",
+          "c2",
+          "ipc",
+          "stealth"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_api_resolution",
+      "title": "Manually resolves API addresses from dynamically allocated (unbacked) memory, indicative of shellcode or an unpacker",
+      "severity": "high",
+      "detail": "Manually resolves API addresses from dynamically allocated (unbacked) memory, indicative of shellcode or an unpacker",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "shellcode",
+          "fileless"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_library_load",
+      "title": "Loads a new DLL where the caller address originates from dynamically allocated (unbacked) memory",
+      "severity": "high",
+      "detail": "Loads a new DLL where the caller address originates from dynamically allocated (unbacked) memory",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "execution",
+          "fileless"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_memory_protection_alteration",
+      "title": "Altered memory protections from dynamically allocated (unbacked) memory, indicative of self-modifying shellcode or memor",
+      "severity": "high",
+      "detail": "Altered memory protections from dynamically allocated (unbacked) memory, indicative of self-modifying shellcode or memory patching",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "stealth",
+          "fileless",
+          "shellcode"
+        ],
+        "confidence": 20
+      }
+    },
+    {
+      "id": "capev2.unbacked_mutex_creation",
+      "title": "Created or queried a mutex from dynamically allocated (unbacked) memory, indicative of a fileless payload checking or cr",
+      "severity": "high",
+      "detail": "Created or queried a mutex from dynamically allocated (unbacked) memory, indicative of a fileless payload checking or creating an infection marker",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "execution",
+          "evasion",
+          "fileless"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_process_creation",
+      "title": "Attempted to spawn a new child process from dynamically allocated (unbacked) memory",
+      "severity": "high",
+      "detail": "Attempted to spawn a new child process from dynamically allocated (unbacked) memory",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "execution",
+          "evasion",
+          "fileless"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_crypto_operations",
+      "title": "Invoked native Windows cryptographic APIs from dynamically allocated (unbacked) memory, possible encryption/decryption o",
+      "severity": "high",
+      "detail": "Invoked native Windows cryptographic APIs from dynamically allocated (unbacked) memory, possible encryption/decryption of payloads, c2, files or data",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "c2",
+          "fileless",
+          "obfuscation",
+          "shellcode"
+        ],
+        "confidence": 40
+      }
+    },
+    {
+      "id": "capev2.unbacked_delay_execution",
+      "title": "Paused execution (sleep/delay) in a thread executing in dynamically allocated (unbacked) memory, indicative of sandbox e",
+      "severity": "high",
+      "detail": "Paused execution (sleep/delay) in a thread executing in dynamically allocated (unbacked) memory, indicative of sandbox evasion or C2 sleeping between callbacks",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "evasion",
+          "c2",
+          "fileless",
+          "shellcode"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_file_dropping",
+      "title": "Writes data to the filesystem from dynamically allocated (unbacked) memory",
+      "severity": "high",
+      "detail": "Writes data to the filesystem from dynamically allocated (unbacked) memory",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "execution",
+          "exfiltration",
+          "fileless",
+          "shellcode"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.unbacked_token_manipulation",
+      "title": "Attempted to open, duplicate, or impersonate an access token from dynamically allocated (unbacked) memory, indicative of",
+      "severity": "high",
+      "detail": "Attempted to open, duplicate, or impersonate an access token from dynamically allocated (unbacked) memory, indicative of credential theft or lateral movement",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "privilege_escalation",
+          "credential_access",
+          "lateral_movement"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.network_bind",
+      "title": "Starts servers listening on 127.0.0.1:9050",
+      "severity": "high",
+      "detail": "Starts servers listening on 127.0.0.1:9050",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "network"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.network_tor",
+      "title": "Installs Tor on the infected machine",
+      "severity": "high",
+      "detail": "Installs Tor on the infected machine",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "network",
+          "stealth"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.persistence_autorun",
+      "title": "Installs itself for autorun at Windows startup",
+      "severity": "high",
+      "detail": "Installs itself for autorun at Windows startup",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "persistence"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.mass_data_encryption",
+      "title": "Performs a large number of encryption calls using the same key possibly indicative of ransomware file encryption behavio",
+      "severity": "high",
+      "detail": "Performs a large number of encryption calls using the same key possibly indicative of ransomware file encryption behavior",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "encryption",
+          "ransomware"
+        ],
+        "confidence": 10
+      }
+    },
+    {
+      "id": "capev2.mass_file_modification_access",
+      "title": "Opens a large number of files requesting WRITE or DELETE access, indicative of ransomware/wipers",
+      "severity": "high",
+      "detail": "Opens a large number of files requesting WRITE or DELETE access, indicative of ransomware/wipers",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware",
+          "wiper"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.ransomware_attribute_stripping",
+      "title": "Strips file attributes to bypass read-only restrictions on a large number of files, possibly prior to ransomware/wiper d",
+      "severity": "high",
+      "detail": "Strips file attributes to bypass read-only restrictions on a large number of files, possibly prior to ransomware/wiper destruction",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware",
+          "wiper"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.ransomware_file_modifications",
+      "title": "Exhibits possible ransomware or wiper file modification behavior: mass_file_deletion, suspicious_file_moves, overwrites_",
+      "severity": "high",
+      "detail": "Exhibits possible ransomware or wiper file modification behavior: mass_file_deletion, suspicious_file_moves, overwrites_existing_files, composite_ransomware_file_behaviour",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware",
+          "wiper"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.mass_ransom_note_drop",
+      "title": "Writes or copies the same ransom note filename across multiple directories",
+      "severity": "high",
+      "detail": "Writes or copies the same ransom note filename across multiple directories",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.ransomware_message",
+      "title": "Writes a potential ransom message to disk",
+      "severity": "high",
+      "detail": "Writes a potential ransom message to disk",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.stealth_file",
+      "title": "Creates a hidden or system file",
+      "severity": "high",
+      "detail": "Creates a hidden or system file",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "stealth"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.pe_deep_entrypoint",
+      "title": "The PE entry point is located unusually far into its section, indicative of an appended packer stub",
+      "severity": "high",
+      "detail": "The PE entry point is located unusually far into its section, indicative of an appended packer stub",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "packer",
+          "static"
+        ],
+        "confidence": 50
+      }
+    },
+    {
+      "id": "capev2.procmem_yara",
+      "title": "Yara detections observed in process dumps, payloads or dropped files",
+      "severity": "high",
+      "detail": "Yara detections observed in process dumps, payloads or dropped files",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "malware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.deletes_shadow_copies",
+      "title": "Attempts to delete or modify volume shadow copies",
+      "severity": "high",
+      "detail": "Attempts to delete or modify volume shadow copies",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.deletes_system_state_backup",
+      "title": "Attempts to delete system state backup",
+      "severity": "high",
+      "detail": "Attempts to delete system state backup",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.folder_enumeration",
+      "title": "Systematically searches multiple user directories using wildcards, common in ransomware/wipers/infostealers",
+      "severity": "high",
+      "detail": "Systematically searches multiple user directories using wildcards, common in ransomware/wipers/infostealers",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware",
+          "wiper",
+          "infostealer",
+          "discovery"
+        ],
+        "confidence": 70
+      }
+    },
+    {
+      "id": "capev2.modify_desktop_wallpaper",
+      "title": "Attempts to modify desktop wallpaper",
+      "severity": "high",
+      "detail": "Attempts to modify desktop wallpaper",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.ransomware_files",
+      "title": "Creates a known WannaCry ransomware decryption instruction / key file.",
+      "severity": "high",
+      "detail": "Creates a known WannaCry ransomware decryption instruction / key file.",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "ransomware"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.recon_systeminfo",
+      "title": "Collects information on the system (ipconfig, netstat, systeminfo)",
+      "severity": "high",
+      "detail": "Collects information on the system (ipconfig, netstat, systeminfo)",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "discovery"
+        ],
+        "confidence": 100
+      }
+    },
+    {
+      "id": "capev2.suspicious_command_tools",
+      "title": "Uses suspicious command line tools or Windows utilities",
+      "severity": "high",
+      "detail": "Uses suspicious command line tools or Windows utilities",
+      "evidence": {
+        "marks": 0,
+        "categories": [
+          "command",
+          "lateral"
+        ],
+        "confidence": 80
+      }
+    }
+  ],
+  "facts": {
+    "external_score": null,
+    "external_engine": "cuckoo/cape",
+    "network_endpoints": {
+      "established": [
+        "199.254.238.52",
+        "193.11.164.243",
+        "128.31.0.39",
+        "85.214.206.219",
+        "193.23.244.244",
+        "37.187.22.87",
+        "171.25.193.77",
+        "131.188.40.189",
+        "31.31.78.49",
+        "184.86.251.16",
+        "93.180.156.84",
+        "154.35.175.225",
+        "185.96.180.29",
+        "184.86.251.9",
+        "23.52.181.237",
+        "184.86.251.10",
+        "184.86.251.5",
+        "23.32.243.39",
+        "184.86.251.24",
+        "150.171.28.12"
+      ],
+      "attempted": [
+        "150.171.28.12:443",
+        "184.86.251.24:443",
+        "2.23.246.9:80",
+        "23.32.243.39:80",
+        "150.171.109.36:443",
+        "184.86.251.5:443",
+        "172.211.123.250:443",
+        "184.86.251.10:443",
+        "23.52.181.237:443",
+        "23.52.181.141:80",
+        "184.86.251.9:443",
+        "150.171.110.53:443",
+        "150.171.110.113:443",
+        "185.96.180.29:443",
+        "154.35.175.225:443",
+        "93.180.156.84:9001",
+        "150.171.110.54:443",
+        "184.86.251.16:443",
+        "31.31.78.49:443",
+        "131.188.40.189:443",
+        "171.25.193.77:443",
+        "37.187.22.87:9001",
+        "193.23.244.244:443",
+        "150.171.110.56:443",
+        "85.214.206.219:9001",
+        "128.31.0.39:9101",
+        "193.11.164.243:9001",
+        "150.171.109.35:443"
+      ]
+    },
+    "iocs_suppressed": {
+      "count": 12,
+      "entries": [
+        {
+          "field": "domains",
+          "value": "cdn.onenote.net",
+          "reason": "guest-platform domain"
+        },
+        {
+          "field": "ips",
+          "value": "184.86.251.16",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "184.86.251.9",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "23.52.181.237",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "184.86.251.10",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "184.86.251.5",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "23.32.243.39",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "184.86.251.24",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "150.171.28.12",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "2.23.246.9",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "172.211.123.250",
+          "reason": "guest-platform network"
+        },
+        {
+          "field": "ips",
+          "value": "23.52.181.141",
+          "reason": "guest-platform network"
+        }
+      ],
+      "basis": "idle-guest baseline: see worker/engines/baseline.py"
+    }
+  },
+  "iocs": {
+    "urls": [],
+    "domains": [],
+    "ips": [
+      "199.254.238.52",
+      "193.11.164.243",
+      "128.31.0.39",
+      "85.214.206.219",
+      "193.23.244.244",
+      "37.187.22.87",
+      "171.25.193.77",
+      "131.188.40.189",
+      "31.31.78.49",
+      "93.180.156.84",
+      "154.35.175.225",
+      "185.96.180.29",
+      "150.171.109.36",
+      "150.171.110.53",
+      "150.171.110.113",
+      "150.171.110.54",
+      "150.171.110.56",
+      "150.171.109.35"
+    ],
+    "emails": [],
+    "hashes": [],
+    "file_paths": [],
+    "registry_keys": [],
+    "mutexes": []
+  },
+  "duration_ms": 233000,
+  "timeline": [
+    {
+      "t_ms": 0,
+      "kind": "process",
+      "detail": "ed01ebfbc9eb5bbea545.exe"
+    },
+    {
+      "t_ms": 1,
+      "kind": "process",
+      "detail": "attrib.exe"
+    },
+    {
+      "t_ms": 2,
+      "kind": "process",
+      "detail": "icacls.exe"
+    },
+    {
+      "t_ms": 3,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 4,
+      "kind": "process",
+      "detail": "cmd.exe"
+    },
+    {
+      "t_ms": 5,
+      "kind": "process",
+      "detail": "cscript.exe"
+    },
+    {
+      "t_ms": 6,
+      "kind": "process",
+      "detail": "explorer.exe"
+    },
+    {
+      "t_ms": 7,
+      "kind": "process",
+      "detail": "svchost.exe"
+    },
+    {
+      "t_ms": 8,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 9,
+      "kind": "process",
+      "detail": "SecurityHealthSystray.exe"
+    },
+    {
+      "t_ms": 10,
+      "kind": "process",
+      "detail": "cmd.exe"
+    },
+    {
+      "t_ms": 11,
+      "kind": "process",
+      "detail": "taskse.exe"
+    },
+    {
+      "t_ms": 12,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 13,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 14,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 15,
+      "kind": "process",
+      "detail": "cmd.exe"
+    },
+    {
+      "t_ms": 16,
+      "kind": "process",
+      "detail": "taskhsvc.exe"
+    },
+    {
+      "t_ms": 17,
+      "kind": "process",
+      "detail": "reg.exe"
+    },
+    {
+      "t_ms": 18,
+      "kind": "process",
+      "detail": "cmd.exe"
+    },
+    {
+      "t_ms": 19,
+      "kind": "process",
+      "detail": "WMIC.exe"
+    },
+    {
+      "t_ms": 20,
+      "kind": "process",
+      "detail": "svchost.exe"
+    },
+    {
+      "t_ms": 21,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 22,
+      "kind": "process",
+      "detail": "WmiPrvSE.exe"
+    },
+    {
+      "t_ms": 23,
+      "kind": "process",
+      "detail": "RuntimeBroker.exe"
+    },
+    {
+      "t_ms": 24,
+      "kind": "process",
+      "detail": "taskse.exe"
+    },
+    {
+      "t_ms": 25,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 26,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 27,
+      "kind": "process",
+      "detail": "taskse.exe"
+    },
+    {
+      "t_ms": 28,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 29,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 30,
+      "kind": "process",
+      "detail": "taskse.exe"
+    },
+    {
+      "t_ms": 31,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 32,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    },
+    {
+      "t_ms": 33,
+      "kind": "process",
+      "detail": "taskse.exe"
+    },
+    {
+      "t_ms": 34,
+      "kind": "process",
+      "detail": "@WanaDecryptor@.exe"
+    },
+    {
+      "t_ms": 35,
+      "kind": "process",
+      "detail": "taskdl.exe"
+    }
+  ],
+  "_source": "Real payload produced by CapeV2Engine from CAPEv2 task 15 (WannaCry ed01ebfb...41aa) on the Cyclowareness detonation host, 2026-07-27."
+}
