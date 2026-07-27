@@ -115,11 +115,47 @@ _DYNAMIC_PREFIXES = ("native.", "dynamic.", "cuckoo.", "capev2.", "qiling.", "fi
 _DYNAMIC_TOKENS: dict[str, tuple[str, ...]] = {
     "execution": ("exec", "spawns_shell", "process_create", "run"),
     "network": ("network", "beacon", "c2", "connect", "dns", "http", "exfil"),
-    "credential": ("credential", "keylog", "clipboard", "browser_data", "steal"),
+    # "infostealer" is the same whole-token miss as the destruction set: WannaCry
+    # emitted `infostealer_browser` and `infostealer_cookies`, neither of which
+    # matches "steal", so the rating came back C:N — no confidentiality impact —
+    # for a sample observed reading browser credential stores.
+    "credential": (
+        "credential",
+        "infostealer",
+        "keylog",
+        "clipboard",
+        "browser_data",
+        "steal",
+    ),
     "persistence": ("persistence", "autostart", "registry_run", "schtask", "cron", "service_install"),
     "evasion": ("anti_debug", "anti_vm", "sandbox_evasion", "unhook", "tamper", "disable_defender"),
     "injection": ("injection", "hollow", "shellcode", "reflective", "wx_memory"),
-    "destruction": ("ransom", "encrypt_files", "wiper", "delete_shadow", "overwrite"),
+    # Matching is whole-token, and this set missed almost everything a real
+    # ransomware detonation emits. Measured on WannaCry
+    # (ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa) through
+    # CAPEv2 on our own sandbox: `ransomware_file_modifications` did not match
+    # "ransom", `mass_data_encryption` did not match "encrypt_files", and
+    # `deletes_shadow_copies` did not match "delete_shadow". Only
+    # `mass_ransom_note_drop` matched — so the most recognisable ransomware in
+    # existence earned its destruction capability on a single lucky hit, and a
+    # variant that skipped the ransom note would have scored none at all.
+    #
+    # The keys below are written against the vocabulary a sandbox actually uses.
+    # Multi-token keys keep it specific: "encryption" alone would fire on any
+    # program that calls a crypto API; "mass" plus "encryption" would not.
+    "destruction": (
+        "ransom",
+        "ransomware",
+        "encrypt_files",
+        "mass_encryption",
+        "mass_data_encryption",
+        "shadow_copies",
+        "delete_shadow",
+        "deletes_shadow",
+        "system_state_backup",
+        "wiper",
+        "overwrite",
+    ),
     "exploit": ("exploit", "heap_spray", "rop_chain"),
     "privilege": ("privilege", "uac_bypass", "getsystem", "token_theft"),
     "discovery": ("discovery", "enumerate", "systeminfo", "recon"),
