@@ -57,32 +57,56 @@ def test_rules_are_budgeted_separately() -> None:
     assert limiter.check("ip:1.2.3.4", read)[0]
 
 
+class _Clock:
+    """A clock the test moves, so nothing here waits on the wall.
+
+    The first version of these tests slept. That is flaky by construction on a
+    shared CI runner - it passed on a developer machine every time and turned
+    the pipeline red on GitHub, where the failure said nothing about the code.
+    """
+
+    def __init__(self) -> None:
+        self.t = 1_000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+    def advance(self, seconds: float) -> None:
+        self.t += seconds
+
+
 def test_the_window_slides_rather_than_resetting() -> None:
     """A fixed window lets a caller send 2x the limit across its boundary.
 
     20 requests at 0:59 and 20 more at 1:00 is 40 in two seconds while never
     breaching "20 per minute". The sliding window does not have that hole.
     """
-    limiter = RateLimiter()
-    rule = Rule(limit=2, window=1, name="test")
+    clock = _Clock()
+    limiter = RateLimiter(clock=clock)
+    rule = Rule(limit=2, window=60, name="test")
     assert limiter.check("ip:9.9.9.9", rule)[0]
     assert limiter.check("ip:9.9.9.9", rule)[0]
     assert not limiter.check("ip:9.9.9.9", rule)[0]
-    time.sleep(1.1)
+
+    clock.advance(59)
+    assert not limiter.check("ip:9.9.9.9", rule)[0], "released a second too early"
+    clock.advance(2)
     assert limiter.check("ip:9.9.9.9", rule)[0], "the window never released"
 
 
 def test_idle_callers_are_forgotten() -> None:
     """Otherwise every address that ever called is remembered forever — an
     unbounded dict fed by strangers on a public endpoint."""
-    limiter = RateLimiter()
-    rule = Rule(limit=5, window=1, name="test")
+    clock = _Clock()
+    limiter = RateLimiter(clock=clock)
+    rule = Rule(limit=5, window=60, name="test")
     limiter.check("ip:5.5.5.5", rule)
-    assert limiter._buckets
-    limiter._last_sweep = 0.0
-    limiter._buckets[("ip:5.5.5.5", "test")].hits = [time.monotonic() - 7200]
+    assert ("ip:5.5.5.5", "test") in limiter._buckets
+
+    clock.advance(7200)  # past both the sweep interval and the idle threshold
     limiter.check("ip:6.6.6.6", rule)
-    assert ("ip:5.5.5.5", "test") not in limiter._buckets
+    assert ("ip:5.5.5.5", "test") not in limiter._buckets, "idle caller was kept"
+    assert ("ip:6.6.6.6", "test") in limiter._buckets, "the live caller was swept"
 
 
 # --- the routing decisions ---------------------------------------------------

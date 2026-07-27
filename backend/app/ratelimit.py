@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from fastapi import Request
@@ -90,14 +91,19 @@ class RateLimiter:
     hole.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        # The clock is injectable so tests can advance it instead of sleeping.
+        # Timing tests that sleep are flaky by construction on a shared CI
+        # runner - this limiter's first version had one, and it turned the
+        # pipeline red on a machine where nothing was wrong.
+        self._clock = clock
         self._buckets: dict[tuple[str, str], _Bucket] = {}
         self._lock = threading.Lock()
-        self._last_sweep = time.monotonic()
+        self._last_sweep = clock()
 
     def check(self, identity: str, rule: Rule) -> tuple[bool, int, int]:
         """Returns (allowed, remaining, retry_after_seconds)."""
-        now = time.monotonic()
+        now = self._clock()
         key = (identity, rule.name)
         with self._lock:
             self._sweep(now)
@@ -120,7 +126,7 @@ class RateLimiter:
         """
         with self._lock:
             self._buckets.clear()
-            self._last_sweep = time.monotonic()
+            self._last_sweep = self._clock()
 
     def _sweep(self, now: float) -> None:
         """Drop idle buckets so a long-running instance does not leak memory.
