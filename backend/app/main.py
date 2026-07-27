@@ -17,6 +17,7 @@ from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
 from .config import get_settings
 from .db import init_db
+from .ratelimit import rate_limit_middleware
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s"
@@ -104,6 +105,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# There was none of this at all. `POST /api/analyze` runs the whole static engine
+# and writes to quarantine, and `POST /api/auth/login` could be walked through a
+# password list at line speed. Registered after CORS so a rejected request still
+# carries the headers a browser needs to read the 429.
+app.middleware("http")(rate_limit_middleware)
 
 app.include_router(meta.router)
 app.include_router(auth.router)

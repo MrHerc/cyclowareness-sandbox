@@ -38,6 +38,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 # Safe to import app modules now that the environment is in place.
 from app.db import init_db, session_scope  # noqa: E402
+from app import ratelimit  # noqa: E402
 from app.engine import scoring  # noqa: E402
 from app.main import app  # noqa: E402
 
@@ -53,6 +54,20 @@ def _reset_scoring_weights():
     scoring.reset_weights()
     yield
     scoring.reset_weights()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Give every test a clean rate-limit budget.
+
+    The limiter is process-global and the suite logs in a few hundred times,
+    which is legitimate traffic shaped exactly like a brute-force attempt. The
+    fix is to reset it per test rather than to loosen the production limits
+    until the suite fits under them — ten logins per five minutes is the right
+    number for a real deployment, and it should stay that way.
+    """
+    ratelimit.limiter.reset()
+    yield
 
 
 @pytest.fixture()
