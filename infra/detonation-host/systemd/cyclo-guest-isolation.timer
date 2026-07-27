@@ -1,0 +1,10 @@
+[Unit]
+Description=Cyclowareness: re-assert guest isolation (CAPE's rooter flushes iptables)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Cyclowareness: isolate the detonation guest from the internet
+After=network-online.target libvirtd.service
+Wants=libvirtd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/cyclo-guest-isolation.sh
+
+[Install]
+WantedBy=multi-user.target
