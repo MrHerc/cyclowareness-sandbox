@@ -42,7 +42,16 @@ for n in $(seq 2 $((COUNT + 1))); do
   echo
   echo "== $NAME  mac=$MAC  ip=$IP =="
   virsh destroy "$NAME" 2>/dev/null || true
-  virsh undefine "$NAME" 2>/dev/null || true
+  # --snapshots-metadata, or the second run fails. A plain `undefine` refuses
+  # while snapshots exist, so the domain survived, and virt-install then said
+  # "Disk cape2.qcow2 is already in use by other guests ['cape2']" - a confusing
+  # message for what is really "you never removed the old one". Invisible on a
+  # first clone, guaranteed on every re-clone after a golden-image change.
+  virsh snapshot-delete "$NAME" "$SNAPSHOT" --metadata 2>/dev/null || true
+  virsh undefine "$NAME" --snapshots-metadata --nvram 2>/dev/null \
+    || virsh undefine "$NAME" --snapshots-metadata 2>/dev/null || true
+  virsh dominfo "$NAME" >/dev/null 2>&1 && {
+    echo "   $NAME still defined after undefine - refusing to continue" >&2; exit 1; }
   rm -f "$DISK"
 
   # -o compat=1.1 and no -s: a plain convert drops the internal snapshots.
