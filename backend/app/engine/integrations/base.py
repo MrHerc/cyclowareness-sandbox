@@ -24,6 +24,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Literal
 
+from ... import sovereignty
+
 Kind = Literal["native", "opensource-sandbox", "emulator", "threat-intel"]
 Tier = Literal["static", "dynamic"]
 
@@ -51,6 +53,13 @@ class Engine:
     #: overstates a capability.
     notes: str = ""
     docs_url: str = ""
+    #: The sovereignty choke-point destination this engine's client calls, when
+    #: it leaves the building at all. Empty for worker-resident engines, which
+    #: the web service never reaches over the network. Declared per engine rather
+    #: than inferred from ``env_keys``, because "has credentials" and "sends data
+    #: off-host" are different facts and conflating them is how a matrix ends up
+    #: claiming an air-gapped deployment talks to Google.
+    destination: str = ""
 
     def configured(self) -> bool:
         """True when this integration could actually run on this deployment.
@@ -63,6 +72,13 @@ class Engine:
         keys = self.env_keys or [WORKER_TOKEN_ENV]
         return all(bool(os.environ.get(k, "").strip()) for k in keys)
 
+    def sends_data_off_host(self) -> bool:
+        return bool(self.destination)
+
+    def blocked_by_sovereign_mode(self) -> bool:
+        """Credentials present, but the choke point will refuse the call."""
+        return self.sends_data_off_host() and not sovereignty.allowed(self.destination)
+
     def describe(self) -> dict:
         """Serialisable row for ``/api/capabilities`` — no secrets, ever."""
         return {
@@ -72,6 +88,12 @@ class Engine:
             "kind": self.kind,
             "tier": self.tier,
             "configured": self.configured(),
+            # ``configured`` means "credentials are present", which is not the
+            # same as "will run". A sovereign deployment that kept a VT key must
+            # show the key AND the refusal, so nobody reads a green row as proof
+            # the lookup happened.
+            "sends_data_off_host": self.sends_data_off_host(),
+            "blocked_by_sovereign_mode": self.blocked_by_sovereign_mode(),
             "requires": self.requires,
             "notes": self.notes,
             "docs_url": self.docs_url,

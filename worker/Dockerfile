@@ -32,10 +32,11 @@ RUN apt-get update \
 
 WORKDIR /worker
 
-# Install Python deps first for layer caching. Only `requests` is required; the
-# optional engines (qiling, python-ptrace) are commented out in requirements and
-# guarded at import, so the base image stays small. Uncomment them there to bake
-# emulation into the image.
+# Install Python deps first for layer caching. Only `requests` is required.
+# Nothing GPL is baked in: the Qiling emulation adapter ships as source but the
+# GPL-2.0 `qiling` package is deliberately not installed here (see
+# requirements.txt and ../docs/licensing.md), so this image stays clean for a
+# BUSL-1.1 product — and small.
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 

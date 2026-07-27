@@ -37,12 +37,20 @@ export interface VerdictT {
   engines: EngineDetection[]
 }
 
-export interface CvssT {
+/**
+ * The Cyclowareness Impact Rating. Derived from observed capability — not a
+ * vulnerability score, and not CVSS, which is scoped to vulnerabilities. The
+ * arithmetic is deliberately CVSS-compatible so the 0-10 scale reads as expected.
+ */
+export interface ImpactT {
+  /** The notation, e.g. "CIR:1.0". Absent on rows rated before the rename. */
+  rating?: string
   vector: string
   base_score: number
   severity: string
   metrics: Record<string, string>
   rationale: { metric: string; value: string; why: string }[]
+  disclaimer?: string
 }
 
 export interface MitreTechnique {
@@ -145,7 +153,7 @@ export interface JobDetailT extends JobSummary {
   dynamic: DynamicInfo
   iocs: Record<string, string[]>
   score_breakdown: ScoreBreakdown
-  cvss?: CvssT | null
+  impact?: ImpactT | null
   mitre?: MitreTechnique[] | null
   rule_score: number
   ai_score: number

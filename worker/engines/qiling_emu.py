@@ -1,4 +1,15 @@
-"""Safe emulation path: Qiling.
+"""Safe emulation path: Qiling — an OPTIONAL adapter the operator opts into.
+
+LICENCE, first, because it governs how this file exists at all: Qiling is
+GPL-2.0 and is **not** a dependency of this product. It is absent from
+``requirements.txt`` and from the worker Dockerfile, because importing a GPL-2.0
+library in-process inside an image we distribute would make that image a
+derivative work of it, which is incompatible with the BUSL-1.1 licence on
+Cyclowareness Sandbox. What ships is this adapter — our own code, calling a
+public API. An operator who wants emulation installs ``qiling`` on their own
+worker; that is their licence decision about their own deployment, and we take
+no position on it beyond stating the obligation. Until they install it,
+``available()`` is False and the agent skips this engine entirely.
 
 Qiling is a binary emulation framework — it runs the sample's instructions in an
 emulated CPU (via Unicorn) against an emulated OS, hooking every syscall / API
@@ -14,10 +25,11 @@ when it is available and the Qiling engine is the fallback. Both emit the same
 Report shape, so the backend cannot tell — and does not need to — which one ran.
 
 ``available()`` is False unless the ``qiling`` package imports. The import is
-guarded so this module loads (and py_compiles) on a host without Qiling; it just
-reports itself unavailable. Emulation also needs a "rootfs" (the emulated OS
-files Qiling ships / the operator provides); without one, individual samples are
-reported ``ran=False`` with a clear reason rather than crashing the loop.
+guarded so this module loads (and py_compiles) on a host without Qiling — which
+is every host we ship — and just reports itself unavailable. Emulation also
+needs a "rootfs" (the emulated OS files Qiling ships / the operator provides);
+without one, individual samples are reported ``ran=False`` with a clear reason
+rather than crashing the loop.
 """
 from __future__ import annotations
 
@@ -42,6 +54,19 @@ except Exception as exc:  # ImportError, or a broken partial install
 
 _SUPPORTED = {"pe", "elf"}
 
+# One sentence, said once, wherever the operator meets this engine switched off:
+# the absence is a licence decision we made for our distribution, and installing
+# it is a licence decision they make for theirs.
+_NOT_INSTALLED_REASON = (
+    "qiling is not installed on this worker, and Cyclowareness Sandbox does not "
+    "ship it: qiling is GPL-2.0, and importing it in-process in an image we "
+    "distribute would make that image a derivative work of a GPL-2.0 library. "
+    "This module is an optional adapter, not a dependency. To enable emulation, "
+    "install it yourself on your own worker (pip install qiling, plus a rootfs "
+    "under QILING_ROOTFS). Accepting Qiling's GPL-2.0 terms for your deployment "
+    "is your decision, not ours"
+)
+
 # Where the emulated OS filesystems live. Qiling needs a rootfs per target OS;
 # operators drop them under this tree (or set QILING_ROOTFS to point elsewhere).
 _DEFAULT_ROOTFS = os.environ.get("QILING_ROOTFS", "/opt/qiling/rootfs")
@@ -57,6 +82,14 @@ class QilingEngine(Engine):
     def available(self) -> bool:
         return qiling is not None
 
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Why this engine is off, in the operator's terms. The agent logs it at
+        startup so "engine qiling -> unavailable" is never mistaken for a bug."""
+        if qiling is not None:
+            return None
+        return f"{_NOT_INSTALLED_REASON} ({_QILING_IMPORT_ERROR})."
+
     def supports(self, family: str) -> bool:
         return family in _SUPPORTED
 
@@ -65,7 +98,7 @@ class QilingEngine(Engine):
             return Report.unavailable(
                 self.name,
                 self.config.worker_name,
-                f"qiling is not importable on this worker ({_QILING_IMPORT_ERROR}).",
+                self.unavailable_reason or _NOT_INSTALLED_REASON,
             )
 
         rootfs = self._rootfs_for(family, sample_path)

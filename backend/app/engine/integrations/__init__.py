@@ -16,6 +16,12 @@ separate sandbox cluster (Cuckoo/CAPE/Joe). The static-tier ones (Strelka,
 VirusTotal) are file-scan / reputation services the web service may query
 directly. This separation is the whole point of the descriptor: it records where
 the work happens, not just whether it is on.
+
+Each row also declares its ``destination``: the sovereignty choke-point key its
+client calls, or empty when the engine is worker-resident and nothing leaves the
+building. That declaration is what lets the matrix say "configured, and refused"
+rather than showing a credentialed integration as live on a deployment whose own
+policy will never let it run.
 """
 from __future__ import annotations
 
@@ -79,6 +85,7 @@ ENGINES: list[Engine] = [
         kind="opensource-sandbox",
         tier="dynamic",
         env_keys=["CUCKOO_URL", "CUCKOO_TOKEN"],
+        destination="cuckoo",
         requires="A reachable Cuckoo instance: set CUCKOO_URL and CUCKOO_TOKEN.",
         notes=(
             "The classic open-source automated malware analysis system. Samples "
@@ -95,6 +102,7 @@ ENGINES: list[Engine] = [
         kind="opensource-sandbox",
         tier="dynamic",
         env_keys=["CAPEV2_URL", "CAPEV2_TOKEN"],
+        destination="capev2",
         requires="A reachable CAPEv2 instance: set CAPEV2_URL and CAPEV2_TOKEN.",
         notes=(
             "Config-and-payload-extracting sandbox, a Cuckoo descendant focused "
@@ -111,6 +119,7 @@ ENGINES: list[Engine] = [
         kind="opensource-sandbox",
         tier="static",
         env_keys=["STRELKA_URL"],
+        destination="strelka",
         requires="A reachable Strelka frontend: set STRELKA_URL.",
         notes=(
             "Real-time, scalable file-scanning and enrichment orchestrator "
@@ -127,6 +136,7 @@ ENGINES: list[Engine] = [
         kind="opensource-sandbox",
         tier="dynamic",
         env_keys=["JOE_API_KEY"],
+        destination="joesandbox",
         requires="A Joe Sandbox community API key: set JOE_API_KEY.",
         notes=(
             "Community edition of a deep dynamic analysis sandbox. Samples are "
@@ -143,6 +153,7 @@ ENGINES: list[Engine] = [
         kind="threat-intel",
         tier="static",
         env_keys=["VT_API_KEY"],
+        destination="virustotal",
         requires="A VirusTotal API key: set VT_API_KEY.",
         notes=(
             "Hash-reputation lookup. Queries the multi-engine verdict for a "

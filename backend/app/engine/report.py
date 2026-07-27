@@ -21,6 +21,7 @@ import io
 from datetime import datetime, timezone
 from typing import Any
 
+from . import impact as impact_mod
 from .contracts import SEVERITY_ORDER, risk_level
 
 # --- bounds -------------------------------------------------------------------
@@ -202,8 +203,17 @@ def _verdict(job) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def _cvss(job) -> dict[str, Any]:
-    value = getattr(job, "cvss", None)
+def _impact(job) -> dict[str, Any]:
+    """The Cyclowareness Impact Rating, reading the pre-rename column too.
+
+    The column was called `cvss` until 0003 renamed it. The rename carries the
+    values, so a migrated row answers to `impact`; the fallback is for a job
+    object reconstructed from a payload exported before the rename, which would
+    otherwise render an empty severity panel on an export that clearly has one.
+    """
+    value = getattr(job, "impact", None)
+    if not isinstance(value, dict) or not value:
+        value = getattr(job, "cvss", None)
     return value if isinstance(value, dict) else {}
 
 
@@ -260,13 +270,13 @@ def as_json(job) -> dict:
         "final_score": _num(getattr(job, "final_score", 0.0)),
         "risk_level": getattr(job, "risk_level", "low") or "low",
         # --- analyst-facing assessment ---
-        # The verdict, the CVSS vector and the ATT&CK mapping are the three
+        # The verdict, the impact rating and the ATT&CK mapping are the three
         # outputs that go into a case file. They are computed per job and were
         # reaching only the UI, so an exported report was missing the whole
         # assessment; they are carried verbatim so the export and the screen
         # cannot disagree.
         "verdict": _verdict(job),
-        "cvss": _cvss(job),
+        "impact": _impact(job),
         "mitre": _mitre(job),
         # --- full detail ---
         "md5": getattr(job, "md5", "") or "",
@@ -394,6 +404,26 @@ def as_stix(job) -> dict:
         file_kwargs["size"] = size
     file_obs = stix2.File(**file_kwargs)
     objects.append(file_obs)
+
+    # --- the impact rating, as a Note on the file ---
+    # STIX has no field for a severity of our own, and putting the number in an
+    # indicator or a malware description would make it look like a scored
+    # vulnerability to whatever ingests the bundle. A Note is the object that
+    # says "here is an assessment, attached to this file" without asserting
+    # anything the spec would reinterpret, and it carries the disclaimer with it.
+    impact = _impact(job)
+    if impact.get("vector"):
+        objects.append(
+            stix2.Note(
+                abstract=(
+                    f"Cyclowareness Impact Rating (CIR v1): "
+                    f"{_num(impact.get('base_score', 0.0)):.1f} "
+                    f"({str(impact.get('severity', 'none') or 'none')})"
+                )[:STR_LIMIT],
+                content=f"{impact['vector']}\n\n{impact_mod.DISCLAIMER}"[:STR_LIMIT * 4],
+                object_refs=[file_obs.id],
+            )
+        )
 
     # --- malware SDO, only when the verdict warrants naming one ---
     # Naming malware is a claim, so it follows the engine's own verdict rather
@@ -657,12 +687,12 @@ def as_pdf(job) -> bytes:
     flow.append(Paragraph(f"File name (as submitted): {esc(getattr(job, 'original_name', '') or '(none)')}", small))
 
     # The three analyst-facing outputs. The engine computed all of them and the
-    # PDF showed none, so an exported case file carried no threat name, no CVSS
-    # and no ATT&CK mapping — the report was strictly worse than the screen.
+    # PDF showed none, so an exported case file carried no threat name, no impact
+    # rating and no ATT&CK mapping — the report was strictly worse than the screen.
     verdict = _verdict(job)
-    cvss = _cvss(job)
+    impact = _impact(job)
     techniques = _mitre(job)
-    if verdict or cvss or techniques:
+    if verdict or impact or techniques:
         flow.append(Paragraph("Threat classification and severity", h2))
     if verdict:
         label = str(verdict.get("verdict", "unknown") or "unknown")
@@ -677,21 +707,22 @@ def as_pdf(job) -> bytes:
                 body,
             )
         )
-    if cvss:
-        cvss_score = _num(cvss.get("base_score", 0.0))
-        cvss_sev = str(cvss.get("severity", "none") or "none")
+    if impact:
+        impact_score = _num(impact.get("base_score", 0.0))
+        impact_sev = str(impact.get("severity", "none") or "none")
         flow.append(
             Paragraph(
-                f"<b>CVSS v3.1 base score:</b> <b>{cvss_score:.1f}</b> ({esc(cvss_sev.upper())})",
+                f"<b>Cyclowareness Impact Rating (CIR v1):</b> <b>{impact_score:.1f}</b> "
+                f"({esc(impact_sev.upper())})",
                 body,
             )
         )
-        flow.append(Paragraph(esc(cvss.get("vector", "")), mono))
+        flow.append(Paragraph(esc(impact.get("vector", "")), mono))
         flow.append(
             Paragraph(
-                "CVSS scores a vulnerability's impact; the metrics here are derived from the "
-                "capabilities static analysis observed, and the reason for each metric is carried "
-                "in the JSON export.",
+                esc(impact_mod.DISCLAIMER)
+                + " The reason for each metric is carried in the JSON export, and the full "
+                "rubric is published in docs/impact-rating.md.",
                 small,
             )
         )
@@ -873,6 +904,19 @@ def as_pdf(job) -> bytes:
             )
         )
         flow.append(tbl)
+
+    # ---- Regulatory annex (last page) ----
+    # Built by engine/incident.py so the NIS2/DORA article citations stay next to
+    # the code that derives each field; the styles are passed in so the annex
+    # cannot drift typographically from the rest of the document.
+    from . import incident as incident_mod
+
+    flow.append(PageBreak())
+    flow.extend(
+        incident_mod.pdf_flowables(
+            job, styles={"h1": h1, "h2": h2, "body": body, "small": small, "mono": mono, "esc": esc}
+        )
+    )
 
     doc.build(flow)
     return buf.getvalue()

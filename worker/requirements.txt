@@ -17,11 +17,17 @@ requests>=2.31
 # it commented unless you do.
 # python-ptrace>=0.9.8   # optional; Linux-only, needs a C toolchain to build
 
-# --- optional: emulation engine ---------------------------------------------
-# Qiling gives the SAFE emulation path (no real execution). It is heavy and
-# Linux-first; the qiling_emu engine guards its import and reports itself
-# unavailable when Qiling is not installed. Uncomment on a worker that emulates.
-# qiling>=1.4.6          # optional; pulls in unicorn, capstone, keystone
+# --- deliberately absent: the Qiling emulation engine ------------------------
+# `engines/qiling_emu.py` is an adapter for Qiling, NOT a dependency on it, and
+# `qiling` is not pinned here or installed by the Dockerfile — on purpose.
+# Qiling is GPL-2.0. Importing it in-process in an image we distribute would
+# make that image a derivative work of a GPL-2.0 library, which we cannot
+# reconcile with the BUSL-1.1 licence on this product. So we ship the adapter
+# and not the library: an operator who wants emulation installs `qiling` on
+# their own worker (`pip install qiling`, plus a rootfs), and that is their
+# licence decision about their own deployment, not one we make for them.
+# Until they do, the engine's guarded import reports available() = False and
+# the agent simply skips it.
 
 # --- optional: external sandboxes -------------------------------------------
 # The Cuckoo/CAPEv2/Joe clients use `requests` (already above). No extra

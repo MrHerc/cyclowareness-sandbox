@@ -1,6 +1,6 @@
 """What a sample can *do*, distilled from the signals the analyzers fired.
 
-One shared taxonomy so the CVSS mapping, the threat classification and the
+One shared taxonomy so the impact rating, the threat classification and the
 MITRE ATT&CK mapping all reason about the same observed capabilities rather
 than re-deriving them three different ways.
 
@@ -18,7 +18,7 @@ a 90% false-positive rate on ordinary business files:
    A PDF containing a hyperlink has not communicated with anything; a document
    that fetches a remote template on open has. Passive string evidence still
    raises the rule score, but it must never assert a capability, because
-   capabilities drive the CVSS vector and the threat classification.
+   capabilities drive the impact vector and the threat classification.
 
 Info-severity signals are neutral facts (``pe.signature_present`` means the
 binary is *signed* — a good sign) and never assert a capability.

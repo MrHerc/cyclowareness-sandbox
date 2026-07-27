@@ -1,13 +1,17 @@
-"""CVSS v3.1, the internal multi-engine verdict, and MITRE ATT&CK mapping."""
+"""The Cyclowareness Impact Rating, the internal multi-engine verdict, and MITRE ATT&CK mapping."""
 from __future__ import annotations
 
-from app.engine import cvss, mitre, pipeline, storage, verdict
+from app.engine import impact, mitre, pipeline, storage, verdict
 from app.engine.contracts import IOCs, Signal
 
 
-# CVSS v3.1 scores from the FIRST.org calculator / published CVEs. If any of
-# these drifts, the implementation is wrong — the number must be real CVSS.
-def test_cvss_matches_specification():
+# These are the CVSS v3.1 specification's own worked vectors, checked against the
+# FIRST.org calculator. The rating is no longer *called* CVSS — malware is not a
+# vulnerability — but the arithmetic is deliberately CVSS-compatible so that a
+# CIR 8.8 means to an analyst what an 8.8 has always meant, and so the number is
+# reproducible by anyone holding the published equations. If any of these drifts,
+# the maths has been degraded and the scale no longer means what we say it means.
+def test_impact_reproduces_cvss_arithmetic():
     cases = [
         ({"AV": "N", "AC": "L", "PR": "N", "UI": "N", "S": "U", "C": "H", "I": "H", "A": "H"}, 9.8),
         ({"AV": "N", "AC": "L", "PR": "N", "UI": "R", "S": "U", "C": "H", "I": "H", "A": "H"}, 8.8),
@@ -18,15 +22,15 @@ def test_cvss_matches_specification():
         ({"AV": "L", "AC": "L", "PR": "N", "UI": "R", "S": "C", "C": "H", "I": "H", "A": "H"}, 8.6),
     ]
     for metrics, expected in cases:
-        assert cvss.score(metrics) == expected, metrics
+        assert impact.score(metrics) == expected, metrics
 
 
-def test_cvss_severity_bands():
-    assert cvss.severity_of(0.0) == "none"
-    assert cvss.severity_of(3.9) == "low"
-    assert cvss.severity_of(6.9) == "medium"
-    assert cvss.severity_of(8.9) == "high"
-    assert cvss.severity_of(9.0) == "critical"
+def test_impact_severity_bands():
+    assert impact.severity_of(0.0) == "none"
+    assert impact.severity_of(3.9) == "low"
+    assert impact.severity_of(6.9) == "medium"
+    assert impact.severity_of(8.9) == "high"
+    assert impact.severity_of(9.0) == "critical"
 
 
 def test_mitre_maps_powershell_downloader():
@@ -70,6 +74,6 @@ def test_pipeline_populates_real_results(db):
 
     assert job.verdict["verdict"] == "malicious"
     assert "PowerShell" in job.verdict["threat_name"]
-    assert job.cvss["base_score"] > 0
-    assert job.cvss["vector"].startswith("CVSS:3.1/")
+    assert job.impact["base_score"] > 0
+    assert job.impact["vector"].startswith("CIR:1.0/")
     assert any(t["technique_id"] == "T1105" for t in job.mitre)

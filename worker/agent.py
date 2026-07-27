@@ -82,7 +82,15 @@ class Agent:
         ]
         for eng in engines:
             try:
-                state = "available" if eng.available() else "unavailable"
+                if eng.available():
+                    state = "available"
+                else:
+                    # An engine may explain itself (qiling's is a licence stance,
+                    # not a fault); print it so "unavailable" is never read as a bug.
+                    reason = getattr(eng, "unavailable_reason", None)
+                    # ASCII only: this line lands on whatever console the operator
+                    # has, and a log record is not worth a UnicodeEncodeError.
+                    state = f"unavailable: {reason}" if reason else "unavailable"
             except Exception as exc:  # availability probing must never crash startup
                 state = f"error probing: {exc}"
             log.info("engine %-8s -> %s", eng.name, state)

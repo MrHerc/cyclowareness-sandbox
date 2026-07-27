@@ -21,7 +21,7 @@ import zipfile
 
 import pytest
 
-from app.engine import capabilities, cvss, pipeline, storage, verdict
+from app.engine import capabilities, impact, pipeline, storage, verdict
 from app.engine.contracts import AnalyzerResult, IOCs, Signal
 
 
@@ -60,9 +60,9 @@ def test_indicators_alone_do_not_make_a_downloader():
     assert "network" not in caps
 
 
-def test_cvss_is_zero_without_capability():
-    """CVSS scores an impact; no demonstrated capability means no impact."""
-    result = cvss.assess("pe", [Signal(id="pe.signature_present", title="Signed", severity="info")])
+def test_impact_is_zero_without_capability():
+    """The rating scores an impact; no demonstrated capability means no impact."""
+    result = impact.assess("pe", [Signal(id="pe.signature_present", title="Signed", severity="info")])
     assert result.base_score == 0.0
     assert result.severity == "none"
 
@@ -135,7 +135,7 @@ def test_benign_corpus_produces_no_malicious_verdict(db):
     assert len(corpus) >= 9, "corpus too small to be meaningful"
 
     offenders: list[str] = []
-    high_cvss: list[str] = []
+    high_impact: list[str] = []
     for name, data in corpus:
         stored = storage.store_bytes(data)
         job = pipeline.new_job(db, stored, original_name=name)
@@ -144,11 +144,11 @@ def test_benign_corpus_produces_no_malicious_verdict(db):
         db.commit()
         if (job.verdict or {}).get("verdict") == "malicious":
             offenders.append(f"{name} -> {(job.verdict or {}).get('threat_name')} score={job.final_score}")
-        if (job.cvss or {}).get("base_score", 0) >= 7.0:
-            high_cvss.append(f"{name} -> CVSS {(job.cvss or {}).get('base_score')}")
+        if (job.impact or {}).get("base_score", 0) >= 7.0:
+            high_impact.append(f"{name} -> impact {(job.impact or {}).get('base_score')}")
 
     assert not offenders, "benign files reported malicious:\n  " + "\n  ".join(offenders)
-    assert not high_cvss, "benign files scored CVSS >= 7.0:\n  " + "\n  ".join(high_cvss)
+    assert not high_impact, "benign files rated impact >= 7.0:\n  " + "\n  ".join(high_impact)
 
 
 @pytest.mark.parametrize(
@@ -183,5 +183,5 @@ def test_real_threats_are_still_caught(db, name, payload):
         f"{name} was not caught: {job.verdict} score={job.final_score}"
     )
     assert job.final_score >= 60
-    assert (job.cvss or {}).get("base_score", 0) > 0
+    assert (job.impact or {}).get("base_score", 0) > 0
     assert job.mitre, "no ATT&CK techniques mapped"

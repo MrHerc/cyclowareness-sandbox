@@ -2,7 +2,7 @@
 
 Two regressions are locked down here.
 
-1. The verdict, the CVSS vector and the ATT&CK mapping are computed for every
+1. The verdict, the impact rating and the ATT&CK mapping are computed for every
    job and used to reach the verdict — but none of the three reached the JSON,
    the STIX bundle or the PDF, so an analyst's case file contained none of the
    product's actual findings.
@@ -55,7 +55,7 @@ def _pdf_text(pdf: bytes) -> str:
     """The visible text of a reportlab PDF.
 
     reportlab writes its page streams ASCII85-then-Flate encoded, so the drawn
-    strings are nowhere in the raw bytes — asserting on `b"CVSS" in pdf` would
+    strings are nowhere in the raw bytes — asserting on `b"Impact" in pdf` would
     pass or fail for the wrong reason. Each stream is decoded and the operands
     of the text-showing operators are pulled out.
     """
@@ -76,11 +76,11 @@ def _pdf_text(pdf: bytes) -> str:
 
 
 # ---------------------------------------------------------------------------
-# FIX 1 — verdict / CVSS / ATT&CK reach every export
+# FIX 1 — verdict / impact rating / ATT&CK reach every export
 # ---------------------------------------------------------------------------
 
 
-def test_json_export_carries_verdict_cvss_and_mitre(db):
+def test_json_export_carries_verdict_impact_and_mitre(db):
     job = _run(db, _MALICIOUS, "loader.ps1")
     report = report_mod.as_json(job)
 
@@ -90,10 +90,13 @@ def test_json_export_carries_verdict_cvss_and_mitre(db):
         assert key in verdict, f"verdict export missing {key!r}"
     assert verdict["engines"], "the engine panel must survive the export"
 
-    cvss = report["cvss"]
-    for key in ("vector", "base_score", "severity", "metrics", "rationale"):
-        assert key in cvss, f"cvss export missing {key!r}"
-    assert cvss["vector"].startswith("CVSS:3.1/")
+    impact = report["impact"]
+    for key in ("rating", "vector", "base_score", "severity", "metrics", "rationale"):
+        assert key in impact, f"impact export missing {key!r}"
+    assert impact["vector"].startswith("CIR:1.0/")
+    # An export read outside our UI has to say what the number is, so the
+    # disclaimer travels on the row rather than being rendered per surface.
+    assert "not CVSS" in impact["disclaimer"]
 
     assert report["mitre"] == job.mitre
     assert report["mitre"], "the sample maps to ATT&CK techniques; the export dropped them"
@@ -139,14 +142,15 @@ def test_stix_export_emits_attack_patterns_linked_to_the_malware(db):
     assert used == {p["id"] for p in patterns}, "attack-patterns must relate to the malware"
 
 
-def test_pdf_export_shows_the_verdict_cvss_and_attack_techniques(db):
+def test_pdf_export_shows_the_verdict_impact_and_attack_techniques(db):
     job = _run(db, _MALICIOUS, "loader.ps1")
     text = _pdf_text(report_mod.as_pdf(job))
 
-    assert "CVSS" in text
-    assert job.cvss["vector"] in text
-    assert f"{job.cvss['base_score']:.1f}" in text
-    assert job.cvss["severity"].upper() in text
+    assert "Cyclowareness Impact Rating" in text
+    assert "not CVSS" in text, "the PDF must say what the number is not"
+    assert job.impact["vector"] in text
+    assert f"{job.impact['base_score']:.1f}" in text
+    assert job.impact["severity"].upper() in text
 
     assert job.verdict["verdict"].upper() in text
     assert job.verdict["threat_name"] in text

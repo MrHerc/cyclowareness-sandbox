@@ -100,8 +100,10 @@ class SandboxJob(Base):
     #: job: the worker's own report, merged back in the same Signal vocabulary.
     dynamic: Mapped[dict] = mapped_column(JSON, default=dict)
 
-    #: CVSS v3.1 vector + base score (see engine/cvss.py).
-    cvss: Mapped[dict] = mapped_column(JSON, default=dict)
+    #: Cyclowareness Impact Rating vector + base score (see engine/impact.py).
+    #: Renamed from `cvss` by 0003; the rename carries the existing values, so a
+    #: row rated by the previous release still renders.
+    impact: Mapped[dict] = mapped_column(JSON, default=dict)
     #: Internal multi-engine (VirusTotal-style) verdict + threat name.
     verdict: Mapped[dict] = mapped_column(JSON, default=dict)
     #: MITRE ATT&CK techniques the observed behaviour maps to.

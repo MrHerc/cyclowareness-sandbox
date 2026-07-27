@@ -1,0 +1,1898 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:22c8db15-85c5-5db5-8eb1-e3217d8201b1",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-07-27T03:12:04Z",
+    "tools": [
+      {
+        "vendor": "Cyclowareness",
+        "name": "importlib.metadata SBOM export",
+        "version": "1.0.0"
+      }
+    ],
+    "authors": [
+      {
+        "name": "Safarali Safarli"
+      }
+    ],
+    "component": {
+      "type": "application",
+      "bom-ref": "pkg:generic/cyclowareness-sandbox",
+      "name": "Cyclowareness Sandbox",
+      "version": "1.0.0",
+      "description": "Sovereign incident-evidence platform: on-premise file and URL threat analysis with a defensible evidence artifact.",
+      "licenses": [
+        {
+          "license": {
+            "name": "BUSL-1.1 (Business Source License 1.1); converts to Apache-2.0 on 2030-07-27"
+          }
+        }
+      ],
+      "supplier": {
+        "name": "Safarali Safarli"
+      }
+    }
+  },
+  "components": [
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/alembic@1.18.5",
+      "name": "alembic",
+      "version": "1.18.5",
+      "purl": "pkg:pypi/alembic@1.18.5",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://alembic.sqlalchemy.org"
+        }
+      ],
+      "description": "A database migration tool for SQLAlchemy."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-doc@0.0.4",
+      "name": "annotated-doc",
+      "version": "0.0.4",
+      "purl": "pkg:pypi/annotated-doc@0.0.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/fastapi/annotated-doc"
+        }
+      ],
+      "description": "Document parameters, class attributes, return types, and variables inline, with Annotated."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/annotated-types@0.7.0",
+      "name": "annotated-types",
+      "version": "0.7.0",
+      "purl": "pkg:pypi/annotated-types@0.7.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/annotated-types/annotated-types"
+        }
+      ],
+      "description": "Reusable constraint types to use with typing.Annotated"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/anthropic@0.116.0",
+      "name": "anthropic",
+      "version": "0.116.0",
+      "purl": "pkg:pypi/anthropic@0.116.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/anthropics/anthropic-sdk-python"
+        }
+      ],
+      "description": "The official Python library for the anthropic API"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/antlr4-python3-runtime@4.13.2",
+      "name": "antlr4-python3-runtime",
+      "version": "4.13.2",
+      "purl": "pkg:pypi/antlr4-python3-runtime@4.13.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://www.antlr.org"
+        }
+      ],
+      "description": "ANTLR 4.13.2 runtime for Python 3"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/anyio@4.14.1",
+      "name": "anyio",
+      "version": "4.14.1",
+      "purl": "pkg:pypi/anyio@4.14.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://anyio.readthedocs.io/en/latest/"
+        }
+      ],
+      "description": "High-level concurrency and networking framework on top of asyncio or Trio"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/backports-zstd@1.6.0",
+      "name": "backports.zstd",
+      "version": "1.6.0",
+      "purl": "pkg:pypi/backports-zstd@1.6.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "PSF-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/rogdham/backports.zstd"
+        }
+      ],
+      "description": "Backport of compression.zstd"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/brotli@1.2.0",
+      "name": "brotli",
+      "version": "1.2.0",
+      "purl": "pkg:pypi/brotli@1.2.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/google/brotli"
+        }
+      ],
+      "description": "Python bindings for the Brotli compression library"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/certifi@2026.6.17",
+      "name": "certifi",
+      "version": "2026.6.17",
+      "purl": "pkg:pypi/certifi@2026.6.17",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MPL-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/certifi/python-certifi"
+        }
+      ],
+      "description": "Python package for providing Mozilla's CA Bundle.",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "file-level-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cffi@2.1.0",
+      "name": "cffi",
+      "version": "2.1.0",
+      "purl": "pkg:pypi/cffi@2.1.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT-0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://cffi.readthedocs.io/"
+        }
+      ],
+      "description": "Foreign Function Interface for Python calling C code."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/charset-normalizer@3.4.9",
+      "name": "charset-normalizer",
+      "version": "3.4.9",
+      "purl": "pkg:pypi/charset-normalizer@3.4.9",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://charset-normalizer.readthedocs.io/"
+        }
+      ],
+      "description": "The Real First Universal Charset Detector. Open, modern and actively maintained alternative to Chardet."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/click@8.4.2",
+      "name": "click",
+      "version": "8.4.2",
+      "purl": "pkg:pypi/click@8.4.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pallets/click/"
+        }
+      ],
+      "description": "Composable command line interface toolkit"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/colorama@0.4.6",
+      "name": "colorama",
+      "version": "0.4.6",
+      "purl": "pkg:pypi/colorama@0.4.6",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/tartley/colorama"
+        }
+      ],
+      "description": "Cross-platform colored terminal text."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/colorclass@2.2.2",
+      "name": "colorclass",
+      "version": "2.2.2",
+      "purl": "pkg:pypi/colorclass@2.2.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/matthewdeanmartin/colorclass"
+        }
+      ],
+      "description": "Colorful worry-free console applications for Linux, Mac OS X, and Windows."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/coverage@7.15.2",
+      "name": "coverage",
+      "version": "7.15.2",
+      "purl": "pkg:pypi/coverage@7.15.2",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/coveragepy/coveragepy"
+        }
+      ],
+      "description": "Code coverage measurement for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/cryptography@49.0.0",
+      "name": "cryptography",
+      "version": "49.0.0",
+      "purl": "pkg:pypi/cryptography@49.0.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 OR BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pyca/cryptography"
+        }
+      ],
+      "description": "cryptography is a package which provides cryptographic recipes and primitives to Python developers."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/distro@1.9.0",
+      "name": "distro",
+      "version": "1.9.0",
+      "purl": "pkg:pypi/distro@1.9.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-distro/distro"
+        }
+      ],
+      "description": "Distro - an OS platform information API"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/docstring-parser@0.18.0",
+      "name": "docstring_parser",
+      "version": "0.18.0",
+      "purl": "pkg:pypi/docstring-parser@0.18.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/rr-/docstring_parser"
+        }
+      ],
+      "description": "Parse Python docstrings in reST, Google and Numpydoc format"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/easygui@0.98.3",
+      "name": "easygui",
+      "version": "0.98.3",
+      "purl": "pkg:pypi/easygui@0.98.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/robertlugg/easygui"
+        }
+      ],
+      "description": "EasyGUI is a module for very simple, very easy GUI programming in Python.  EasyGUI is different from other GUI generators in that EasyGUI is NOT event-driven.  Instead, all GUI interactions are invoked by simple function calls."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/fastapi@0.139.0",
+      "name": "fastapi",
+      "version": "0.139.0",
+      "purl": "pkg:pypi/fastapi@0.139.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/fastapi/fastapi"
+        }
+      ],
+      "description": "FastAPI framework, high performance, easy to learn, fast to code, ready for production"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/greenlet@3.5.3",
+      "name": "greenlet",
+      "version": "3.5.3",
+      "purl": "pkg:pypi/greenlet@3.5.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT AND PSF-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://greenlet.readthedocs.io"
+        }
+      ],
+      "description": "Lightweight in-process concurrent programming"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/h11@0.16.0",
+      "name": "h11",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/h11@0.16.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-hyper/h11"
+        }
+      ],
+      "description": "A pure-Python, bring-your-own-I/O implementation of HTTP/1.1"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/httpcore@1.0.9",
+      "name": "httpcore",
+      "version": "1.0.9",
+      "purl": "pkg:pypi/httpcore@1.0.9",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.encode.io/httpcore/"
+        }
+      ],
+      "description": "A minimal low-level HTTP client."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/httptools@0.8.0",
+      "name": "httptools",
+      "version": "0.8.0",
+      "purl": "pkg:pypi/httptools@0.8.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/MagicStack/httptools"
+        }
+      ],
+      "description": "A collection of framework independent HTTP protocol utils."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/httpx@0.28.1",
+      "name": "httpx",
+      "version": "0.28.1",
+      "purl": "pkg:pypi/httpx@0.28.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/encode/httpx"
+        }
+      ],
+      "description": "The next generation HTTP client."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/idna@3.18",
+      "name": "idna",
+      "version": "3.18",
+      "purl": "pkg:pypi/idna@3.18",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/kjd/idna"
+        }
+      ],
+      "description": "Internationalized Domain Names in Applications (IDNA)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/inflate64@1.0.4",
+      "name": "inflate64",
+      "version": "1.0.4",
+      "purl": "pkg:pypi/inflate64@1.0.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://inflate64.readthedocs.io/"
+        }
+      ],
+      "description": "deflate64 compression/decompression library",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/iniconfig@2.3.0",
+      "name": "iniconfig",
+      "version": "2.3.0",
+      "purl": "pkg:pypi/iniconfig@2.3.0",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pytest-dev/iniconfig"
+        }
+      ],
+      "description": "brain-dead simple config-ini parsing"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/jiter@0.16.0",
+      "name": "jiter",
+      "version": "0.16.0",
+      "purl": "pkg:pypi/jiter@0.16.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/jiter/"
+        }
+      ],
+      "description": "Fast iterable JSON parser."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/mako@1.3.12",
+      "name": "Mako",
+      "version": "1.3.12",
+      "purl": "pkg:pypi/mako@1.3.12",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.makotemplates.org/"
+        }
+      ],
+      "description": "A super-fast templating language that borrows the best ideas from the existing templating languages."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/markupsafe@3.0.3",
+      "name": "MarkupSafe",
+      "version": "3.0.3",
+      "purl": "pkg:pypi/markupsafe@3.0.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pallets/markupsafe/"
+        }
+      ],
+      "description": "Safely add untrusted strings to HTML/XML markup."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/msoffcrypto-tool@6.0.0",
+      "name": "msoffcrypto-tool",
+      "version": "6.0.0",
+      "purl": "pkg:pypi/msoffcrypto-tool@6.0.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/nolze/msoffcrypto-tool"
+        }
+      ],
+      "description": "Python tool and library for decrypting and encrypting MS Office files using a password or other keys"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/multivolumefile@0.2.3",
+      "name": "multivolumefile",
+      "version": "0.2.3",
+      "purl": "pkg:pypi/multivolumefile@0.2.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/miurahr/multivolume"
+        }
+      ],
+      "description": "multi volume file wrapper library",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/olefile@0.47",
+      "name": "olefile",
+      "version": "0.47",
+      "purl": "pkg:pypi/olefile@0.47",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.decalage.info/python/olefileio"
+        }
+      ],
+      "description": "Python package to parse, read and write Microsoft OLE2 files (Structured Storage or Compound Document, Microsoft Office)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/oletools@0.60.2",
+      "name": "oletools",
+      "version": "0.60.2",
+      "purl": "pkg:pypi/oletools@0.60.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/decalage2/oletools"
+        }
+      ],
+      "description": "Python tools to analyze security characteristics of MS Office and OLE files (also called Structured Storage, Compound File Binary Format or Compound Document File Format), for Malware Analysis and Incident Response #DFIR"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/packaging@26.2",
+      "name": "packaging",
+      "version": "26.2",
+      "purl": "pkg:pypi/packaging@26.2",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "name": "Apache-2.0 OR BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pypa/packaging"
+        }
+      ],
+      "description": "Core utilities for Python packages"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pcodedmp@1.2.6",
+      "name": "pcodedmp",
+      "version": "1.2.6",
+      "purl": "pkg:pypi/pcodedmp@1.2.6",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "GPL-3.0-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/bontchev/pcodedmp"
+        }
+      ],
+      "description": "A VBA p-code disassembler",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "strong-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pdfminer-six@20260107",
+      "name": "pdfminer.six",
+      "version": "20260107",
+      "purl": "pkg:pypi/pdfminer-six@20260107",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pdfminer/pdfminer.six"
+        }
+      ],
+      "description": "PDF parser and analyzer"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pefile@2024.8.26",
+      "name": "pefile",
+      "version": "2024.8.26",
+      "purl": "pkg:pypi/pefile@2024.8.26",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/erocarrera/pefile"
+        }
+      ],
+      "description": "Python PE parsing module"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pillow@12.3.0",
+      "name": "pillow",
+      "version": "12.3.0",
+      "purl": "pkg:pypi/pillow@12.3.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT-CMU"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://python-pillow.github.io"
+        }
+      ],
+      "description": "Python Imaging Library (fork)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pip@25.0.1",
+      "name": "pip",
+      "version": "25.0.1",
+      "purl": "pkg:pypi/pip@25.0.1",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pip.pypa.io/"
+        }
+      ],
+      "description": "The PyPA recommended tool for installing Python packages."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pluggy@1.6.0",
+      "name": "pluggy",
+      "version": "1.6.0",
+      "purl": "pkg:pypi/pluggy@1.6.0",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pypi.org/project/pluggy/"
+        }
+      ],
+      "description": "plugin and hook calling mechanisms for python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/psutil@7.2.2",
+      "name": "psutil",
+      "version": "7.2.2",
+      "purl": "pkg:pypi/psutil@7.2.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/giampaolo/psutil"
+        }
+      ],
+      "description": "Cross-platform lib for process and system monitoring."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/psycopg@3.3.4",
+      "name": "psycopg",
+      "version": "3.3.4",
+      "purl": "pkg:pypi/psycopg@3.3.4",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "description": "PostgreSQL database adapter for Python",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/psycopg-binary@3.3.4",
+      "name": "psycopg-binary",
+      "version": "3.3.4",
+      "purl": "pkg:pypi/psycopg-binary@3.3.4",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "description": "PostgreSQL database adapter for Python -- C optimisation distribution",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/puremagic@2.2.0",
+      "name": "puremagic",
+      "version": "2.2.0",
+      "purl": "pkg:pypi/puremagic@2.2.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/cdgriffith/puremagic"
+        }
+      ],
+      "description": "Pure python implementation of magic file detection"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/py7zr@1.1.3",
+      "name": "py7zr",
+      "version": "1.1.3",
+      "purl": "pkg:pypi/py7zr@1.1.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://py7zr.readthedocs.io/"
+        }
+      ],
+      "description": "Pure python 7-zip library",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pybcj@1.0.8",
+      "name": "pybcj",
+      "version": "1.0.8",
+      "purl": "pkg:pypi/pybcj@1.0.8",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pypi.org/project/pybcj"
+        }
+      ],
+      "description": "bcj filter library",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pycparser@3.0",
+      "name": "pycparser",
+      "version": "3.0",
+      "purl": "pkg:pypi/pycparser@3.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/eliben/pycparser"
+        }
+      ],
+      "description": "C parser in Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pycryptodomex@3.23.0",
+      "name": "pycryptodomex",
+      "version": "3.23.0",
+      "purl": "pkg:pypi/pycryptodomex@3.23.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "BSD-2-Clause AND Unlicense"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.pycryptodome.org"
+        }
+      ],
+      "description": "Cryptographic library for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic@2.13.4",
+      "name": "pydantic",
+      "version": "2.13.4",
+      "purl": "pkg:pypi/pydantic@2.13.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/pydantic"
+        }
+      ],
+      "description": "Data validation using Python type hints"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic-core@2.46.4",
+      "name": "pydantic_core",
+      "version": "2.46.4",
+      "purl": "pkg:pypi/pydantic-core@2.46.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/pydantic"
+        }
+      ],
+      "description": "Core functionality for Pydantic validation and serialization"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pydantic-settings@2.14.2",
+      "name": "pydantic-settings",
+      "version": "2.14.2",
+      "purl": "pkg:pypi/pydantic-settings@2.14.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/pydantic-settings"
+        }
+      ],
+      "description": "Settings management using Pydantic"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pygments@2.20.0",
+      "name": "Pygments",
+      "version": "2.20.0",
+      "purl": "pkg:pypi/pygments@2.20.0",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-2-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pygments.org"
+        }
+      ],
+      "description": "Pygments is a syntax highlighting package written in Python."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyparsing@3.3.2",
+      "name": "pyparsing",
+      "version": "3.3.2",
+      "purl": "pkg:pypi/pyparsing@3.3.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pyparsing/pyparsing/"
+        }
+      ],
+      "description": "pyparsing - Classes and methods to define and execute parsing grammars"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyppmd@1.3.1",
+      "name": "pyppmd",
+      "version": "1.3.1",
+      "purl": "pkg:pypi/pyppmd@1.3.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-2.1-or-later"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pyppmd.readthedocs.io/"
+        }
+      ],
+      "description": "PPMd compression/decompression library",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest@9.1.1",
+      "name": "pytest",
+      "version": "9.1.1",
+      "purl": "pkg:pypi/pytest@9.1.1",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://docs.pytest.org/en/latest/"
+        }
+      ],
+      "description": "pytest: simple powerful testing with Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest-asyncio@1.4.0",
+      "name": "pytest-asyncio",
+      "version": "1.4.0",
+      "purl": "pkg:pypi/pytest-asyncio@1.4.0",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pytest-dev/pytest-asyncio"
+        }
+      ],
+      "description": "Pytest support for asyncio"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytest-cov@7.1.0",
+      "name": "pytest-cov",
+      "version": "7.1.0",
+      "purl": "pkg:pypi/pytest-cov@7.1.0",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pytest-cov.readthedocs.io/"
+        }
+      ],
+      "description": "Pytest plugin for measuring coverage."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-dotenv@1.2.2",
+      "name": "python-dotenv",
+      "version": "1.2.2",
+      "purl": "pkg:pypi/python-dotenv@1.2.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/theskumar/python-dotenv"
+        }
+      ],
+      "description": "Read key-value pairs from a .env file and set them as environment variables"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/python-multipart@0.0.32",
+      "name": "python-multipart",
+      "version": "0.0.32",
+      "purl": "pkg:pypi/python-multipart@0.0.32",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Kludex/python-multipart"
+        }
+      ],
+      "description": "A streaming multipart parser for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pytz@2026.2",
+      "name": "pytz",
+      "version": "2026.2",
+      "purl": "pkg:pypi/pytz@2026.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "http://pythonhosted.org/pytz"
+        }
+      ],
+      "description": "World timezone definitions, modern and historical"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/pyyaml@6.0.3",
+      "name": "PyYAML",
+      "version": "6.0.3",
+      "purl": "pkg:pypi/pyyaml@6.0.3",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://pyyaml.org/"
+        }
+      ],
+      "description": "YAML parser and emitter for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/rarfile@4.4",
+      "name": "rarfile",
+      "version": "4.4",
+      "purl": "pkg:pypi/rarfile@4.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "ISC"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/markokr/rarfile"
+        }
+      ],
+      "description": "RAR archive reader for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/reportlab@5.0.0",
+      "name": "reportlab",
+      "version": "5.0.0",
+      "purl": "pkg:pypi/reportlab@5.0.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.reportlab.com/"
+        }
+      ],
+      "description": "The Reportlab Toolkit"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/requests@2.34.2",
+      "name": "requests",
+      "version": "2.34.2",
+      "purl": "pkg:pypi/requests@2.34.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/psf/requests"
+        }
+      ],
+      "description": "Python HTTP for Humans."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/simplejson@4.1.1",
+      "name": "simplejson",
+      "version": "4.1.1",
+      "purl": "pkg:pypi/simplejson@4.1.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT OR AFL-2.1"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/simplejson/simplejson"
+        }
+      ],
+      "description": "Simple, fast, extensible JSON encoder/decoder for Python"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sniffio@1.3.1",
+      "name": "sniffio",
+      "version": "1.3.1",
+      "purl": "pkg:pypi/sniffio@1.3.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "name": "MIT OR Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-trio/sniffio"
+        }
+      ],
+      "description": "Sniff out which async library your code is running under"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/sqlalchemy@2.0.51",
+      "name": "SQLAlchemy",
+      "version": "2.0.51",
+      "purl": "pkg:pypi/sqlalchemy@2.0.51",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://www.sqlalchemy.org"
+        }
+      ],
+      "description": "Database Abstraction Library"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/starlette@1.3.1",
+      "name": "starlette",
+      "version": "1.3.1",
+      "purl": "pkg:pypi/starlette@1.3.1",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Kludex/starlette"
+        }
+      ],
+      "description": "The little ASGI library that shines."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/stix2@3.0.2",
+      "name": "stix2",
+      "version": "3.0.2",
+      "purl": "pkg:pypi/stix2@3.0.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://oasis-open.github.io/cti-documentation/"
+        }
+      ],
+      "description": "Produce and consume STIX 2 JSON content"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/stix2-patterns@2.1.2",
+      "name": "stix2-patterns",
+      "version": "2.1.2",
+      "purl": "pkg:pypi/stix2-patterns@2.1.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/oasis-open/cti-pattern-validator"
+        }
+      ],
+      "description": "Validate STIX 2 Patterns."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/texttable@1.7.0",
+      "name": "texttable",
+      "version": "1.7.0",
+      "purl": "pkg:pypi/texttable@1.7.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/foutaise/texttable/"
+        }
+      ],
+      "description": "module to create simple ASCII tables"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-extensions@4.16.0",
+      "name": "typing_extensions",
+      "version": "4.16.0",
+      "purl": "pkg:pypi/typing-extensions@4.16.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "PSF-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python/typing_extensions"
+        }
+      ],
+      "description": "Backported and Experimental Type Hints for Python 3.9+"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/typing-inspection@0.4.2",
+      "name": "typing-inspection",
+      "version": "0.4.2",
+      "purl": "pkg:pypi/typing-inspection@0.4.2",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/pydantic/typing-inspection"
+        }
+      ],
+      "description": "Runtime typing introspection tools"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/tzdata@2026.3",
+      "name": "tzdata",
+      "version": "2026.3",
+      "purl": "pkg:pypi/tzdata@2026.3",
+      "scope": "optional",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python/tzdata"
+        }
+      ],
+      "description": "Provider of IANA time zone data"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/urllib3@2.7.0",
+      "name": "urllib3",
+      "version": "2.7.0",
+      "purl": "pkg:pypi/urllib3@2.7.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://urllib3.readthedocs.io"
+        }
+      ],
+      "description": "HTTP library with thread-safe connection pooling, file post, and more."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/uvicorn@0.49.0",
+      "name": "uvicorn",
+      "version": "0.49.0",
+      "purl": "pkg:pypi/uvicorn@0.49.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://uvicorn.dev/"
+        }
+      ],
+      "description": "The lightning-fast ASGI server."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/watchfiles@1.2.0",
+      "name": "watchfiles",
+      "version": "1.2.0",
+      "purl": "pkg:pypi/watchfiles@1.2.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/samuelcolvin/watchfiles"
+        }
+      ],
+      "description": "Simple, modern and high performance file watching and code reload in python."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/websockets@16.0",
+      "name": "websockets",
+      "version": "16.0",
+      "purl": "pkg:pypi/websockets@16.0",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "BSD-3-Clause"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/python-websockets/websockets"
+        }
+      ],
+      "description": "An implementation of the WebSocket Protocol (RFC 6455 & 7692)"
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/win-unicode-console@0.5",
+      "name": "win_unicode_console",
+      "version": "0.5",
+      "purl": "pkg:pypi/win-unicode-console@0.5",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "MIT"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/Drekin/win-unicode-console"
+        }
+      ],
+      "description": "Enable Unicode input and display when running Python from Windows console."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/yara-python@4.5.4",
+      "name": "yara-python",
+      "version": "4.5.4",
+      "purl": "pkg:pypi/yara-python@4.5.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "Apache-2.0"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://github.com/VirusTotal/yara-python"
+        }
+      ],
+      "description": "Python interface for YARA"
+    }
+  ]
+}

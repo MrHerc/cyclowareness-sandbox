@@ -35,6 +35,12 @@ BASELINE_REVISION = "0001_baseline"
 CVSS_REVISION = "0002_cvss_verdict_mitre"
 #: Columns added by CVSS_REVISION; their presence dates a pre-Alembic database.
 _POST_BASELINE_COLUMNS = {"cvss", "verdict", "mitre"}
+#: The revision that renamed `cvss` to `impact`. A pre-Alembic database built by
+#: create_all() from the *current* models already has the new name, so it must be
+#: stamped here — stamping CVSS_REVISION would send it into a rename of a column
+#: it does not have.
+IMPACT_REVISION = "0003_impact_rating"
+_IMPACT_COLUMNS = {"impact", "verdict", "mitre"}
 
 connect_args: dict = {}
 if settings.database_url.startswith("sqlite"):
@@ -86,7 +92,11 @@ def _legacy_stamp_target(connection: Connection) -> str | None:
     if "alembic_version" in tables or "sandbox_jobs" not in tables:
         return None
     columns = {c["name"] for c in inspect(connection).get_columns("sandbox_jobs")}
-    return CVSS_REVISION if _POST_BASELINE_COLUMNS <= columns else BASELINE_REVISION
+    if _IMPACT_COLUMNS <= columns:
+        return IMPACT_REVISION
+    if _POST_BASELINE_COLUMNS <= columns:
+        return CVSS_REVISION
+    return BASELINE_REVISION
 
 
 def init_db() -> None:

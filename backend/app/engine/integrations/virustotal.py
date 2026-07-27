@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import httpx
 
+from ... import sovereignty
 from ..contracts import AnalyzerResult, IOCs, Signal
 
 _API_BASE = "https://www.virustotal.com/api/v3/files/"
@@ -45,6 +46,14 @@ def lookup(sha256: str, api_key: str, timeout: float = 10.0) -> dict:
         return {"found": False, "error": "empty sha256"}
     if not api_key:
         return {"found": False, "error": "no api key"}
+
+    # Checked here as well as in the intel analyzer, because this function is
+    # importable and a future caller that reaches it directly must not be able
+    # to route around the choke point.
+    try:
+        sovereignty.check("virustotal", detail=f"sha256 {sha[:16]}")
+    except sovereignty.OutboundRefused as refusal:
+        return {"found": False, "error": "sovereign_mode_refused", "refusal": refusal.reason}
 
     headers = {"x-apikey": api_key, "accept": "application/json"}
     try:
@@ -99,8 +108,11 @@ def as_analyzer_result(sha256: str, api_key: str) -> AnalyzerResult:
     verdict = lookup(sha256, api_key)
 
     if verdict.get("error"):
+        # A refusal is not a failure and must not read as one — "lookup failed"
+        # would tell an operator their key is broken when in fact their own
+        # policy stopped the call.
         return AnalyzerResult.unavailable(
-            ANALYZER_NAME, f"lookup failed: {verdict['error']}"
+            ANALYZER_NAME, verdict.get("refusal") or f"lookup failed: {verdict['error']}"
         )
 
     if not verdict.get("found"):

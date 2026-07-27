@@ -60,7 +60,7 @@ class JobDetail(JobSummary):
     dynamic: dict[str, Any]
     iocs: dict[str, list[str]]
     score_breakdown: dict[str, Any]
-    cvss: dict[str, Any]
+    impact: dict[str, Any]
     verdict: dict[str, Any]
     mitre: list[dict[str, Any]]
     rule_score: float
@@ -85,7 +85,9 @@ class JobDetail(JobSummary):
             dynamic=job.dynamic or {},
             iocs=job.iocs or {},
             score_breakdown=job.score_breakdown or {},
-            cvss=job.cvss or {},
+            # `cvss` is what the column was called before the rating was renamed;
+            # a job object carrying only the old attribute still serialises.
+            impact=getattr(job, "impact", None) or getattr(job, "cvss", None) or {},
             verdict=job.verdict or {},
             mitre=job.mitre or [],
             rule_score=job.rule_score,

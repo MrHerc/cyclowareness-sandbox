@@ -13,16 +13,17 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import metrics
+from .. import audit, metrics, sovereignty
 from ..auth import Identity, require_analyst
 from ..config import Settings, get_settings
 from ..db import get_db
-from ..engine import pipeline
+from ..engine import attestation, pipeline
+from ..engine import incident as incident_mod
 from ..engine import report as report_mod
 from ..engine.fetcher import FetchFailed, UnsafeURL, fetch
 from ..engine.models import Feedback, JobSource, JobStatus, SandboxJob
@@ -45,6 +46,32 @@ def _max_bytes(settings: Settings) -> int:
     return max(1, settings.max_sample_mb) * 1024 * 1024
 
 
+def _trace(
+    request: Request,
+    identity: Identity,
+    action: str,
+    *,
+    public_id: str = "",
+    detail: dict | None = None,
+) -> None:
+    """Append this operation to the chain of custody.
+
+    Everything that touches a sample goes through here. The question an auditor
+    asks is not "was the verdict right" but "who did what to this evidence, and
+    when" — and an answer with gaps in it is not an answer. ``audit.record``
+    swallows its own failures, so a chain problem can never break the request.
+    """
+    audit.record(
+        action=action,
+        actor=identity.subject,
+        actor_method=identity.method,
+        object_type="sample" if public_id else "",
+        object_id=public_id,
+        source_ip=request.client.host if request.client else None,
+        detail=detail,
+    )
+
+
 def _job_or_404(db: Session, public_id: str) -> SandboxJob:
     job = db.execute(
         select(SandboxJob).where(SandboxJob.public_id == public_id)
@@ -57,6 +84,7 @@ def _job_or_404(db: Session, public_id: str) -> SandboxJob:
 # --- submission --------------------------------------------------------------
 @router.post("/analyze", response_model=JobDetail, status_code=201)
 async def analyze(
+    request: Request,
     file: UploadFile = File(...),
     password: str | None = Form(default=None),
     db: Session = Depends(get_db),
@@ -84,6 +112,9 @@ async def analyze(
     )
     db.commit()
     metrics.uploads_total.labels(source="upload").inc()
+    _trace(request, identity, audit.AuditAction.SAMPLE_SUBMITTED, public_id=job.public_id,
+           detail={"source": "upload", "filename": job.original_name, "sha256": job.sha256,
+                   "size_bytes": job.size_bytes})
     submit_analysis(job.id, password)
     db.refresh(job)
     return JobDetail.of(job)
@@ -91,13 +122,26 @@ async def analyze(
 
 @router.post("/analyze/url", response_model=JobDetail, status_code=201)
 def analyze_url(
+    request: Request,
     payload: SubmitURLRequest,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
     settings: Settings = Depends(get_settings),
 ):
     """Submit a URL. The server downloads it — after refusing to fetch anything
-    that resolves to a private, loopback or cloud-metadata address (SSRF guard)."""
+    that resolves to a private, loopback or cloud-metadata address (SSRF guard).
+
+    This is the one outbound connection sovereign mode permits by default, and it
+    is permitted because the analyst chose the destination. A deployment that
+    closes even this (``SOVEREIGN_ALLOW_URL_FETCH=false``) is refused here, at
+    the only place a URL fetch can be started.
+    """
+    try:
+        sovereignty.check(sovereignty.URL_FETCH, detail=payload.url[:200])
+    except sovereignty.OutboundRefused as exc:
+        metrics.fetch_failures_total.labels(reason="sovereign_mode").inc()
+        raise HTTPException(status_code=403, detail=exc.reason) from exc
+
     try:
         with metrics.timed(metrics.fetch_duration):
             fetched = fetch(payload.url, max_bytes=_max_bytes(settings))
@@ -121,6 +165,8 @@ def analyze_url(
     )
     db.commit()
     metrics.uploads_total.labels(source="url").inc()
+    _trace(request, identity, audit.AuditAction.SAMPLE_SUBMITTED, public_id=job.public_id,
+           detail={"source": "url", "url": (job.submitted_url or "")[:300], "sha256": job.sha256})
     submit_analysis(job.id)
     db.refresh(job)
     return JobDetail.of(job)
@@ -168,6 +214,7 @@ def list_jobs(
 # --- job-centric actions -----------------------------------------------------
 @router.post("/jobs/{public_id}/password", response_model=JobDetail)
 def provide_password(
+    request: Request,
     public_id: str,
     payload: PasswordRequest,
     db: Session = Depends(get_db),
@@ -181,6 +228,7 @@ def provide_password(
     job = _job_or_404(db, public_id)
     if job.status != JobStatus.AWAITING_PASSWORD:
         raise HTTPException(status_code=409, detail="This job is not waiting for a password")
+    _trace(request, identity, audit.AuditAction.ARCHIVE_PASSWORD_SUPPLIED, public_id=job.public_id)
     submit_analysis(job.id, payload.password)
     db.refresh(job)
     return JobDetail.of(job)
@@ -188,6 +236,7 @@ def provide_password(
 
 @router.post("/jobs/{public_id}/reanalyze", response_model=JobDetail)
 def reanalyze(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
@@ -198,6 +247,7 @@ def reanalyze(
         raise HTTPException(status_code=409, detail="Analysis is already running")
     job.status = JobStatus.QUEUED
     db.commit()
+    _trace(request, identity, audit.AuditAction.REANALYSIS_REQUESTED, public_id=job.public_id)
     submit_analysis(job.id)
     db.refresh(job)
     return JobDetail.of(job)
@@ -205,6 +255,7 @@ def reanalyze(
 
 @router.post("/jobs/{public_id}/feedback", response_model=JobDetail)
 def submit_feedback(
+    request: Request,
     public_id: str,
     payload: FeedbackRequest,
     db: Session = Depends(get_db),
@@ -219,6 +270,8 @@ def submit_feedback(
     job.feedback = payload.verdict
     job.feedback_note = (payload.note or "")[:2000] or None
     db.commit()
+    _trace(request, identity, audit.AuditAction.FEEDBACK_RECORDED, public_id=job.public_id,
+           detail={"verdict": payload.verdict})
     db.refresh(job)
     return JobDetail.of(job)
 
@@ -226,26 +279,55 @@ def submit_feedback(
 # --- exports -----------------------------------------------------------------
 @router.get("/jobs/{public_id}/export.json")
 def export_json(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
     metrics.reports_generated_total.labels(format="json").inc()
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+           detail={"format": "json"})
     return report_mod.as_json(_job_or_404(db, public_id))
 
 
 @router.get("/jobs/{public_id}/export.stix")
 def export_stix(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
     metrics.reports_generated_total.labels(format="stix").inc()
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+           detail={"format": "stix"})
     return report_mod.as_stix(_job_or_404(db, public_id))
+
+
+@router.get("/jobs/{public_id}/export.incident")
+def export_incident(
+    request: Request,
+    public_id: str,
+    db: Session = Depends(get_db),
+    identity: Identity = Depends(require_analyst),
+):
+    """The incident record: the same evidence laid out in the fields a regulator asks for.
+
+    The JSON and STIX exports serve an analyst and a TIP. This one serves the
+    compliance function that has 24 hours under NIS2 Article 23(4)(a) to send an
+    early warning and needs the technical facts already sorted into the shape the
+    notification takes. It is explicitly a draft: the fields only the entity can
+    answer are emitted empty and named, and the record says on its face that it
+    is not a filing.
+    """
+    metrics.reports_generated_total.labels(format="incident").inc()
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+           detail={"format": "incident"})
+    return incident_mod.build(_job_or_404(db, public_id))
 
 
 @router.get("/jobs/{public_id}/export.pdf")
 def export_pdf(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
@@ -253,9 +335,47 @@ def export_pdf(
     job = _job_or_404(db, public_id)
     pdf = report_mod.as_pdf(job)
     metrics.reports_generated_total.labels(format="pdf").inc()
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+           detail={"format": "pdf"})
     safe = "".join(c for c in (job.original_name or "report") if c.isalnum() or c in "._-")[:60]
     return Response(
         content=pdf,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="sandbox-{safe or job.public_id}.pdf"'},
     )
+
+
+@router.get("/jobs/{public_id}/export.signed")
+def export_signed(
+    public_id: str,
+    db: Session = Depends(get_db),
+    identity: Identity = Depends(require_analyst),
+    settings: Settings = Depends(get_settings),
+):
+    """The report as evidence: engine manifest, canonical bytes, detached signature.
+
+    The other three exports are views for a human or a TIP. This one is for a
+    recipient who does not trust us — a regulator, opposing counsel, an insurer —
+    and who must be able to check, offline and with no access to this system,
+    that the bytes in front of them are the bytes this deployment produced. It is
+    served as ordinary JSON on purpose: ``tools/verify_report.py`` re-derives the
+    canonical encoding from the parsed document, so a proxy that reformats the
+    response cannot break verification.
+
+    Without a SIGNING_KEY the document is still produced in full, and says
+    plainly that it is unsigned rather than implying an assurance it lacks.
+    """
+    envelope = attestation.attest(_job_or_404(db, public_id), settings=settings)
+    metrics.reports_generated_total.labels(
+        format="signed" if envelope["signed"] else "unsigned"
+    ).inc()
+    return envelope
+
+
+# Deliberately unauthenticated: a public key that only an authenticated analyst
+# can fetch cannot be used by the outside party the signature exists to convince.
+# It publishes nothing but the public half of a signing key.
+@router.get("/attestation/pubkey")
+def attestation_pubkey(settings: Settings = Depends(get_settings)):
+    """This deployment's Ed25519 public key, so a recipient can verify alone."""
+    return attestation.public_key_info(settings)

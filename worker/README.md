@@ -21,10 +21,15 @@ Three engines fulfil that rule differently:
   evidence. **If `firejail` is not present, this engine refuses to run** — there
   is no unconfined fallback. Running malware outside its jail is worse than not
   running it, so the absence of Firejail disables native detonation entirely.
-- **Qiling (emulation)** — the sample's instructions run in an *emulated* CPU and
-  OS; syscalls/API calls are hooked, never executed against the real kernel. This
-  is safe even on a workstation (nothing is truly detonated) and is the
-  demonstrable native-behaviour path when no isolation VM is available.
+- **Qiling (emulation, operator-installed)** — the sample's instructions run in
+  an *emulated* CPU and OS; syscalls/API calls are hooked, never executed against
+  the real kernel. This is safe even on a workstation (nothing is truly
+  detonated) and is the demonstrable native-behaviour path when no isolation VM
+  is available. **We ship the adapter, not the library:** `qiling` is GPL-2.0 and
+  is deliberately absent from `requirements.txt` and this image, because
+  importing it in-process in a distributed image would make that image a
+  derivative work of a GPL-2.0 library. Install it yourself if you want it — see
+  [Enabling Qiling](#enabling-qiling-optional).
 - **External sandboxes (Cuckoo / CAPEv2 / Joe)** — the sample is submitted to a
   detonation service the operator already runs/subscribes to; the worker only
   normalises the returned behavioural JSON. No execution happens on the worker.
@@ -74,7 +79,7 @@ are silently skipped, never forced.
 | Engine | Family support | Available when |
 |--------|----------------|----------------|
 | native | `elf`, `script` | `firejail` **and** `strace` on PATH |
-| qiling | `pe`, `elf` | `qiling` importable **and** a rootfs present |
+| qiling | `pe`, `elf` | `qiling` installed **by you** (not shipped) **and** a rootfs present |
 | cuckoo | pe/elf/script/office/pdf | `CUCKOO_URL` set |
 | capev2 | pe/elf/script/office/pdf | `CAPEV2_URL` set |
 | joe | pe/elf/script/office/pdf | `JOE_URL` **and** `JOE_APIKEY` set |
@@ -112,9 +117,30 @@ python agent.py                           # continuous poll loop
 ```
 
 With no optional engines installed and no external sandbox configured, the worker
-logs each engine as `unavailable` and simply skips jobs it cannot handle — it
-does not fail. Install Qiling, or provide Firejail on a Linux VM, or set an
-external sandbox URL to light up real behaviour.
+logs each engine as `unavailable` (with the reason, where it has one) and simply
+skips jobs it cannot handle — it does not fail. Provide Firejail on a Linux VM,
+set an external sandbox URL, or install Qiling yourself, to light up real
+behaviour.
+
+### Enabling Qiling (optional)
+
+Qiling is **not installed by this repository or its image**, and that is a
+licence decision, not an oversight: Qiling is GPL-2.0, and a distributed image
+that imports it in-process would be a derivative work of a GPL-2.0 library —
+irreconcilable with the BUSL-1.1 licence on Cyclowareness Sandbox
+([`../docs/licensing.md`](../docs/licensing.md)).
+
+`engines/qiling_emu.py` is our own adapter against Qiling's public API. If you
+want emulation on your own worker:
+
+```bash
+pip install qiling                     # you are accepting Qiling's GPL-2.0 terms
+export QILING_ROOTFS=/opt/qiling/rootfs # emulated-OS filesystems you provide
+```
+
+The engine then reports itself available and the agent starts choosing it. That
+choice, and its licence consequences for whatever you build around your worker,
+are yours — we neither make it for you nor distribute the result.
 
 ### Docker (on a disposable, isolated VM)
 
@@ -143,6 +169,23 @@ a shared cluster.
 - `engines/base.py` — the `Engine` interface and the `Report` dataclass /
   `to_payload()` wire format.
 - `engines/native_linux.py` — the native Firejail+seccomp+strace engine.
-- `engines/qiling_emu.py` — the Qiling emulation engine (guarded import).
+- `engines/qiling_emu.py` — the Qiling emulation adapter (guarded import; the
+  GPL-2.0 `qiling` library is operator-installed, never shipped).
 - `engines/opensource.py` — Cuckoo / CAPEv2 / Joe Sandbox clients.
 - `Dockerfile`, `docker-entrypoint.sh` — the Linux image and its startup checks.
+
+## Licence
+
+> Copyright (c) 2026 Safarali Safarli
+>
+> Use of this software is governed by the Business Source License 1.1 included in
+> the [`LICENSE`](../LICENSE) file at the repository root. As of the Change Date
+> specified in that file (2030-07-27), in accordance with the Business Source
+> License, use of this software will be governed by the Apache License,
+> Version 2.0.
+
+The image's third-party contents are disclosed in
+[`../THIRD_PARTY_NOTICES.md`](../THIRD_PARTY_NOTICES.md) and
+[`../sbom.json`](../sbom.json). `firejail` (GPL-2.0) and `strace`
+(LGPL-2.1-or-later) are installed by apt and invoked as **separate processes** —
+never linked or imported — which is why they carry no obligation onto this code.

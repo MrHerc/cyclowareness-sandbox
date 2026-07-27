@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
-from .api import admin, auth, dynamic, meta, sandbox
+from .api import admin, audit, auth, dynamic, meta, sandbox
 from .config import get_settings
 from .db import init_db
 
@@ -65,6 +65,7 @@ app.include_router(auth.router)
 app.include_router(sandbox.router)
 app.include_router(admin.router)
 app.include_router(dynamic.router)
+app.include_router(audit.router)
 
 
 # --- serve the built frontend ------------------------------------------------

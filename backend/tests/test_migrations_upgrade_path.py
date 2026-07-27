@@ -3,10 +3,10 @@
 The failure these tests pin down was reproduced against a shipped build. The
 schema was created by ``create_all()``, which CREATEs a table it has never seen
 and silently ignores a column added to one it already has. So the release that
-added ``cvss``/``verdict``/``mitre`` to ``sandbox_jobs`` booted happily on a
+added the assessment columns to ``sandbox_jobs`` booted happily on a
 previous-release database — ``/api/health`` returned 200 — and then every job
-route raised ``no such column: sandbox_jobs.cvss``. There was no upgrade and no
-rollback, which for on-prem software is unshippable.
+route raised ``no such column``. There was no upgrade and no rollback, which for
+on-prem software is unshippable.
 
 Each test drives ``init_db()`` against its own throwaway SQLite file by swapping
 the module-level engine, so nothing here touches the suite's database.
@@ -26,7 +26,9 @@ from app.engine.models import SandboxJob
 from app.main import app
 
 #: Added by the release under test. Absent from a previous-release database.
-POST_BASELINE_COLUMNS = ("cvss", "verdict", "mitre")
+#: ``impact`` was added as ``cvss`` and renamed by 0003; either way it is the
+#: column an older database does not have.
+POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre")
 
 
 def _build_previous_release_schema(engine: sa.Engine) -> None:
@@ -63,6 +65,18 @@ def _insert_legacy_job(engine: sa.Engine, public_id: str) -> None:
 
 def _columns(engine: sa.Engine) -> set[str]:
     return {c["name"] for c in sa.inspect(engine).get_columns("sandbox_jobs")}
+
+
+def _head_revision() -> str:
+    """The latest revision, read from the migration scripts.
+
+    Not hardcoded: every release that adds a revision would otherwise have to
+    edit each assertion below, and the thing under test is "init_db reaches head",
+    not "init_db reaches this particular string".
+    """
+    from alembic.script import ScriptDirectory
+
+    return ScriptDirectory.from_config(app_db.alembic_config()).get_current_head()
 
 
 def _revision(engine: sa.Engine) -> str | None:
@@ -116,7 +130,7 @@ def test_previous_release_database_reproduces_the_reported_failure(temp_engine):
             session.execute(sa.select(SandboxJob)).scalars().all()
     finally:
         session.close()
-    assert "cvss" in str(excinfo.value)
+    assert "impact" in str(excinfo.value)
 
 
 def test_init_db_upgrades_a_previous_release_database(temp_engine):
@@ -126,7 +140,7 @@ def test_init_db_upgrades_a_previous_release_database(temp_engine):
     app_db.init_db()
 
     assert set(POST_BASELINE_COLUMNS) <= _columns(temp_engine)
-    assert _revision(temp_engine) == "0002_cvss_verdict_mitre"
+    assert _revision(temp_engine) == _head_revision()
 
     # The pre-existing evidence survived, and the new columns are populated with
     # values the ORM can load rather than NULLs a non-nullable column rejects.
@@ -137,7 +151,7 @@ def test_init_db_upgrades_a_previous_release_database(temp_engine):
         ).scalar_one()
         assert job.original_name == "invoice.doc"
         assert job.final_score == 4.0
-        assert job.cvss == {}
+        assert job.impact == {}
         assert job.verdict == {}
         assert job.mitre == []
     finally:
@@ -181,7 +195,7 @@ def test_current_release_database_without_alembic_is_adopted_in_place(temp_engin
 
     app_db.init_db()
 
-    assert _revision(temp_engine) == "0002_cvss_verdict_mitre"
+    assert _revision(temp_engine) == _head_revision()
     with temp_engine.connect() as connection:
         count = connection.execute(sa.text("SELECT count(*) FROM sandbox_jobs")).scalar()
     assert count == 1
@@ -193,7 +207,7 @@ def test_fresh_database_is_created_by_the_migrations(temp_engine):
 
     assert "sandbox_jobs" in sa.inspect(temp_engine).get_table_names()
     assert set(POST_BASELINE_COLUMNS) <= _columns(temp_engine)
-    assert _revision(temp_engine) == "0002_cvss_verdict_mitre"
+    assert _revision(temp_engine) == _head_revision()
 
 
 def test_migrated_schema_matches_the_models(temp_engine):
@@ -215,7 +229,7 @@ def test_init_db_is_idempotent(temp_engine):
     """The lifespan and the test fixtures both call it; a second run is a no-op."""
     app_db.init_db()
     app_db.init_db()
-    assert _revision(temp_engine) == "0002_cvss_verdict_mitre"
+    assert _revision(temp_engine) == _head_revision()
 
 
 # --- baseline fidelity and rollback ------------------------------------------
@@ -265,7 +279,7 @@ def test_downgrade_and_re_upgrade_preserve_rows(temp_engine):
     with temp_engine.connect() as connection:
         row = connection.execute(
             sa.text(
-                "SELECT original_name, cvss FROM sandbox_jobs WHERE public_id = 'rollback-job'"
+                "SELECT original_name, impact FROM sandbox_jobs WHERE public_id = 'rollback-job'"
             )
         ).one()
     assert row[0] == "invoice.doc"

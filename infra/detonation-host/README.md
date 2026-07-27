@@ -74,7 +74,7 @@ per-step commands.
 
 Submit a sample in Cyclowareness Sandbox → the job is dispatched to this host →
 CAPEv2 detonates it in the snapshotted VM → behaviour, network, dropped files and
-config are captured and merged into the verdict / CVSS / MITRE. **Real data, no
+config are captured and merged into the verdict / impact rating / MITRE. **Real data, no
 simulation.**
 
 ---

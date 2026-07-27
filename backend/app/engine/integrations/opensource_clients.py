@@ -12,14 +12,32 @@ that actually talks to them. Each is deliberately small, typed, and total —
 every failure mode collapses to ``{"ok": False, "error": ...}`` rather than an
 exception, because a sandbox being unreachable is an expected operational state,
 not a crash.
+
+These three are the highest-stakes egress in the product: unlike a VirusTotal
+hash lookup they send the customer's **file**. So each clears the sovereignty
+choke point before touching the socket, and a refusal is returned as its own
+error code rather than folded into "unreachable" — an operator must be able to
+tell a cluster that is down from a cluster this deployment is not allowed to
+reach.
 """
 from __future__ import annotations
 
 import httpx
 
+from ... import sovereignty
+
 # Sandbox submissions can take a moment to accept the upload; keep the connect
 # timeout tight but allow the write/read to breathe.
 _DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+
+
+def _refusal(destination: str, filename: str) -> dict | None:
+    """``None`` when the call may proceed, else the refusal to return as-is."""
+    try:
+        sovereignty.check(destination, detail=f"would upload {filename!r}")
+    except sovereignty.OutboundRefused as refused:
+        return {"ok": False, "error": "sovereign_mode_refused", "refusal": refused.reason}
+    return None
 
 
 def cuckoo_submit(base_url: str, token: str, file_bytes: bytes,
@@ -36,6 +54,9 @@ def cuckoo_submit(base_url: str, token: str, file_bytes: bytes,
     """
     if not base_url or not token:
         return {"ok": False, "error": "cuckoo not configured"}
+    refused = _refusal("cuckoo", filename)
+    if refused:
+        return refused
 
     url = base_url.rstrip("/") + "/tasks/create/file"
     headers = {"Authorization": f"Bearer {token}"}
@@ -69,6 +90,9 @@ def capev2_submit(base_url: str, token: str, file_bytes: bytes,
     """
     if not base_url or not token:
         return {"ok": False, "error": "capev2 not configured"}
+    refused = _refusal("capev2", filename)
+    if refused:
+        return refused
 
     url = base_url.rstrip("/") + "/apiv2/tasks/create/file/"
     headers = {"Authorization": f"Token {token}"}
@@ -107,6 +131,9 @@ def strelka_scan(base_url: str, file_bytes: bytes,
     """
     if not base_url:
         return {"ok": False, "error": "strelka not configured"}
+    refused = _refusal("strelka", filename)
+    if refused:
+        return refused
 
     url = base_url.rstrip("/") + "/scan"
     files = {"file": (filename, file_bytes, "application/octet-stream")}

@@ -31,9 +31,9 @@ import { BehaviorGraph } from '../components/BehaviorGraph'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
 import {
-  cvssOf,
   familyLabel,
   formatBytes,
+  impactOf,
   iocLabel,
   verdictHeadline,
   verdictOf,
@@ -54,8 +54,8 @@ const TONE_TEXT: Record<string, string> = {
   warning: 'text-warning',
   success: 'text-success',
 }
-/** Long form of the CVSS base-metric letters, so the vector is readable. */
-const CVSS_METRIC: Record<string, string> = {
+/** Long form of the impact-rating metric letters, so the vector is readable. */
+const IMPACT_METRIC: Record<string, string> = {
   AV: 'Attack vector',
   AC: 'Attack complexity',
   PR: 'Privileges required',
@@ -145,7 +145,7 @@ export function JobDetail() {
   // All three are absent on jobs analysed before the verdict engine shipped.
   const verdict = verdictOf(job)
   const detection = verdict ? job.verdict ?? null : null
-  const cvss = cvssOf(job)
+  const impact = impactOf(job)
   const mitre = Array.isArray(job.mitre) ? job.mitre : []
 
   return (
@@ -292,12 +292,12 @@ export function JobDetail() {
                     </p>
                   </>
                 )}
-                {cvss && (
+                {impact && (
                   <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <Chip tone={SEVERITY_TONE[cvss.severity] ?? 'neutral'}>
-                      CVSS {cvss.base_score.toFixed(1)} {cvss.severity}
+                    <Chip tone={SEVERITY_TONE[impact.severity] ?? 'neutral'}>
+                      Impact {impact.base_score.toFixed(1)} {impact.severity}
                     </Chip>
-                    <span className="tech text-c3">{cvss.vector}</span>
+                    <span className="tech text-c3">{impact.vector}</span>
                   </div>
                 )}
               </div>
@@ -335,32 +335,35 @@ export function JobDetail() {
           )}
 
           <div className="grid gap-6 lg:grid-cols-2">
-            {/* CVSS */}
-            <Panel title="CVSS v3.1" subtitle="Severity of what this sample can do, not of the file">
-              {cvss ? (
+            {/* Cyclowareness Impact Rating */}
+            <Panel
+              title="Cyclowareness Impact Rating"
+              subtitle="Severity of what this sample can do, not of the file"
+            >
+              {impact ? (
                 <div className="space-y-3">
                   <div className="flex items-baseline gap-3">
                     <span
                       className={cx(
                         'text-display font-semibold tabular-nums',
-                        TONE_TEXT[SEVERITY_TONE[cvss.severity] ?? 'neutral'] ?? 'text-c1',
+                        TONE_TEXT[SEVERITY_TONE[impact.severity] ?? 'neutral'] ?? 'text-c1',
                       )}
                     >
-                      {cvss.base_score.toFixed(1)}
+                      {impact.base_score.toFixed(1)}
                     </span>
-                    <Chip tone={SEVERITY_TONE[cvss.severity] ?? 'neutral'}>{cvss.severity}</Chip>
+                    <Chip tone={SEVERITY_TONE[impact.severity] ?? 'neutral'}>{impact.severity}</Chip>
                   </div>
-                  <p className="tech text-c3">{cvss.vector}</p>
+                  <p className="tech text-c3">{impact.vector}</p>
                   <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(cvss.metrics || {}).map(([m, v]) => (
+                    {Object.entries(impact.metrics || {}).map(([m, v]) => (
                       <Chip key={m} tone="neutral">
-                        {CVSS_METRIC[m] ?? m}: {v}
+                        {IMPACT_METRIC[m] ?? m}: {v}
                       </Chip>
                     ))}
                   </div>
-                  {(cvss.rationale || []).length > 0 && (
+                  {(impact.rationale || []).length > 0 && (
                     <div className="space-y-1.5 border-t border-hair pt-3">
-                      {cvss.rationale.map((r, i) => (
+                      {impact.rationale.map((r, i) => (
                         <p key={i} className="text-sm text-c2">
                           <span className="tech text-c1">
                             {r.metric}:{r.value}
@@ -370,10 +373,16 @@ export function JobDetail() {
                       ))}
                     </div>
                   )}
+                  {/* Said on the screen and not only in the export: a 0-10 number
+                      on a security report is read as CVSS unless it says it isn't. */}
+                  <p className="text-sm border-t border-hair pt-3 text-c3">
+                    {impact.disclaimer ??
+                      'Derived from the capabilities this sample was observed to have. Not a vulnerability score, and not CVSS — the arithmetic is CVSS-compatible so the 0-10 scale reads as expected.'}
+                  </p>
                 </div>
               ) : (
                 <p className="text-sm text-c2">
-                  No CVSS vector on this job — it was analysed before the scoring engine shipped.
+                  No impact rating on this job — it was analysed before the scoring engine shipped.
                 </p>
               )}
             </Panel>

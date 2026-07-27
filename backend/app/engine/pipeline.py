@@ -517,13 +517,14 @@ def run(
             assessment.final_score = worst_score
             assessment.risk_level = risk_level(worst_score)
 
-        # Real security-analyst outputs: CVSS v3.1, a VirusTotal-style internal
-        # verdict, and the MITRE ATT&CK techniques the behaviour maps to. All
-        # derived from the same signals — no external call, nothing fabricated.
-        from . import cvss as cvss_mod, mitre as mitre_mod, verdict as verdict_mod
+        # Real security-analyst outputs: the Cyclowareness Impact Rating, a
+        # VirusTotal-style internal verdict, and the MITRE ATT&CK techniques the
+        # behaviour maps to. All derived from the same signals — no external
+        # call, nothing fabricated.
+        from . import impact as impact_mod, mitre as mitre_mod, verdict as verdict_mod
 
         all_signals = [s for r in results if r.ran for s in r.signals]
-        cvss_res = cvss_mod.assess(
+        impact_res = impact_mod.assess(
             sample.family, all_signals, merged, from_url=(job.source == JobSource.URL)
         )
         verdict_res = verdict_mod.classify(
@@ -538,7 +539,7 @@ def run(
         job.ai_score = assessment.ai_score
         job.final_score = assessment.final_score
         job.risk_level = assessment.risk_level
-        job.cvss = cvss_res.to_dict()
+        job.impact = impact_res.to_dict()
         job.verdict = verdict_res.to_dict()
         job.mitre = mitre_mod.map_techniques(all_signals)
         job.status = JobStatus.COMPLETED

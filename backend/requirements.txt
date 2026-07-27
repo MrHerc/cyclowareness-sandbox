@@ -2,6 +2,11 @@
 # Every analysis dependency is a pure-Python or well-audited wheel; NONE of them
 # executes the sample. Detonation happens only in the off-host worker (see
 # ../worker), never in this process.
+#
+# LICENCE: this product is BUSL-1.1, so the licence of everything here is a
+# procurement question, not a formality. The full generated disclosure lives in
+# ../THIRD_PARTY_NOTICES.md and ../sbom.json; the reasoning in ../docs/licensing.md.
+# Two notes belong next to the pins themselves — see py7zr and oletools below.
 
 # --- web service ---
 fastapi>=0.115
@@ -16,17 +21,29 @@ prometheus-client>=0.20       # /metrics (optional; degrades to no-op if absent)
 
 # --- static analysis engine ---
 pefile>=2024.8.26             # PE (.exe/.dll) structure + imports
+# oletools is BSD-2-Clause, but it hard-depends on `pcodedmp`, which is GPL-3.0
+# and therefore lands in the image. We never import it — olevba only touches
+# pcodedmp inside extract_pcode(), which analyzers/office.py does not call — so
+# it is mere aggregation, not linking. Sites that forbid GPL bytes on disk can
+# `pip uninstall -y pcodedmp` after install with no loss of function.
 oletools>=0.60                # Office macro + OLE analysis (olevba/oleid)
 yara-python>=4.5              # signature scanning
 # py7zr 1.0 removed read()/readall() in favour of the writer-factory API the
 # engine now calls. The old `>=0.22` pin let a fresh install resolve to either,
 # and on 1.x every .7z failed to unpack.
+# py7zr and its compression chain (pybcj, pyppmd, inflate64, multivolumefile)
+# are LGPL-2.1-or-later. Fine for a pip-installed, dynamically-imported,
+# unmodified wheel — and disclosed as such in ../THIRD_PARTY_NOTICES.md.
 py7zr>=1.0,<2                 # 7z archive handling
 rarfile>=4.2                  # RAR listing (extraction needs the `unrar` binary)
 pdfminer.six>=20240706        # PDF text + metadata
 reportlab>=4.2                # PDF report generation
 stix2>=3.0                    # STIX 2.1 export
 puremagic>=1.28               # content-based file type identification
+# Ed25519 detached signatures over the canonical report bytes. Apache-2.0 OR
+# BSD-3-Clause, and the most widely audited crypto wheel in the ecosystem — a
+# signature an auditor is expected to rely on is not a place for our own maths.
+cryptography>=42              # signed, independently verifiable reports
 
 # --- optional: LLM triage narrative ---
 # The numeric verdict comes from the engine's own model regardless; this only
@@ -34,4 +51,6 @@ puremagic>=1.28               # content-based file type identification
 anthropic>=0.40
 
 # --- optional: production database ---
+# psycopg is LGPL-3.0-only; same dynamic-import position as py7zr above, and it
+# is only present at all if the operator chooses PostgreSQL.
 # psycopg[binary]>=3.2         # set DATABASE_URL=postgresql+psycopg://...

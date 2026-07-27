@@ -1,20 +1,39 @@
-"""CVSS v3.1 severity for an analysed sample.
+"""Cyclowareness Impact Rating (CIR v1) — how much damage this sample can do.
+
+This used to be published as "CVSS v3.1" and it no longer is. FIRST scopes CVSS
+to *vulnerabilities* — "the principal technical characteristics of software,
+hardware and firmware vulnerabilities". A malware sample is not a vulnerability,
+so scoring one with CVSS is a category error, and our arithmetic being exactly
+right made it a precisely wrong answer rather than an approximately right one.
+CVSS v4.0 has also been GA since November 2023, so shipping a v3.1 badge in 2026
+invites a question with no good answer. The rating kept the maths and dropped the
+borrowed name.
 
 Two honest halves:
 
-1. **The maths is the real CVSS v3.1 specification** — the exact metric value
-   tables, the scope-dependent impact and exploitability equations, and the
-   official `roundup`. Given a vector, ``score()`` returns exactly what the
-   FIRST.org calculator returns. This is verified against the specification's
-   worked examples in the test suite.
+1. **The arithmetic is deliberately CVSS-compatible.** The metric value tables,
+   the scope-dependent impact and exploitability equations and the ``roundup``
+   are the CVSS v3.1 ones, so a reader who knows what an 8.8 feels like reads a
+   CIR 8.8 correctly, and the number is reproducible by anyone holding the
+   published equations. The specification's worked vectors are asserted in the
+   test suite. What changed is the *label*, not the number.
 
-2. **The metric selection is derived from what static analysis observed**, and
-   the reason for every metric is reported. CVSS was designed for
-   vulnerabilities, so applying it to a malware sample is a modelling choice:
-   we read the sample's capabilities (does it reach the network, steal
-   credentials, persist, evade defences, destroy data) and map them onto the
-   base metrics. The number is real CVSS; the inputs are a transparent,
-   arguable mapping — which is exactly how it is labelled everywhere it shows.
+2. **The metric selection is derived from what analysis observed**, and the
+   reason for every metric is reported. We read the sample's capabilities (does
+   it reach the network, steal credentials, persist, evade defences, destroy
+   data) and map them onto the base metrics. The mapping is published in full in
+   docs/impact-rating.md so a buyer can audit the rating rather than trust it.
+
+The metric axes are kept because they are the right axes and they are familiar:
+reachability, reliability, privilege required, interaction, blast radius, and the
+confidentiality/integrity/availability triad. Only the name is ours.
+
+**Where real CVSS belongs.** Nothing here forecloses it. If a future analyzer
+identifies an actual CVE — an exploit for a known vulnerability, a vulnerable
+bundled component — that finding carries a genuine CVSS vector from the CVE
+record, published as its own field beside this rating. CIR rates what the sample
+can do; CVSS rates a vulnerability it exploits. Those are different statements
+and must never be collapsed into one number.
 """
 from __future__ import annotations
 
@@ -25,7 +44,23 @@ from typing import Any, Iterable
 from .capabilities import detect as detect_capabilities
 from .contracts import IOCs, Signal
 
-# --- CVSS v3.1 metric value tables (from the specification) -------------------
+#: The rating's own notation. Deliberately not ``CVSS:3.1/``: a vector carrying
+#: the CVSS prefix is a claim to *be* CVSS, and a tool that parses it as such
+#: would be entitled to file the sample as a scored vulnerability.
+NOTATION = "CIR:1.0"
+
+#: The one sentence every surface (UI, PDF, JSON, STIX, docs) repeats, so the
+#: rating cannot be mistaken for a vulnerability score anywhere it is read. It
+#: lives here rather than being written out per surface because a disclaimer that
+#: drifts between the screen and the exported case file is worse than none.
+DISCLAIMER = (
+    "The Cyclowareness Impact Rating (CIR v1) is derived from the capabilities this "
+    "sample was observed to have. It is not a vulnerability score and it is not "
+    "CVSS; it uses CVSS-compatible arithmetic so that the 0-10 scale reads the way "
+    "an analyst already expects."
+)
+
+# --- metric value tables (CVSS v3.1-compatible; see the module docstring) -----
 _AV = {"N": 0.85, "A": 0.62, "L": 0.55, "P": 0.20}
 _AC = {"L": 0.77, "H": 0.44}
 _PR_U = {"N": 0.85, "L": 0.62, "H": 0.27}   # scope unchanged
@@ -37,7 +72,7 @@ _METRIC_ORDER = ("AV", "AC", "PR", "UI", "S", "C", "I", "A")
 
 
 def _roundup(value: float) -> float:
-    """The official CVSS v3.1 roundup: ceil to one decimal, float-safe."""
+    """Round up to one decimal, float-safe — the CVSS v3.1 ``roundup``."""
     int_input = round(value * 100000)
     if int_input % 10000 == 0:
         return int_input / 100000.0
@@ -57,7 +92,7 @@ def severity_of(score: float) -> str:
 
 
 def score(metrics: dict[str, str]) -> float:
-    """Compute the CVSS v3.1 base score from a metrics dict (letters)."""
+    """Compute the CIR base score from a metrics dict (letters)."""
     av = _AV[metrics["AV"]]
     ac = _AC[metrics["AC"]]
     ui = _UI[metrics["UI"]]
@@ -80,14 +115,14 @@ def score(metrics: dict[str, str]) -> float:
 
 
 def vector_string(metrics: dict[str, str]) -> str:
-    return "CVSS:3.1/" + "/".join(f"{m}:{metrics[m]}" for m in _METRIC_ORDER)
+    return f"{NOTATION}/" + "/".join(f"{m}:{metrics[m]}" for m in _METRIC_ORDER)
 
 
 # --- capability model: observed behaviour -> base metrics ---------------------
 
 
 @dataclass
-class CvssResult:
+class ImpactRating:
     vector: str
     base_score: float
     severity: str
@@ -96,11 +131,16 @@ class CvssResult:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "rating": NOTATION,
             "vector": self.vector,
             "base_score": self.base_score,
             "severity": self.severity,
             "metrics": self.metrics,
             "rationale": self.rationale,
+            # Stored on the row, not only rendered: an exported payload has to
+            # state what it is when it is read years later by something that
+            # never saw our UI.
+            "disclaimer": DISCLAIMER,
         }
 
 
@@ -114,13 +154,13 @@ def assess(
     iocs: IOCs | None = None,
     *,
     from_url: bool = False,
-) -> CvssResult:
-    """Derive a CVSS v3.1 vector from a sample's family, signals and IOCs.
+) -> ImpactRating:
+    """Derive a CIR vector from a sample's family, signals and IOCs.
 
-    CVSS describes an *impact*. When the evidence demonstrates no capability,
-    there is no impact to score and this returns 0.0 / none rather than
+    The rating describes an *impact*. When the evidence demonstrates no
+    capability there is no impact to rate, so this returns 0.0 / none rather than
     manufacturing a vector — an earlier version granted Integrity:High to any
-    file that produced even one informational signal, which scored ordinary
+    file that produced even one informational signal, which rated ordinary
     documents at 7.x.
     """
     signals = list(signals)
@@ -133,7 +173,7 @@ def assess(
 
     if not caps:
         metrics = {"AV": "L", "AC": "L", "PR": "N", "UI": "R", "S": "U", "C": "N", "I": "N", "A": "N"}
-        return CvssResult(
+        return ImpactRating(
             vector=vector_string(metrics),
             base_score=0.0,
             severity="none",
@@ -141,7 +181,7 @@ def assess(
             rationale=[{
                 "metric": "-",
                 "value": "none",
-                "why": "No capability was demonstrated by the evidence, so there is no impact to score.",
+                "why": "No capability was demonstrated by the evidence, so there is no impact to rate.",
             }],
         )
 
@@ -199,7 +239,7 @@ def assess(
 
     metrics = {"AV": av, "AC": ac, "PR": pr, "UI": ui, "S": s, "C": c, "I": i, "A": a}
     base = score(metrics)
-    return CvssResult(
+    return ImpactRating(
         vector=vector_string(metrics),
         base_score=base,
         severity=severity_of(base),

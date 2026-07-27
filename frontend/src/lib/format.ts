@@ -1,7 +1,7 @@
 // Small display helpers specific to the sandbox (byte sizes, verdict wording).
 // Colour never lives here — tone classes come from index.css via ui.tsx.
 
-import type { CvssT, VerdictT } from './types'
+import type { ImpactT, VerdictT } from './types'
 
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`
@@ -81,9 +81,9 @@ export function needsAttention(job: { verdict?: VerdictT | null; final_score: nu
   return job.final_score >= 30
 }
 
-/** CVSS severity shares the severity vocabulary, so it shares the tone map. */
-export function cvssOf(job: { cvss?: CvssT | null }): CvssT | null {
-  const c = job.cvss
+/** The impact rating shares the severity vocabulary, so it shares the tone map. */
+export function impactOf(job: { impact?: ImpactT | null }): ImpactT | null {
+  const c = job.impact
   return c && typeof c.base_score === 'number' && c.vector ? c : null
 }
 

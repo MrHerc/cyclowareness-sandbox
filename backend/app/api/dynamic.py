@@ -219,10 +219,10 @@ def ingest_report(
     job.risk_level = assessment.risk_level
 
     # Recompute the analyst outputs now that behaviour has been folded in.
-    from ..engine import cvss as cvss_mod, mitre as mitre_mod, verdict as verdict_mod
+    from ..engine import impact as impact_mod, mitre as mitre_mod, verdict as verdict_mod
 
     all_signals = [s for r in results if r.ran for s in r.signals]
-    job.cvss = cvss_mod.assess(job.family, all_signals, merged).to_dict()
+    job.impact = impact_mod.assess(job.family, all_signals, merged).to_dict()
     job.verdict = verdict_mod.classify(job.family, job.mime, results, merged, assessment.final_score).to_dict()
     job.mitre = mitre_mod.map_techniques(all_signals)
     db.commit()

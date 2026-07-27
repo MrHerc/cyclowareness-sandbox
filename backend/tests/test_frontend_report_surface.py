@@ -8,9 +8,9 @@ engine whose output they are obliged to present honestly.
 
 What is checked, and the failure each one is a scar from:
 
-1. ``cvss``/``verdict``/``mitre`` are on every ``/api/result`` payload and were
+1. ``impact``/``verdict``/``mitre`` are on every ``/api/result`` payload and were
    rendered nowhere. Five real droppers came back ``verdict=malicious`` with a
-   CVSS vector and mapped ATT&CK techniques, and the report drew a green gauge
+   impact vector and mapped ATT&CK techniques, and the report drew a green gauge
    reading 20-30 captioned "Low risk". The verdict — never the 0-100 score —
    drives the headline.
 2. ``usePoll`` keeps the last payload when a request fails, and every page read
@@ -55,11 +55,11 @@ def _code(source: str) -> str:
 
 
 # =============================================================================
-# 1. Verdict, CVSS and ATT&CK are typed and rendered
+# 1. Verdict, impact rating and ATT&CK are typed and rendered
 # =============================================================================
 
 
-def test_types_declare_verdict_cvss_and_mitre():
+def test_types_declare_verdict_impact_and_mitre():
     types = _read("lib", "types.ts")
     for field in (
         "verdict",
@@ -74,13 +74,13 @@ def test_types_declare_verdict_cvss_and_mitre():
     ):
         assert re.search(rf"^\s*{field}[?]?:", types, re.M), f"VerdictT is missing {field}"
     for field in ("vector", "base_score", "severity", "metrics", "rationale"):
-        assert re.search(rf"^\s*{field}[?]?:", types, re.M), f"CvssT is missing {field}"
+        assert re.search(rf"^\s*{field}[?]?:", types, re.M), f"ImpactT is missing {field}"
     for field in ("technique_id", "name", "tactic", "evidence"):
         assert re.search(rf"^\s*{field}[?]?:", types, re.M), f"MitreTechnique is missing {field}"
 
     # Absent on every job analysed before the verdict engine shipped, so the
     # types have to admit that rather than promise a value that is not there.
-    assert re.search(r"cvss\?:", types), "cvss must be optional on the job detail type"
+    assert re.search(r"impact\?:", types), "impact must be optional on the job detail type"
     assert re.search(r"mitre\?:", types), "mitre must be optional on the job detail type"
     assert re.search(r"verdict\?:", types), "verdict must be optional on the job type"
 
@@ -94,10 +94,13 @@ def test_job_detail_leads_with_the_threat_name_and_verdict():
     assert "detection.engines" in job, "the per-engine detection panel must be rendered"
 
 
-def test_job_detail_renders_cvss_and_attack():
+def test_job_detail_renders_impact_and_attack():
     job = _read("pages", "JobDetail.tsx")
-    for token in ("cvss.vector", "cvss.base_score", "cvss.severity", "cvss.metrics", "cvss.rationale"):
-        assert token in job, f"the CVSS panel does not render {token}"
+    for token in ("impact.vector", "impact.base_score", "impact.severity", "impact.metrics", "impact.rationale"):
+        assert token in job, f"the impact-rating panel does not render {token}"
+    # A bare 0-10 number on a security report is read as CVSS unless the screen
+    # says otherwise, so the disclaimer is part of the panel, not just the export.
+    assert "impact.disclaimer" in job, "the impact panel must state what the rating is not"
     assert "byTactic(mitre)" in job, "ATT&CK techniques must be grouped by tactic"
     assert "technique_id" in job, "ATT&CK technique IDs must be shown"
 

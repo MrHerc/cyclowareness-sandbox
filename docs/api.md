@@ -66,6 +66,12 @@ Auth: required. Returns the full `JobDetail` — verdict, per-analyzer results,
 IOCs, score breakdown, tier record, and any archive-member child jobs. `404` if
 unknown.
 
+The `impact` object carries the Cyclowareness Impact Rating (CIR v1): `rating`,
+`vector`, `base_score` (0-10), `severity`, the per-metric `metrics`, the
+per-metric `rationale`, and a `disclaimer` stating what the number is. It is
+derived from observed capability — **not a vulnerability score, and not CVSS**.
+The full rubric is published in [impact-rating.md](./impact-rating.md).
+
 ```bash
 curl http://localhost:8000/api/result/<public_id> -H "X-API-Key: demo-key"
 ```

@@ -53,6 +53,41 @@ class Settings(BaseSettings):
     #: Shared secret an off-host worker presents to post a dynamic report.
     dynamic_worker_token: str = Field(default="")
 
+    # --- report attestation -------------------------------------------------
+    #: Base64-encoded 32-byte Ed25519 seed. Signs exported reports so a recipient
+    #: can prove this deployment produced exactly those bytes.
+    #:
+    #: Deliberately NOT auto-generated when absent, unlike ``secret_key`` below.
+    #: A per-boot key would sign reports that verify until the next restart and
+    #: against nothing afterwards — evidence that expires silently is worse than
+    #: a report that plainly says it is unsigned, which is what the export emits
+    #: instead. Generate one with:
+    #:   python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
+    signing_key: str = Field(default="")
+
+    # --- sovereignty --------------------------------------------------------
+    #: The core promise: no analysis data leaves this deployment. Enforced at a
+    #: single choke point (app/sovereignty.py), not asserted in a datasheet.
+    #: Defaults ON, because a guarantee an operator has to remember to enable is
+    #: a guarantee that fails the first time someone forgets — and the buyer who
+    #: needs it is the one legally forbidden from getting it wrong.
+    sovereign_mode: bool = Field(default=True)
+    #: The one deliberate exception. Submitting a URL for analysis IS a request
+    #: to fetch it, so the fetcher is not an exfiltration path. Separately
+    #: controllable because an air-gapped deployment must be able to close it.
+    sovereign_allow_url_fetch: bool = Field(default=True)
+
+    # --- notifying entity (regulatory records) ------------------------------
+    #: A NIS2 Article 23 early warning and a DORA Article 19 notification both
+    #: identify the notifying entity. The engine cannot know who is running it,
+    #: so these are supplied here and copied verbatim into the incident record;
+    #: left empty, the record names them as operator input still required rather
+    #: than inventing an entity.
+    entity_name: str = Field(default="")
+    entity_country: str = Field(default="")
+    entity_sector: str = Field(default="")
+    entity_contact: str = Field(default="")
+
     # --- CORS (dev only; the Docker image serves API+SPA same-origin) -------
     cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
 
@@ -75,6 +110,12 @@ class Settings(BaseSettings):
 
     @property
     def ai_provider(self) -> str:
+        # An LLM provider is an outbound destination like any other. Reporting
+        # "anthropic" while sovereign mode refuses the call would advertise a
+        # capability this deployment does not have, in the one place an operator
+        # looks to find out what leaves the building.
+        if self.sovereign_mode:
+            return "template"
         return "anthropic" if self.anthropic_api_key.strip() else "template"
 
     def validate_production(self) -> list[str]:

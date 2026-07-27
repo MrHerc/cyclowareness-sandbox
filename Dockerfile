@@ -60,7 +60,14 @@ WORKDIR /app
 
 # Install Python deps first for layer caching.
 COPY backend/requirements.txt ./requirements.txt
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+    # pcodedmp is GPL-3.0-or-later and arrives as a hard dependency of oletools,
+    # so a plain install puts GPL bytes in a proprietary image. We never import
+    # it: olevba only reaches it from extract_pcode(), which the Office analyzer
+    # does not call. Removing it therefore changes no behaviour and spares every
+    # customer's procurement scanner a finding it would otherwise have to
+    # adjudicate. See docs/licensing.md and THIRD_PARTY_NOTICES.md.
+ && pip uninstall -y pcodedmp
 
 # Application code.
 COPY backend/ ./

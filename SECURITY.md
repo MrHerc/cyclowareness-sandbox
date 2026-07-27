@@ -11,7 +11,9 @@ what is in scope versus explicitly deferred.
 
 Static analysis parses; it does not run. The only component that executes a
 sample is the off-host worker ([`worker/`](worker/)), on hardware the operator
-controls, inside isolation (firejail/seccomp/container) or emulation (Qiling).
+controls, inside isolation (firejail/seccomp/container) or emulation (Qiling, if
+the operator installs it — it is not shipped; see
+[`docs/licensing.md`](docs/licensing.md)).
 Every report states plainly whether the sample was actually detonated. This
 invariant is why "analyse this file for me" is a safe request to honour on shared
 infrastructure.
@@ -135,6 +137,16 @@ The `/api/dynamic/*` seam authenticates with a shared `X-Worker-Token`
 (constant-time compared) — never an analyst session. With no token configured the
 seam returns 503 and accepts nothing: ingesting externally-supplied behaviour
 into a verdict is an opt-in trust decision.
+
+### Supply-chain disclosure
+[`sbom.json`](sbom.json), [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)
+
+Every third-party package in the build is enumerated with its version and
+licence, generated from the installed distributions rather than transcribed, so
+a reviewer can diff the SBOM against a CVE feed instead of taking our word for
+what is in the image. A dependency this product deliberately does **not** carry
+is named as such: the GPL-2.0 `qiling` emulator is an operator-installed
+adapter, never shipped ([`docs/licensing.md`](docs/licensing.md)).
 
 ### Failure containment
 A hostile sample that crashes one parser is converted to an honest `unavailable`

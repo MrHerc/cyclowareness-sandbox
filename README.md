@@ -139,7 +139,7 @@ on a given deployment, and the **Integrations** page renders the matrix.
 | Engine | Kind | Tier | Enable with |
 |---|---|---|---|
 | Native engine | in-house | dynamic | worker + `DYNAMIC_WORKER_TOKEN` |
-| Qiling | emulator | dynamic | worker |
+| Qiling | emulator | dynamic | worker, **operator installs `qiling` themselves** (GPL-2.0, not shipped) |
 | Firejail | open-source sandbox | dynamic | worker (Linux) |
 | Cuckoo | open-source sandbox | dynamic | `CUCKOO_URL` |
 | CAPEv2 | open-source sandbox | dynamic | `CAPEV2_URL` |
@@ -195,8 +195,30 @@ code path in the engine can execute a sample.
 - [`docs/scoring-and-rubric.md`](docs/scoring-and-rubric.md) — the score, and the rubric mapping
 - [`docs/sandbox-matrix.md`](docs/sandbox-matrix.md) — the integration catalog
 - [`docs/api.md`](docs/api.md) — full API reference
+- [`docs/licensing.md`](docs/licensing.md) — the licence, and the third-party position
 - [`worker/README.md`](worker/README.md) — running the off-host worker safely
 
 ## Licence
 
-MIT — see [`LICENSE`](LICENSE).
+**Business Source License 1.1** — source-available, not open source (yet).
+
+> Copyright (c) 2026 Safarali Safarli
+>
+> Use of this software is governed by the Business Source License 1.1 included
+> in the [`LICENSE`](LICENSE) file. As of the Change Date specified in that file
+> (**2030-07-27**), in accordance with the Business Source License, use of this
+> software will be governed by the Apache License, Version 2.0.
+
+The source is published so that a buyer can audit it — which matters more than
+usual when the claim being sold is *sovereignty*. What the licence permits and
+prohibits, in plain terms:
+
+| | |
+|---|---|
+| **You may** | read and audit the source; run it in development, testing, evaluation and benchmarking; run it in production **inside one organisation on that organisation's own files**; modify it for that use; publish security research and vulnerability reports about it. |
+| **You may not** | offer it to third parties as a hosted, managed or multi-tenant service; redistribute it as a product that competes with it. Either needs a commercial licence. |
+
+Third-party dependencies keep their own licences and are disclosed in full:
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and a CycloneDX
+[`sbom.json`](sbom.json). The reasoning, and the answers a procurement lawyer
+asks, are in [`docs/licensing.md`](docs/licensing.md).
