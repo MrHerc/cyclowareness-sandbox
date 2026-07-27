@@ -38,10 +38,17 @@ BACKEND_ROOTS = [
     "fastapi", "uvicorn", "sqlalchemy", "alembic", "pydantic", "pydantic-settings",
     "python-multipart", "httpx", "prometheus-client", "pefile", "oletools",
     "yara-python", "py7zr", "rarfile", "pdfminer-six", "reportlab", "stix2",
-    "puremagic", "anthropic",
+    "puremagic", "anthropic", "cryptography",
+    # Runtime, not optional. config.py refuses to boot with APP_ENV=production
+    # on anything but PostgreSQL, so an image without psycopg cannot run in
+    # production at all — every deployment was silently confined to demo mode.
+    # Calling it optional also understated what we distribute, and it is
+    # LGPL-3.0: exactly what a procurement scanner must be told rather than
+    # left to find.
+    "psycopg", "psycopg-binary",
 ]
 WORKER_ROOTS = ["requests"]
-OPTIONAL_ROOTS = ["psycopg", "psycopg-binary"]
+OPTIONAL_ROOTS: list[str] = []
 DEV_ROOTS = ["pytest", "pytest-asyncio", "pytest-cov", "coverage"]
 
 #: Never listed, whatever is installed. These are the toolchain that PUT the

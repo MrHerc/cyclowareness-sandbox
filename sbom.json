@@ -4,7 +4,7 @@
   "serialNumber": "urn:uuid:22c8db15-85c5-5db5-8eb1-e3217d8201b1",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-27T16:57:42Z",
+    "timestamp": "2026-07-27T17:52:41Z",
     "tools": [
       {
         "vendor": "Cyclowareness",
@@ -428,10 +428,10 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/fastapi@0.140.6",
+      "bom-ref": "pkg:pypi/fastapi@0.140.7",
       "name": "fastapi",
-      "version": "0.140.6",
-      "purl": "pkg:pypi/fastapi@0.140.6",
+      "version": "0.140.7",
+      "purl": "pkg:pypi/fastapi@0.140.7",
       "scope": "required",
       "licenses": [
         {
@@ -905,6 +905,62 @@
         }
       ],
       "description": "Cross-platform lib for process and system monitoring."
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/psycopg@3.3.4",
+      "name": "psycopg",
+      "version": "3.3.4",
+      "purl": "pkg:pypi/psycopg@3.3.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "description": "PostgreSQL database adapter for Python",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "bom-ref": "pkg:pypi/psycopg-binary@3.3.4",
+      "name": "psycopg-binary",
+      "version": "3.3.4",
+      "purl": "pkg:pypi/psycopg-binary@3.3.4",
+      "scope": "required",
+      "licenses": [
+        {
+          "license": {
+            "id": "LGPL-3.0-only"
+          }
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "website",
+          "url": "https://psycopg.org/"
+        }
+      ],
+      "description": "PostgreSQL database adapter for Python -- C optimisation distribution",
+      "properties": [
+        {
+          "name": "cyclowareness:copyleft",
+          "value": "weak-copyleft"
+        }
+      ]
     },
     {
       "type": "library",

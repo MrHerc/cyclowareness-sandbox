@@ -70,7 +70,18 @@ cryptography>=42              # signed, independently verifiable reports
 # writes the human-readable summary. Absent, a deterministic template does.
 anthropic>=0.40
 
-# --- optional: production database ---
-# psycopg is LGPL-3.0-only; same dynamic-import position as py7zr above, and it
-# is only present at all if the operator chooses PostgreSQL.
-# psycopg[binary]>=3.2         # set DATABASE_URL=postgresql+psycopg://...
+# --- production database ---
+# NOT optional, despite how this read for a long time. config.py refuses to boot
+# with APP_ENV=production unless DATABASE_URL is PostgreSQL — so leaving psycopg
+# out meant the shipped image could not run in production at all. Every operator
+# was silently confined to APP_ENV=demo, which the config itself calls "the
+# local/exhibition build". Found by actually starting the image in production
+# mode; nothing else would have shown it, because the test suite installs
+# psycopg into its own environment.
+#
+# psycopg is LGPL-3.0-only. Same position as py7zr above: an unmodified wheel,
+# dynamically imported, never linked into our code — disclosed in
+# ../THIRD_PARTY_NOTICES.md and reasoned through in ../docs/licensing.md. A site
+# that cannot accept LGPL bytes on disk can drop it and run SQLite, at the cost
+# of the concurrency PostgreSQL is there to provide.
+psycopg[binary]>=3.2          # DATABASE_URL=postgresql+psycopg://...

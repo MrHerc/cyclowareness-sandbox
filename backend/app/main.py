@@ -25,9 +25,44 @@ logger = logging.getLogger("sandbox.main")
 settings = get_settings()
 
 
+def _check_quarantine_is_writable() -> None:
+    """Refuse to start if samples cannot be stored, and say why.
+
+    The image runs as uid 10001, so a quarantine directory bind-mounted from a
+    host that owns it as root is unwritable. Nothing failed at boot — the service
+    reported healthy, served the UI, and answered every upload with a bare
+    `500 Internal Server Error`, with the real cause (`PermissionError:
+    '/quarantine/.partial-…'`) visible only in the container log. An operator
+    following DEPLOY.md hits this on their first submission and has nothing to go
+    on.
+
+    A deployment fault should be fatal at startup and legible, not a mystery on
+    every request.
+    """
+    import os
+    import tempfile
+
+    from .engine.storage import quarantine_root
+
+    try:
+        root = quarantine_root()
+        with tempfile.NamedTemporaryFile(dir=root, prefix=".writecheck-"):
+            pass
+    except OSError as exc:
+        raise RuntimeError(
+            f"Quarantine directory is not usable: {exc}\n"
+            f"  path : {os.environ.get('SANDBOX_QUARANTINE', '(default temp dir)')}\n"
+            f"  uid  : {os.getuid() if hasattr(os, 'getuid') else 'n/a'}\n"
+            "Every submission would fail with a 500. If this is a bind mount, give "
+            "the container's user ownership of it, e.g.\n"
+            "  chown -R 10001:10001 /path/on/host"
+        ) from exc
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     init_db()
+    _check_quarantine_is_writable()
     if settings.is_demo:
         logger.info(
             "DEMO build. Log in at the UI with  username=%s  password=%s  "

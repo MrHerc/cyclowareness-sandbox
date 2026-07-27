@@ -11,8 +11,8 @@ written by hand, so every version and licence below is the one actually present
 in the build. The machine-readable equivalent is [`sbom.json`](sbom.json)
 (CycloneDX 1.5).
 
-- Generated: 2026-07-27T16:57:42Z
-- Distributions recorded: 70 (70 in the runtime closure)
+- Generated: 2026-07-27T17:52:41Z
+- Distributions recorded: 72 (72 in the runtime closure)
 - Scope: the dependency closure declared by `backend/requirements.txt` and
   `worker/requirements.txt`, resolved against the reference environment.
   Packages present in that environment but outside the declared closure are
@@ -37,6 +37,8 @@ Sandbox, and no Cyclowareness source file is a derivative work of any of them.
 | `inflate64` | 1.0.4 | LGPL-2.1-or-later | <https://inflate64.readthedocs.io/> |
 | `multivolumefile` | 0.2.3 | LGPL-2.1-or-later | <https://github.com/miurahr/multivolume> |
 | `pcodedmp` | 1.2.6 | GPL-3.0-or-later | <https://github.com/bontchev/pcodedmp> |
+| `psycopg` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
+| `psycopg-binary` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
 | `py7zr` | 1.1.3 | LGPL-2.1-or-later | <https://py7zr.readthedocs.io/> |
 | `pybcj` | 1.0.8 | LGPL-2.1-or-later | <https://pypi.org/project/pybcj> |
 | `pyppmd` | 1.3.1 | LGPL-2.1-or-later | <https://pyppmd.readthedocs.io/> |
@@ -95,7 +97,7 @@ Packages in the closure of `backend/requirements.txt` and
 | `distro` | 1.9.0 | Apache-2.0 | <https://github.com/python-distro/distro> |
 | `docstring_parser` | 0.18.0 | MIT | <https://github.com/rr-/docstring_parser> |
 | `easygui` | 0.98.3 | BSD-3-Clause | <https://github.com/robertlugg/easygui> |
-| `fastapi` | 0.140.6 | MIT | <https://github.com/fastapi/fastapi> |
+| `fastapi` | 0.140.7 | MIT | <https://github.com/fastapi/fastapi> |
 | `greenlet` | 3.5.4 | MIT AND PSF-2.0 | <https://greenlet.readthedocs.io> |
 | `h11` | 0.16.0 | MIT | <https://github.com/python-hyper/h11> |
 | `httpcore` | 1.0.9 | BSD-3-Clause | <https://www.encode.io/httpcore/> |
@@ -116,6 +118,8 @@ Packages in the closure of `backend/requirements.txt` and
 | `pillow` | 12.3.0 | MIT-CMU | <https://python-pillow.github.io> |
 | `prometheus_client` | 0.26.0 | Apache-2.0 AND BSD-2-Clause | <https://github.com/prometheus/client_python> |
 | `psutil` | 7.2.2 | BSD-3-Clause | <https://github.com/giampaolo/psutil> |
+| `psycopg` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
+| `psycopg-binary` | 3.3.4 | LGPL-3.0-only | <https://psycopg.org/> |
 | `puremagic` | 2.2.0 | MIT | <https://github.com/cdgriffith/puremagic> |
 | `py7zr` | 1.1.3 | LGPL-2.1-or-later | <https://py7zr.readthedocs.io/> |
 | `pybcj` | 1.0.8 | LGPL-2.1-or-later | <https://pypi.org/project/pybcj> |

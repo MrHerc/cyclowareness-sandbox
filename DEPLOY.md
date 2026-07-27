@@ -21,9 +21,22 @@ to a path inside the container, so **mount it if you want samples to survive a
 restart**, and put it on a volume you are willing to have hostile files sitting
 in. Retention deletes from it on a schedule; see `/api/admin/retention`.
 
+**If you bind-mount it, give it to the container's user.** The image runs as
+uid 10001, so a directory the host owns as root is unwritable and every
+submission fails:
+
+```bash
+mkdir -p /var/lib/cyclowareness/quarantine
+chown -R 10001:10001 /var/lib/cyclowareness/quarantine
+```
+
+The service refuses to start with a message naming the path and the uid if it
+cannot write there. It used to start healthy and answer uploads with a bare
+`500`, with the real cause only in the container log.
+
 | Variable | Default | Notes |
 |---|---|---|
-| `SANDBOX_QUARANTINE` | in-container path | Quarantine root. Mount for persistence. |
+| `SANDBOX_QUARANTINE` | in-container path | Quarantine root. Mount for persistence, and `chown` it to 10001. |
 | `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
 | `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
 

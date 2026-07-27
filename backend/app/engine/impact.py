@@ -128,6 +128,12 @@ class ImpactRating:
     severity: str
     metrics: dict[str, str]
     rationale: list[dict[str, str]] = field(default_factory=list)
+    #: What the evidence showed the sample can do, in the shared vocabulary.
+    #: Computed here to derive the vector, and now carried out with it: an
+    #: analyst's first question is "what does it do", and the answer existed but
+    #: never left this function. Labels rather than internal keys, because this
+    #: is read by people and by exports, not by our own code.
+    capabilities: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,12 +142,20 @@ class ImpactRating:
             "base_score": self.base_score,
             "severity": self.severity,
             "metrics": self.metrics,
+            "capabilities": self.capabilities,
             "rationale": self.rationale,
             # Stored on the row, not only rendered: an exported payload has to
             # state what it is when it is read years later by something that
             # never saw our UI.
             "disclaimer": DISCLAIMER,
         }
+
+
+def _capability_labels(caps: set[str]) -> list[str]:
+    """Capability keys as the phrases a report shows, sorted for stable output."""
+    from .capabilities import CAPABILITY_LABELS
+
+    return sorted(CAPABILITY_LABELS.get(c, c) for c in caps)
 
 
 def _has(caps: set[str], *names: str) -> bool:
@@ -245,4 +259,5 @@ def assess(
         severity=severity_of(base),
         metrics=metrics,
         rationale=rationale,
+        capabilities=_capability_labels(caps),
     )
