@@ -401,12 +401,25 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
     for sig in data.get("signatures", []) or []:
         sev = _CAPE_SEVERITY.get(int(sig.get("severity", 1) or 1), "low")
         name = sig.get("name") or sig.get("description", "signature")
+        # Carry the sandbox's OWN classification. Every CAPE signature has a
+        # `categories` field, and deriving a capability from it beats inferring
+        # one from the signature name: name-matching missed 8 of WannaCry's 22
+        # high-severity signals, because a sandbox writes
+        # `unbacked_process_creation` where our key said `process_create`. The
+        # category on that same signature says "execution", unambiguously.
+        cats = sig.get("categories") or []
+        if isinstance(cats, str):
+            cats = [cats]
         report.add_signal(
             f"{prefix}.{_slug(name)}",
             sig.get("description", name)[:120],
             sev,
             detail=sig.get("description", ""),
-            evidence={"marks": len(sig.get("marks", []) or [])},
+            evidence={
+                "marks": len(sig.get("marks", []) or []),
+                "categories": [str(c) for c in cats],
+                "confidence": sig.get("confidence"),
+            },
         )
 
     # Network IOCs.

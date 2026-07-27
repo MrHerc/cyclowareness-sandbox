@@ -177,6 +177,89 @@ CAPABILITY_LABELS: dict[str, str] = {
     "discovery": "Discovery / reconnaissance",
 }
 
+#: The sandbox's OWN classification of a behavioural signature, mapped to our
+#: capability vocabulary.
+#:
+#: This exists because inferring a capability from a signature *name* does not
+#: work, and cannot be made to work by adding keys. Measured on a real WannaCry
+#: detonation: 8 of its 22 high-severity signals matched no key at all, because a
+#: sandbox writes `unbacked_process_creation` where a developer writes
+#: `process_create`, and `antivm_checks_available_memory` where a developer
+#: writes `anti_vm`. Every one of those signatures carries a `categories` field
+#: saying "execution", "evasion" and so on — an authoritative answer we were
+#: throwing away in favour of guessing.
+#:
+#: Only categories that genuinely imply a capability are mapped. "generic",
+#: "static", "malware", "ipc", "command" and the lateral-movement categories are
+#: deliberately absent: either they say nothing specific, or they describe
+#: something our capability set does not model, and inventing a mapping would
+#: put a claim in a report that the evidence does not support.
+SANDBOX_CATEGORY_CAPABILITIES: dict[str, str] = {
+    # Destruction
+    "ransomware": "destruction",
+    "wiper": "destruction",
+    # Credential and data access
+    "infostealer": "credential",
+    "credential_access": "credential",
+    "memory scraping": "credential",
+    "keylogger": "credential",
+    # Network / C2
+    "c2": "network",
+    "network": "network",
+    "exfiltration": "network",
+    # Persistence
+    "persistence": "persistence",
+    "bootkit": "persistence",
+    # Defence evasion
+    "evasion": "evasion",
+    "stealth": "evasion",
+    "antivm": "evasion",
+    "anti-vm": "evasion",
+    "anti-debug": "evasion",
+    "anti-sandbox": "evasion",
+    "anti_sandbox": "evasion",
+    "anti-analysis": "evasion",
+    "obfuscation": "evasion",
+    "packer": "evasion",
+    "geofence": "evasion",
+    # Injection / in-memory execution
+    "injection": "injection",
+    "shellcode": "injection",
+    "fileless": "injection",
+    # Execution. "command" is included because that is what the category means —
+    # a signature about running commands (script_tool_executed,
+    # suspicious_command_tools). It is also the least alarming capability we
+    # model: anything that runs at all has it, so a generous reading here cannot
+    # inflate a verdict on its own.
+    "execution": "execution",
+    "command": "execution",
+    "script": "execution",
+    # Discovery
+    "discovery": "discovery",
+    "recon": "discovery",
+    "system_discovery": "discovery",
+    "location_discovery": "discovery",
+    # Privilege
+    "privilege_escalation": "privilege",
+    # Payload delivery
+    "dropper": "dropper",
+    "downloader": "dropper",
+    # Exploitation
+    "exploit": "exploit",
+}
+
+
+def _categories_of(signal: Signal) -> tuple[str, ...]:
+    """The sandbox's categories for this signal, if it reported any."""
+    evidence = getattr(signal, "evidence", None) or {}
+    cats = evidence.get("categories") if isinstance(evidence, dict) else None
+    if isinstance(cats, str):
+        return (cats,)
+    if isinstance(cats, (list, tuple)):
+        return tuple(str(c) for c in cats)
+    return ()
+
+
 #: Reverse index, built once: signal id -> the capabilities it demonstrates.
 _BY_SIGNAL: dict[str, tuple[str, ...]] = {}
 for _cap, _ids in CAPABILITY_SIGNALS.items():
@@ -214,8 +297,19 @@ def detect(signals: Iterable[Signal], iocs: IOCs | None = None) -> set[str]:
         sid = signal.id
         if sid in _BY_SIGNAL:
             caps.update(_BY_SIGNAL[sid])
-        elif sid.startswith(_DYNAMIC_PREFIXES):
-            caps.update(_dynamic_capabilities(sid))
+            continue
+        if not sid.startswith(_DYNAMIC_PREFIXES):
+            continue
+        # Prefer the sandbox's own classification when it gave one: it is
+        # authoritative about a signature it wrote, where reading the name is
+        # inference. The token pass still runs, because engines that report no
+        # categories (our native jail, Qiling) rely on it, and because a
+        # category and a name can each catch what the other misses.
+        for category in _categories_of(signal):
+            cap = SANDBOX_CATEGORY_CAPABILITIES.get(category.strip().lower())
+            if cap:
+                caps.add(cap)
+        caps.update(_dynamic_capabilities(sid))
     return caps
 
 

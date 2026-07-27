@@ -1,0 +1,537 @@
+{
+  "_source": "CAPEv2 2.5 report, task 15, Cyclowareness detonation host, 2026-07-27",
+  "_sample_sha256": "ed01ebfbc9eb5bbea545af4d01bf5f1071661840480439c6e5babe8e080e41aa",
+  "_note": "Verbatim signature name/severity/categories from a real WannaCry detonation. Not hand-written: name-guessing missed 50 of these 68.",
+  "signatures": [
+    {
+      "name": "accesses_public_folder",
+      "severity": 1,
+      "categories": [
+        "generic"
+      ]
+    },
+    {
+      "name": "accesses_recyclebin",
+      "severity": 2,
+      "categories": [
+        "evasion",
+        "execution"
+      ]
+    },
+    {
+      "name": "anomalous_deletefile",
+      "severity": 2,
+      "categories": [
+        "malware"
+      ]
+    },
+    {
+      "name": "antidebug_setunhandledexceptionfilter",
+      "severity": 1,
+      "categories": [
+        "anti-debug"
+      ]
+    },
+    {
+      "name": "antisandbox_sleep",
+      "severity": 2,
+      "categories": [
+        "anti-sandbox"
+      ]
+    },
+    {
+      "name": "antisandbox_system_parameters_info",
+      "severity": 2,
+      "categories": [
+        "anti-sandbox",
+        "anti-analysis"
+      ]
+    },
+    {
+      "name": "antisandbox_windows_activation",
+      "severity": 3,
+      "categories": [
+        "anti_sandbox",
+        "evasion",
+        "discovery"
+      ]
+    },
+    {
+      "name": "antivm_checks_available_memory",
+      "severity": 1,
+      "categories": [
+        "antivm"
+      ]
+    },
+    {
+      "name": "bcdedit_command",
+      "severity": 3,
+      "categories": [
+        "generic"
+      ]
+    },
+    {
+      "name": "cmdline_terminate",
+      "severity": 1,
+      "categories": [
+        "command"
+      ]
+    },
+    {
+      "name": "dead_connect",
+      "severity": 2,
+      "categories": [
+        "network"
+      ]
+    },
+    {
+      "name": "deletes_shadow_copies",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "deletes_system_state_backup",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "discover_registry_mount_points",
+      "severity": 2,
+      "categories": [
+        "discovery",
+        "ransomware",
+        "wiper"
+      ]
+    },
+    {
+      "name": "dll_load_uncommon_file_types",
+      "severity": 1,
+      "categories": [
+        "anti-debug"
+      ]
+    },
+    {
+      "name": "dropper",
+      "severity": 2,
+      "categories": [
+        "dropper"
+      ]
+    },
+    {
+      "name": "enumerates_running_processes",
+      "severity": 2,
+      "categories": [
+        "discovery"
+      ]
+    },
+    {
+      "name": "folder_enumeration",
+      "severity": 3,
+      "categories": [
+        "ransomware",
+        "wiper",
+        "infostealer",
+        "discovery"
+      ]
+    },
+    {
+      "name": "generates_crypto_key",
+      "severity": 1,
+      "categories": []
+    },
+    {
+      "name": "hardware_id_profiling",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "recon",
+        "anti-sandbox"
+      ]
+    },
+    {
+      "name": "infostealer_browser",
+      "severity": 3,
+      "categories": [
+        "infostealer"
+      ]
+    },
+    {
+      "name": "infostealer_cookies",
+      "severity": 3,
+      "categories": [
+        "infostealer"
+      ]
+    },
+    {
+      "name": "injection_rwx",
+      "severity": 2,
+      "categories": [
+        "injection"
+      ]
+    },
+    {
+      "name": "interprocess_comms_mutex",
+      "severity": 3,
+      "categories": [
+        "lateral_movement",
+        "c2",
+        "ipc",
+        "stealth"
+      ]
+    },
+    {
+      "name": "language_check_registry",
+      "severity": 1,
+      "categories": [
+        "location_discovery",
+        "geofence"
+      ]
+    },
+    {
+      "name": "mass_data_encryption",
+      "severity": 3,
+      "categories": [
+        "encryption",
+        "ransomware"
+      ]
+    },
+    {
+      "name": "mass_file_modification_access",
+      "severity": 3,
+      "categories": [
+        "ransomware",
+        "wiper"
+      ]
+    },
+    {
+      "name": "mass_ransom_note_drop",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "modify_desktop_wallpaper",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "mountpoint_manager_access",
+      "severity": 3,
+      "categories": [
+        "ransomware",
+        "wiper",
+        "discovery"
+      ]
+    },
+    {
+      "name": "mountpoints_volume_discovery",
+      "severity": 2,
+      "categories": [
+        "discovery",
+        "ransomware",
+        "wiper"
+      ]
+    },
+    {
+      "name": "mouse_movement_detect",
+      "severity": 2,
+      "categories": [
+        "anti-sandbox"
+      ]
+    },
+    {
+      "name": "network_bind",
+      "severity": 3,
+      "categories": [
+        "network"
+      ]
+    },
+    {
+      "name": "network_tor",
+      "severity": 3,
+      "categories": [
+        "network",
+        "stealth"
+      ]
+    },
+    {
+      "name": "packer_entropy",
+      "severity": 2,
+      "categories": [
+        "packer"
+      ]
+    },
+    {
+      "name": "pe_deep_entrypoint",
+      "severity": 3,
+      "categories": [
+        "packer",
+        "static"
+      ]
+    },
+    {
+      "name": "per_file_acl_token_check",
+      "severity": 2,
+      "categories": [
+        "wiper",
+        "ransomware"
+      ]
+    },
+    {
+      "name": "persistence_autorun",
+      "severity": 3,
+      "categories": [
+        "persistence"
+      ]
+    },
+    {
+      "name": "privilege_elevation_check",
+      "severity": 2,
+      "categories": [
+        "discovery",
+        "privilege_escalation"
+      ]
+    },
+    {
+      "name": "process_interest",
+      "severity": 2,
+      "categories": [
+        "generic"
+      ]
+    },
+    {
+      "name": "procmem_yara",
+      "severity": 3,
+      "categories": [
+        "malware"
+      ]
+    },
+    {
+      "name": "queries_computer_name",
+      "severity": 1,
+      "categories": [
+        "system_discovery"
+      ]
+    },
+    {
+      "name": "queries_keyboard_layout",
+      "severity": 1,
+      "categories": [
+        "location_discovery"
+      ]
+    },
+    {
+      "name": "queries_locale_api",
+      "severity": 1,
+      "categories": [
+        "location_discovery",
+        "geofence"
+      ]
+    },
+    {
+      "name": "queries_user_name",
+      "severity": 1,
+      "categories": [
+        "system_discovery"
+      ]
+    },
+    {
+      "name": "query_fips_reconnaissance",
+      "severity": 2,
+      "categories": [
+        "discovery",
+        "c2"
+      ]
+    },
+    {
+      "name": "ransomware_attribute_stripping",
+      "severity": 3,
+      "categories": [
+        "ransomware",
+        "wiper"
+      ]
+    },
+    {
+      "name": "ransomware_file_modifications",
+      "severity": 3,
+      "categories": [
+        "ransomware",
+        "wiper"
+      ]
+    },
+    {
+      "name": "ransomware_files",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "ransomware_message",
+      "severity": 3,
+      "categories": [
+        "ransomware"
+      ]
+    },
+    {
+      "name": "reads_memory_remote_process",
+      "severity": 2,
+      "categories": [
+        "memory scraping",
+        "injection"
+      ]
+    },
+    {
+      "name": "reads_self",
+      "severity": 2,
+      "categories": [
+        "generic"
+      ]
+    },
+    {
+      "name": "recon_systeminfo",
+      "severity": 3,
+      "categories": [
+        "discovery"
+      ]
+    },
+    {
+      "name": "script_tool_executed",
+      "severity": 2,
+      "categories": [
+        "command"
+      ]
+    },
+    {
+      "name": "stealth_file",
+      "severity": 3,
+      "categories": [
+        "stealth"
+      ]
+    },
+    {
+      "name": "stealth_timeout",
+      "severity": 1,
+      "categories": [
+        "stealth"
+      ]
+    },
+    {
+      "name": "suspicious_command_tools",
+      "severity": 3,
+      "categories": [
+        "command",
+        "lateral"
+      ]
+    },
+    {
+      "name": "terminates_remote_process",
+      "severity": 2,
+      "categories": [
+        "persistence",
+        "stealth"
+      ]
+    },
+    {
+      "name": "unbacked_api_resolution",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "shellcode",
+        "fileless"
+      ]
+    },
+    {
+      "name": "unbacked_crypto_operations",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "c2",
+        "fileless",
+        "obfuscation",
+        "shellcode"
+      ]
+    },
+    {
+      "name": "unbacked_delay_execution",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "c2",
+        "fileless",
+        "shellcode"
+      ]
+    },
+    {
+      "name": "unbacked_file_dropping",
+      "severity": 3,
+      "categories": [
+        "execution",
+        "exfiltration",
+        "fileless",
+        "shellcode"
+      ]
+    },
+    {
+      "name": "unbacked_library_load",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "execution",
+        "fileless"
+      ]
+    },
+    {
+      "name": "unbacked_memory_protection_alteration",
+      "severity": 3,
+      "categories": [
+        "evasion",
+        "stealth",
+        "fileless",
+        "shellcode"
+      ]
+    },
+    {
+      "name": "unbacked_mutex_creation",
+      "severity": 3,
+      "categories": [
+        "execution",
+        "evasion",
+        "fileless"
+      ]
+    },
+    {
+      "name": "unbacked_process_creation",
+      "severity": 3,
+      "categories": [
+        "execution",
+        "evasion",
+        "fileless"
+      ]
+    },
+    {
+      "name": "unbacked_token_manipulation",
+      "severity": 3,
+      "categories": [
+        "privilege_escalation",
+        "credential_access",
+        "lateral_movement"
+      ]
+    },
+    {
+      "name": "uses_windows_utilities",
+      "severity": 2,
+      "categories": [
+        "command",
+        "lateral"
+      ]
+    }
+  ]
+}
