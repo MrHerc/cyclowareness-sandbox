@@ -235,7 +235,7 @@ def classify(
         if name is None:
             name = f"CS-{result.analyzer}"
         worst = _worst(result.signals)
-        if result.analyzer.startswith("dynamic."):
+        if result.analyzer.startswith('dynamic.'):
             # A detonation ALWAYS produces medium-or-worse signals — every
             # program that runs performs discovery, touches the registry and
             # trips an evasion-categorised rule or two. Counting "we ran it and
@@ -254,7 +254,12 @@ def classify(
             observed = detect_capabilities(result.signals, None)
             flagged = bool(observed & ACCUSING_CAPABILITIES)
         else:
-            flagged = worst in _FLAGGING
+            # Static rows need HIGH, not medium. Every self-extracting
+            # installer trips high entropy, an overlay and TLS callbacks at
+            # medium - structural facts about how installers are built, not
+            # findings. Measured: that alone was flagging 7-Zip, WinMerge,
+            # Python and Notepad++ as detections.
+            flagged = worst in {'high', 'critical'}
         engines.append({
             "engine": name,
             "detected": flagged,
