@@ -303,6 +303,25 @@ def submit_feedback(
 
 
 # --- exports -----------------------------------------------------------------
+#
+# AUTHORISE, THEN RECORD. Every export below looks the job up before it writes
+# anything, and the order is the point.
+#
+# These three used to trace first. `_trace` takes the raw `public_id` from the
+# URL, so a caller could put any string there — a job belonging to another
+# tenant, or one that never existed — and have it written into the chain of
+# custody as `REPORT_EXPORTED / outcome=success`. Measured: one request for a
+# nonexistent id produced three such entries and bumped the export metric, for a
+# report that was never generated.
+#
+# That is worse than an access-control bug. This chain is the product's evidence
+# that it can say who did what to a sample, and it was accepting attacker-chosen
+# text as a successful action. A record of something that did not happen is not
+# a gap in the trail, it is a false entry in it.
+#
+# A refused export is deliberately NOT recorded here. It would put the same
+# attacker-controlled id in the same table under a different outcome, and the
+# 404 already tells the caller nothing.
 @router.get("/jobs/{public_id}/export.json")
 def export_json(
     request: Request,
@@ -310,10 +329,11 @@ def export_json(
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
+    job = _job_or_404(db, public_id, identity)
     metrics.reports_generated_total.labels(format="json").inc()
-    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=job.public_id,
            detail={"format": "json"})
-    return report_mod.as_json(_job_or_404(db, public_id, identity))
+    return report_mod.as_json(job)
 
 
 @router.get("/jobs/{public_id}/export.stix")
@@ -323,10 +343,11 @@ def export_stix(
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
+    job = _job_or_404(db, public_id, identity)
     metrics.reports_generated_total.labels(format="stix").inc()
-    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=job.public_id,
            detail={"format": "stix"})
-    return report_mod.as_stix(_job_or_404(db, public_id, identity))
+    return report_mod.as_stix(job)
 
 
 @router.get("/jobs/{public_id}/export.incident")
@@ -345,10 +366,11 @@ def export_incident(
     answer are emitted empty and named, and the record says on its face that it
     is not a filing.
     """
+    job = _job_or_404(db, public_id, identity)
     metrics.reports_generated_total.labels(format="incident").inc()
-    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=job.public_id,
            detail={"format": "incident"})
-    return incident_mod.build(_job_or_404(db, public_id, identity))
+    return incident_mod.build(job)
 
 
 @router.get("/jobs/{public_id}/export.pdf")

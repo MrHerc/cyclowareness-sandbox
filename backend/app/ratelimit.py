@@ -20,6 +20,7 @@ operator to discover it.
 """
 from __future__ import annotations
 
+import hashlib
 import threading
 import time
 from collections.abc import Callable
@@ -64,15 +65,26 @@ def _rule_for(path: str) -> Rule:
 def _identity(request: Request) -> str:
     """Who to charge. An API key is a stronger identity than an address.
 
-    Only a prefix of the key is used: this string ends up in logs and in the
-    limiter's own state, and a full credential should not be in either.
+    The credential is HASHED, not truncated. A prefix was used so a full key
+    would not reach the logs or the limiter's state — the right instinct, the
+    wrong mechanism: `key:{api_key[:8]}` puts every credential sharing an
+    eight-character prefix in ONE bucket, and keys are issued with prefixes
+    exactly like `ck_live_`. Two tenants on the same deployment would then share
+    a single 20-requests-per-minute allowance, so either could exhaust the
+    other's simply by using the product.
+
+    A truncated SHA-256 leaks nothing, cannot collide by construction the way a
+    shared prefix does, and is the same length for every caller.
     """
     api_key = request.headers.get("x-api-key")
     if api_key:
-        return f"key:{api_key[:8]}"
+        return "key:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
     auth = request.headers.get("authorization")
     if auth:
-        return f"auth:{auth[-12:]}"
+        # Session tokens end in their HMAC, so a suffix does not collide the way
+        # a key prefix does — but hash it too, for the same reason: this string
+        # is stored and logged, and it is part of a bearer credential.
+        return "auth:" + hashlib.sha256(auth.encode("utf-8")).hexdigest()[:16]
     client = request.client
     return f"ip:{client.host if client else 'unknown'}"
 

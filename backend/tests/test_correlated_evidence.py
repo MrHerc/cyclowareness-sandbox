@@ -150,3 +150,37 @@ def test_every_grouped_signal_is_about_packing(signal_id: str) -> None:
         token in signal_id
         for token in ("packer", "packed", "entropy", "section", "entrypoint")
     ), f"{signal_id} is in the packing group but does not look like a packing signal"
+
+
+# --- rate limiter identity ---------------------------------------------------
+
+
+def test_two_keys_sharing_a_prefix_get_separate_budgets() -> None:
+    """`key:{api_key[:8]}` put every credential with a common prefix in ONE
+    bucket, and keys are issued with prefixes exactly like `ck_live_`. Two
+    tenants would then share a 20-per-minute allowance, so either could exhaust
+    the other's simply by using the product."""
+    from app.ratelimit import _identity
+
+    class _Req:
+        def __init__(self, key):
+            self.headers = {"x-api-key": key}
+            self.client = None
+
+    acme = _identity(_Req("ck_live_acme_0000000000"))
+    globex = _identity(_Req("ck_live_globex_111111"))
+    assert acme != globex, "two tenants' keys collided into one rate-limit bucket"
+
+
+def test_the_rate_limit_identity_does_not_contain_the_credential() -> None:
+    """It is logged and stored; a bearer credential must not be in either."""
+    from app.ratelimit import _identity
+
+    class _Req:
+        def __init__(self, key):
+            self.headers = {"x-api-key": key}
+            self.client = None
+
+    secret = "ck_live_supersecret_value"
+    assert secret not in _identity(_Req(secret))
+    assert secret[:8] not in _identity(_Req(secret))

@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from .. import metrics
+from .. import audit, metrics
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..engine import scoring
@@ -323,11 +323,48 @@ def ingest_report(
     from ..engine import impact as impact_mod, mitre as mitre_mod, verdict as verdict_mod
 
     all_signals = [s for r in results if r.ran for s in r.signals]
+    verdict_before = (job.verdict or {}).get("verdict")
+    score_before = job.final_score
     job.impact = impact_mod.assess(job.family, all_signals, merged).to_dict()
     job.verdict = verdict_mod.classify(job.family, job.mime, results, merged, assessment.final_score).to_dict()
     job.mitre = mitre_mod.map_techniques(all_signals)
     db.commit()
     db.refresh(job)
+
+    # THE CHAIN OF CUSTODY HAS TO SEE THIS.
+    #
+    # `AuditAction.DYNAMIC_REPORT_INGESTED` was defined and had zero callers, so
+    # the single largest mutation this product performs on a verdict left no
+    # trace at all. A Formbook sample went from `suspicious / Win32.Clean / 32.0`
+    # to `malicious / Win32.Injector.Formbook / 71.8` on the strength of a report
+    # posted by an off-host machine — and the trail an auditor reads said only
+    # that a sample had been submitted.
+    #
+    # It is recorded from the JOB's tenant, never from anything the worker sent:
+    # the worker is shared infrastructure holding one token for every tenant, and
+    # letting it name the tenant would let it write into any customer's history.
+    audit.record(
+        action=audit.AuditAction.DYNAMIC_REPORT_INGESTED,
+        actor=f"worker:{report.worker}"[:128],
+        actor_method="worker",
+        tenant=job.tenant_id,
+        object_type="sample",
+        object_id=job.public_id,
+        detail={
+            "engine": report.engine,
+            "ran": bool(report.ran),
+            "refused": bool(report.refused),
+            "signals": len(dyn_signals),
+            "duration_ms": report.duration_ms,
+            # What actually changed. "The verdict moved and here is from what to
+            # what" is the question an auditor asks about an automated decision.
+            "verdict_before": verdict_before,
+            "verdict_after": (job.verdict or {}).get("verdict"),
+            "score_before": round(float(score_before or 0), 1),
+            "score_after": round(float(job.final_score or 0), 1),
+            "unavailable_reason": report.unavailable_reason,
+        },
+    )
 
     metrics.dynamic_reports_total.labels(engine=report.engine).inc()
     logger.info("dynamic report ingested for %s from %s", public_id, report.engine)
