@@ -226,3 +226,33 @@ def test_the_audit_total_is_scoped_as_well(client) -> None:
         db.close()
     assert acme_total < everything
     assert globex_total < everything
+
+
+def test_the_dashboard_figures_are_scoped(client) -> None:
+    """`/api/jobs/stats` counts, and a count is a leak in a different shape.
+
+    It reports how many jobs exist, how many are malicious, which file types
+    arrive and the five worst samples by name. Unscoped, it would publish one
+    customer's volume, threat profile and filenames to every other customer on
+    the deployment — the same information the job list is scoped to protect,
+    aggregated into a single unauthenticated-looking number.
+    """
+    _submit(client, ACME_KEY, "acme-stats.ps1", b"Write-Host 'a'\n")
+    for n in range(3):
+        _submit(client, GLOBEX_KEY, f"globex-stats-{n}.ps1", b"Write-Host 'b'\n")
+
+    acme = client.get("/api/jobs/stats", headers=_headers(ACME_KEY)).json()
+    globex = client.get("/api/jobs/stats", headers=_headers(GLOBEX_KEY)).json()
+    acme_ids = {
+        j["public_id"]
+        for j in client.get("/api/jobs?limit=200", headers=_headers(ACME_KEY)).json()["items"]
+    }
+
+    assert acme["total"] == len(acme_ids), (
+        f"stats counted {acme['total']} for a tenant that can see {len(acme_ids)} jobs"
+    )
+    assert globex["total"] >= 3
+    assert {j["public_id"] for j in acme["top_risk"]} <= acme_ids, (
+        "top_risk named a job from another tenant"
+    )
+    assert sum(f["count"] for f in acme["families"]) == acme["total"]
