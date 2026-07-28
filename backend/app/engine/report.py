@@ -51,6 +51,40 @@ def _num(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _utc(value: Any) -> str | None:
+    """A timestamp an external system can read without guessing.
+
+    The columns are `timestamp without time zone` holding UTC, so a bare
+    `.isoformat()` produces `2026-07-28T13:27:03.382547` — no offset, and
+    therefore no way for a reader to know it is not local time. The same instant
+    appeared in four different forms across this product's outputs: naive here,
+    `+00:00` in the incident export, `Z` in the signed one, epoch-milliseconds in
+    CEF. Anything consuming two of them had to know which was which.
+
+    Everything this module emits is UTC with an explicit offset. A value that is
+    already aware is converted rather than relabelled, so a future column that
+    does carry a zone cannot be silently mis-stamped.
+    """
+    if not isinstance(value, datetime):
+        return None
+    aware = value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+    return aware.astimezone(timezone.utc).isoformat()
+
+
+def _duration_ms(job) -> int | None:
+    """How long the analysis actually took, when both ends are known."""
+    started = getattr(job, "started_at", None)
+    finished = getattr(job, "completed_at", None)
+    if not isinstance(started, datetime) or not isinstance(finished, datetime):
+        return None
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=timezone.utc)
+    if finished.tzinfo is None:
+        finished = finished.replace(tzinfo=timezone.utc)
+    delta = (finished - started).total_seconds() * 1000.0
+    return int(delta) if delta >= 0 else None
+
+
 def _analysis(job) -> dict[str, Any]:
     value = getattr(job, "analysis", None)
     return value if isinstance(value, dict) else {}
@@ -296,7 +330,19 @@ def as_json(job) -> dict:
         "tiers_summary": _tiers_summary(job),
         "top_reasons": _top_reasons(job),
         "archive_tree": _archive_tree(job),
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        # WHEN, not just what.
+        #
+        # The only time in this export was `generated_at` — the instant the
+        # button was pressed. An evidence document that cannot say when the
+        # sample was received or when the analysis finished is not evidence; it
+        # is a screenshot with a clock on it. Every incident timeline, every
+        # "what did you know and when" question, and every correlation with
+        # another system's logs needs these three.
+        "submitted_at": _utc(getattr(job, "created_at", None)),
+        "started_at": _utc(getattr(job, "started_at", None)),
+        "completed_at": _utc(getattr(job, "completed_at", None)),
+        "duration_ms": _duration_ms(job),
+        "generated_at": _utc(datetime.now(timezone.utc)),
         "schema": "cyclowareness-sandbox.report/1",
     }
 
@@ -532,10 +578,26 @@ def as_stix(job) -> dict:
                         target_ref=malware.id,
                     )
                 )
-    elif ioc_rows:
-        # SCO ids are deterministic, so the same value twice would put a
-        # duplicate object in the bundle.
-        observed_refs: list[str] = []
+    # WHEN THIS WAS SEEN — for every verdict, not just the benign one.
+    #
+    # The ObservedData below used to live in an `elif`, so it was emitted only
+    # when the sample was NOT malicious. A malicious bundle therefore carried no
+    # observed-data object at all, and with it no timestamp of any kind: the one
+    # export a SOC ingests, describing the one sample they care about most, with
+    # nothing in it saying when. An Indicator is a claim and ObservedData is a
+    # sighting; STIX expects both, and a TIP correlating this against its own
+    # telemetry needs the sighting to have a time.
+    #
+    # The file itself is always observed. The IOC values are added as observables
+    # only where they were before — when the sample is not malicious and so ships
+    # as sightings rather than accusations; in the malicious bundle each value is
+    # already carried by its Indicator's pattern, and duplicating it there would
+    # grow the bundle without telling a reader anything new.
+    #
+    # SCO ids are deterministic, so the same value twice would put a duplicate
+    # object in the bundle.
+    observed_refs: list[str] = [file_obs.id]
+    if not malicious:
         for _pattern, kind, value in ioc_rows:
             try:
                 sco = _observable(stix2, kind, value)
@@ -545,21 +607,21 @@ def as_stix(job) -> dict:
                 continue
             objects.append(sco)
             observed_refs.append(sco.id)
-        if observed_refs:
-            seen = getattr(job, "created_at", None)
-            if not isinstance(seen, datetime):
-                seen = datetime.now(timezone.utc)
-            elif seen.tzinfo is None:
-                # The job row stores naive UTC; STIX timestamps must be offset-aware.
-                seen = seen.replace(tzinfo=timezone.utc)
-            objects.append(
-                stix2.ObservedData(
-                    first_observed=seen,
-                    last_observed=seen,
-                    number_observed=1,
-                    object_refs=observed_refs,
-                )
-            )
+
+    seen = getattr(job, "created_at", None)
+    if not isinstance(seen, datetime):
+        seen = datetime.now(timezone.utc)
+    elif seen.tzinfo is None:
+        # The job row stores naive UTC; STIX timestamps must be offset-aware.
+        seen = seen.replace(tzinfo=timezone.utc)
+    objects.append(
+        stix2.ObservedData(
+            first_observed=seen,
+            last_observed=seen,
+            number_observed=1,
+            object_refs=observed_refs,
+        )
+    )
 
     bundle = stix2.Bundle(objects=objects, allow_custom=False)
     # Serialize through the library and back so the return is a plain JSON dict,

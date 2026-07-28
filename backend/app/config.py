@@ -70,6 +70,19 @@ class Settings(BaseSettings):
     #: audit trail and mint themselves a fresh rate-limit budget per request.
     trust_proxy_headers: bool = Field(default=False)
 
+    # --- observability ------------------------------------------------------
+    #: Bearer token a Prometheus scraper presents to read `/metrics`.
+    #:
+    #: The counters are business data — daily volume, malicious share, upload
+    #: rejections, analysis latency — so an open endpoint publishes a customer's
+    #: throughput and threat profile to anyone who asks, with no login and no
+    #: trace. Unset and not public, `/metrics` answers 404: a deployment that has
+    #: not decided is a deployment that does not expose it.
+    metrics_token: str = Field(default="")
+    #: Say out loud that this deployment intends `/metrics` to be world-readable
+    #: (it is bound privately, or the numbers genuinely are not sensitive).
+    metrics_public: bool = Field(default=False)
+
     # --- ingest limits ------------------------------------------------------
     max_sample_mb: int = Field(default=32)
 

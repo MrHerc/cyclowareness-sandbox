@@ -156,10 +156,19 @@ All auth: required; all take a job `public_id`. Implementation:
 [`backend/app/engine/report.py`](../backend/app/engine/report.py).
 
 ### `GET /api/jobs/{public_id}/export.json`
-Full analysis as JSON.
+Full analysis as JSON. Carries `submitted_at`, `started_at`, `completed_at`,
+`duration_ms` and `generated_at` — every timestamp **UTC with an explicit
+offset**, so a reader never has to guess whether a naive string is local time.
+`generated_at` alone used to be the only time in the document, which made it a
+report that could not say when the sample arrived.
 
 ### `GET /api/jobs/{public_id}/export.stix`
-STIX 2.1 bundle of the extracted indicators (bounded).
+STIX 2.1 bundle of the extracted indicators (bounded). Always contains an
+`observed-data` object carrying `first_observed` / `last_observed` — the bundle's
+only timestamp, and previously emitted only when the sample was **not**
+malicious. A malicious sample ships `indicator` objects (accusations) and a
+non-malicious one ships the values as observables (sightings, no claim
+attached); both now say when.
 
 ### `GET /api/jobs/{public_id}/export.pdf`
 Rendered PDF report; `Content-Disposition: attachment`.
@@ -203,8 +212,14 @@ are enabled.
 curl http://localhost:8000/api/capabilities
 ```
 
-### `GET /metrics`
-Auth: none. Prometheus exposition. Degrades to a stub line if `prometheus_client`
+### `GET /metrics` (closed by default in production)
+Auth: `METRICS_TOKEN` as a bearer token, unless `METRICS_PUBLIC=true` or this is
+a demo build. With neither set, `APP_ENV=production` answers **404**: these
+counters are a customer's daily volume, malicious share and analysis latency, and
+an open endpoint publishes them to anyone with no credential and no trace.
+Deliberately not the analyst session — a Prometheus scraper cannot log in.
+
+Prometheus exposition. Degrades to a stub line if `prometheus_client`
 is not installed. Metrics include `sandbox_uploads_total`,
 `sandbox_upload_rejects_total`, `sandbox_url_fetch_*`, `sandbox_jobs_*`,
 `sandbox_yara_hits_total`, `sandbox_dynamic_reports_total`,

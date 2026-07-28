@@ -40,6 +40,8 @@ cannot write there. It used to start healthy and answer uploads with a bare
 | `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
 | `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
 | `TRUST_PROXY_HEADERS` | `false` | See below. Turn on **only** behind a proxy you control. |
+| `METRICS_TOKEN` | *(unset)* | Bearer token for `/metrics`. Unset in production, `/metrics` is `404`. |
+| `METRICS_PUBLIC` | `false` | Say out loud that `/metrics` may be read by anyone. |
 
 ### Behind a reverse proxy
 

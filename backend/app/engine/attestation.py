@@ -101,7 +101,21 @@ VOLATILE_ANALYZER_FIELDS = ("duration_ms",)
 #: to ``report.submission``. Note that ``source`` deliberately stays behind: the
 #: impact rating reads whether the sample arrived by URL, so it is an input to the
 #: verdict, not a submission detail.
-SUBMISSION_KEYS = ("job_id", "submitted_url", "status", "generated_at")
+SUBMISSION_KEYS = (
+    "job_id",
+    "submitted_url",
+    "status",
+    "generated_at",
+    # When this submission happened and how long it took. Every one of them is
+    # wall-clock and therefore different on every run of the same bytes, so they
+    # belong here and nowhere else. They are still SIGNED — `report.submission`
+    # is inside the signature — they are simply not part of the half that claims
+    # to be byte-identical.
+    "submitted_at",
+    "started_at",
+    "completed_at",
+    "duration_ms",
+)
 
 #: The parser libraries whose behaviour is an input to the verdict. A YARA or
 #: pefile upgrade can legitimately change what a rerun finds, and a reviewer

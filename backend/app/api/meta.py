@@ -15,8 +15,9 @@ number of times it fired.
 from __future__ import annotations
 
 import logging
+import secrets
 
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from .. import metrics, retention, sovereignty
@@ -127,6 +128,41 @@ def capabilities():
 
 
 @router.get("/metrics")
-def prometheus_metrics():
+def prometheus_metrics(request: Request):
+    """Prometheus exposition. Unauthenticated ONLY if the operator says so.
+
+    These counters are business data: how many samples this deployment took
+    today, how many were malicious, how many uploads were rejected, how long
+    analysis takes. Published openly they tell a competitor a customer's volume
+    and a customer's threat profile, from an endpoint nobody has to log in to —
+    and a scraper needs no credential, so nobody ever notices it being read.
+
+    So it is closed by default and opened deliberately, either by binding the
+    port privately or by giving the scraper a token. `METRICS_TOKEN` is checked
+    with `compare_digest`; `METRICS_PUBLIC=true` says out loud that this
+    deployment intends anyone to read them.
+
+    Deliberately NOT protected by the analyst session: a Prometheus scraper
+    cannot log in, and a metrics endpoint that needs a browser is a metrics
+    endpoint that never gets scraped.
+    """
+    settings = get_settings()
+    token = settings.metrics_token.strip()
+    # The demo build is a thing someone runs on a laptop to look at, and one of
+    # the things worth looking at is the metrics endpoint. Only `production`
+    # holds a real customer's numbers.
+    if not (settings.metrics_public or settings.is_demo):
+        if not token:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Metrics are not exposed on this deployment",
+            )
+        presented = request.headers.get("authorization", "")
+        presented = presented[7:] if presented.lower().startswith("bearer ") else presented
+        if not secrets.compare_digest(presented, token):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Metrics require the configured token",
+            )
     body, content_type = metrics.render()
     return Response(content=body, media_type=content_type)
