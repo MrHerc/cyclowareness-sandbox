@@ -12,6 +12,7 @@ hostile input by design and must never be anonymous.
 from __future__ import annotations
 
 import logging
+import math
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
@@ -234,7 +235,13 @@ def _visible_jobs(identity: Identity, status: str | None = None):
 
 @router.get("/jobs", response_model=JobPage)
 def list_jobs(
-    status: str | None = None,
+    # Shaped, not just typed. `status` went to the driver as whatever arrived,
+    # and `?status=%00` is a **500 in text/plain** on Postgres — "text fields
+    # cannot contain NUL (0x00) bytes" — from any authenticated caller, on the
+    # product's main list endpoint. Invisible to the suite by construction:
+    # SQLite accepts NUL in a bound parameter, so only a real deployment fails.
+    # A status is a lower-case word; nothing else can reach the query.
+    status: str | None = Query(default=None, max_length=24, pattern=r"^[a-z_]+$"),
     # Bounded at the edge, not with ``min(limit, 200)``: that let a negative
     # through, and SQLite reads ``LIMIT -1`` as unbounded, so one authenticated
     # ``?limit=-1`` serialised the entire jobs table in a single response.
@@ -299,41 +306,49 @@ def job_stats(
     """
     scope = _visible_jobs(identity)
     verdict_of = SandboxJob.verdict["verdict"].as_string()
-    #: NULL and unknown verdicts collapse to one bucket, so the four keys the UI
-    #: draws always add up to `completed`.
-    bucket = case(
-        {v: v for v in _VERDICTS}, value=verdict_of, else_="unclassified"
-    )
-    completed_scope = [*scope, SandboxJob.status == JobStatus.COMPLETED]
-
-    total = db.execute(
-        select(func.count()).select_from(SandboxJob).where(*scope)
-    ).scalar_one()
-    in_flight = db.execute(
-        select(func.count()).select_from(SandboxJob).where(
-            *scope, SandboxJob.status.in_([JobStatus.QUEUED, JobStatus.RUNNING])
-        )
-    ).scalar_one()
-
-    counted = dict(
-        db.execute(
-            select(bucket, func.count()).where(*completed_scope).group_by(bucket)
-        ).all()
-    )
-    verdicts = {k: int(counted.get(k, 0)) for k in (*_VERDICTS, "unclassified")}
-    completed = sum(verdicts.values())
+    is_done = SandboxJob.status == JobStatus.COMPLETED
+    completed_scope = [*scope, is_done]
 
     attention = (
         verdict_of.in_(("malicious", "suspicious"))
         | (~verdict_of.in_(_VERDICTS) & (SandboxJob.final_score >= _ATTENTION_FLOOR))
         | (verdict_of.is_(None) & (SandboxJob.final_score >= _ATTENTION_FLOOR))
     )
-    needs_attention = db.execute(
-        select(func.count()).select_from(SandboxJob).where(*completed_scope, attention)
-    ).scalar_one()
-    average = db.execute(
-        select(func.avg(SandboxJob.final_score)).where(*completed_scope)
-    ).scalar()
+
+    def _tally(condition):
+        return func.sum(case((condition, 1), else_=0))
+
+    # ONE pass over the rows for all seven figures, not seven.
+    #
+    # Two reasons, and the second is the one that shows on screen. Seven separate
+    # statements are seven separate snapshots, so a single response could contain
+    # `completed: 20` beside `needs_attention: 220` — a donut totalling one number
+    # next to bars totalling another, on a deployment ingesting continuously. And
+    # every one of them is O(rows): measured at 100k jobs the endpoint took about
+    # a second, which the dashboard then asked for every four seconds.
+    counts = db.execute(
+        select(
+            func.count(),
+            _tally(is_done),
+            _tally(SandboxJob.status.in_([JobStatus.QUEUED, JobStatus.RUNNING])),
+            *[_tally(is_done & (verdict_of == name)) for name in _VERDICTS],
+            _tally(is_done & attention),
+            func.avg(case((is_done, SandboxJob.final_score))),
+        ).where(*scope)
+    ).one()
+    total, done, in_flight, n_mal, n_susp, n_clean, needs_attention, average = counts
+
+    completed = int(done or 0)
+    verdicts = {
+        "malicious": int(n_mal or 0),
+        "suspicious": int(n_susp or 0),
+        "clean": int(n_clean or 0),
+    }
+    #: Whatever is left: NULL verdicts, `{}`, and any verdict a later version
+    #: introduces. Derived rather than counted so the four keys the UI draws
+    #: always add up to `completed` — a donut that does not sum is a donut that
+    #: is wrong about something.
+    verdicts["unclassified"] = completed - sum(verdicts.values())
 
     families = [
         FamilyCount(family=name, count=int(n))
@@ -355,13 +370,23 @@ def job_stats(
         .limit(5)
     ).scalars().all()
 
+    # `average or 0.0` is not enough on its own: NaN is truthy, so a single
+    # legacy row with a non-finite score would carry NaN out through the one
+    # field here that is an average rather than a count — and the dashboard
+    # calls `.toFixed(0)` on it, so one poisoned row blanks the whole page
+    # rather than one tile. `scoring.assess` refuses to write such a row now;
+    # this is what covers the ones written before it did.
+    mean = float(average) if average is not None else 0.0
+    if not math.isfinite(mean):
+        mean = 0.0
+
     return JobStats(
-        total=total,
+        total=int(total or 0),
         completed=completed,
-        in_flight=in_flight,
+        in_flight=int(in_flight or 0),
         verdicts=verdicts,
-        needs_attention=needs_attention,
-        average_score=round(float(average or 0.0), 1),
+        needs_attention=int(needs_attention or 0),
+        average_score=round(mean, 1),
         families=families,
         top_risk=[JobSummary.of(j) for j in top_risk],
     )

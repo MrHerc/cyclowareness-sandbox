@@ -346,6 +346,17 @@ def set_weights(rule_weight: float, model_weight: float) -> dict[str, float]:
     directly — after which every verdict read 0.0 / low beside its own unchanged
     rule_score, impact rating and high-severity reasons.
     """
+    # Coerced first, and inside the guard. Python integers are unbounded, so
+    # `math.isfinite(10**400)` does not answer False — it raises OverflowError,
+    # which is an ArithmeticError and not a ValueError, so it escaped both this
+    # function's contract and the 422 the API turns a ValueError into. A caller
+    # who skips pydantic (a script, a test, the tuning code) got a 500 from the
+    # validator itself.
+    try:
+        rule_weight = float(rule_weight)
+        model_weight = float(model_weight)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("weights must be finite numbers") from exc
     if not (math.isfinite(rule_weight) and math.isfinite(model_weight)):
         raise ValueError("weights must be finite numbers")
     if rule_weight < 0 or model_weight < 0:

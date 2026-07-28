@@ -245,3 +245,49 @@ def test_a_workable_offset_is_still_accepted(client, auth) -> None:
     response = client.get(f"/api/jobs?limit=1&offset={MAX_OFFSET}", headers=auth)
     assert response.status_code == 200, response.text
     assert response.json()["items"] == []
+
+
+def test_the_total_does_not_move_between_pages(client, auth) -> None:
+    """Every assertion on `total` in this file is `>=`, because the suite shares
+    one database and other tests keep adding rows. That makes them all true of a
+    total that changed with the offset — which is the one thing a client paging
+    to the end cannot survive. This pins it: same request, different page, same
+    number."""
+    _seed(client, auth, 6)
+    totals = [
+        client.get(f"/api/jobs?limit=2&offset={offset}", headers=auth).json()["total"]
+        for offset in (0, 2, 4)
+    ]
+    assert len(set(totals)) == 1, f"total moved while paging: {totals}"
+
+
+def test_the_status_filter_is_shaped_not_just_typed(client, auth) -> None:
+    """`?status=%00` was a 500 in text/plain on Postgres — "text fields cannot
+    contain NUL (0x00) bytes" — from any authenticated caller, on the product's
+    main list endpoint. It is invisible to this suite by construction, because
+    SQLite accepts NUL in a bound parameter and only a real deployment fails; so
+    what is asserted here is the shape of the input, at the edge, where the
+    check now lives."""
+    for bad in ("\x00", "completed\x00", "a\x00b", "COMPLETED", "a" * 40, "1;drop", "üt"):
+        response = client.get("/api/jobs", params={"status": bad}, headers=auth)
+        assert response.status_code == 422, f"status={bad!r} -> {response.status_code}"
+    # And a real status still filters.
+    page = client.get("/api/jobs?status=completed&limit=1", headers=auth).json()
+    assert page["total"] >= 0 and all(j["status"] == "completed" for j in page["items"])
+
+
+def test_the_stats_response_cannot_contradict_itself(client, auth) -> None:
+    """The seven figures used to come from seven statements, so one response
+    could carry `completed: 20` beside `needs_attention: 220`. They are one
+    query now, and these are the relations that has to make true."""
+    _seed(client, auth, 4)
+    _poll_until_done(client, auth, _submit(client, auth, "dropper.ps1", DROPPER))
+    s = client.get("/api/jobs/stats", headers=auth).json()
+
+    assert sum(s["verdicts"].values()) == s["completed"]
+    assert s["completed"] + s["in_flight"] <= s["total"]
+    assert s["needs_attention"] <= s["completed"]
+    assert s["verdicts"]["unclassified"] >= 0, s["verdicts"]
+    assert sum(f["count"] for f in s["families"]) == s["total"]
+    assert len(s["top_risk"]) <= min(5, s["needs_attention"])
+    assert isinstance(s["average_score"], float) and s["average_score"] == s["average_score"]

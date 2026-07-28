@@ -63,6 +63,13 @@ DROPPER = (
         (1e308, 1e308),
         (0.0, 0.0),
         (-1.0, 2.0),
+        # Python integers are unbounded, so `math.isfinite` does not answer
+        # False here — it RAISES OverflowError, an ArithmeticError rather than a
+        # ValueError, so it escaped both this function's contract and the 422
+        # the API turns a ValueError into.
+        (10**400, 1.0),
+        (1.0, 10**400),
+        (10**400, 10**400),
     ],
 )
 def test_set_weights_rejects_what_cannot_be_a_ratio(rule, model) -> None:

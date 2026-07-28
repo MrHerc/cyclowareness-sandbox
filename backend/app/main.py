@@ -12,12 +12,12 @@ import math
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from starlette.routing import Match
+from fastapi.responses import JSONResponse, RedirectResponse, Response
+from starlette.routing import Match, Route
 
 from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
@@ -118,7 +118,16 @@ app = FastAPI(
 # using a stock JSON library.
 @app.exception_handler(RequestValidationError)
 async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
-    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
+    try:
+        detail: Any = _json_safe(jsonable_encoder(exc.errors()))
+    except (RecursionError, ValueError, TypeError):
+        # Describing the rejection must not be able to fail harder than the
+        # rejection. `jsonable_encoder` recurses over the input it echoes, so a
+        # deeply nested body — around a thousand levels, roughly 2 KB — blew the
+        # stack while EXPLAINING that the body was invalid, and the 422 became
+        # the 500 this handler exists to prevent. Say less instead.
+        detail = "Request body could not be parsed for this endpoint"
+    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 def _json_safe(value: Any) -> Any:
@@ -172,11 +181,12 @@ app.include_router(audit.router)
 # straight to `res.json()` on HTML and threw a bare SyntaxError instead of an
 # ApiError, and the UI reported a parse failure rather than "no such endpoint".
 #
-# Declared for every method, not just GET. The SPA fallback is GET-only, so an
-# unknown path with any other verb produced a 405 whose Allow header advertised
-# GET on an endpoint that does not exist.
-_ANY_METHOD = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
-
+# Registered as a plain Starlette Route with `methods=None`, which matches EVERY
+# verb. A list cannot: the first version enumerated seven, and TRACE, PROPFIND,
+# LOCK and anything else a scanner invents fell past them into a framework 405
+# advertising `Allow: DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT` — seven
+# methods this endpoint does not have, on a path that does not exist.
+#
 #: The routes that existed before this fallback did. Snapshotted because the
 #: fallback itself matches everything, so it cannot be asked whether a path is
 #: real without excluding itself — and the SPA mount registered after it would
@@ -214,31 +224,63 @@ def _methods_at(routes: list[Any], scope: dict[str, Any]) -> set[str]:
     return found
 
 
-@app.api_route("/api", methods=_ANY_METHOD, include_in_schema=False)
-@app.api_route("/api/{rest:path}", methods=_ANY_METHOD, include_in_schema=False)
-def api_not_found(request: Request, rest: str = "") -> None:
-    from fastapi import HTTPException
+async def api_not_found(request: Request) -> Response:
+    scope = request.scope
 
     # "No such endpoint" and "not with that verb" are different answers, and
     # claiming the first when the second is true is its own small lie. FastAPI
     # does not add HEAD to a GET route, so `HEAD /api/jobs` reaches here — and
     # answering 404 would say an endpoint the very next request will
-    # successfully use does not exist. Measured on the previous image, before
-    # this fallback existed, Starlette answered 405; this reproduces that for
-    # the paths that are real, Allow header and all.
-    if any(route.matches(request.scope)[0] is Match.PARTIAL for route in _REAL_ROUTES):
-        allowed = _methods_at(_REAL_ROUTES, request.scope)
-        raise HTTPException(
-            status_code=405,
-            detail="Method not allowed",
-            # Omitted rather than guessed if the walk found nothing: an Allow
-            # header naming the wrong verbs is worse than none.
-            headers={"Allow": ", ".join(sorted(allowed))} if allowed else None,
-        )
+    # successfully use does not exist. `/api/health` is render.yaml's
+    # healthCheckPath and HEAD is what many uptime probes send. Measured on the
+    # previous image, before this fallback existed, Starlette answered 405; this
+    # reproduces that for the paths that are real, Allow header and all.
+    if any(route.matches(scope)[0] is Match.PARTIAL for route in _REAL_ROUTES):
+        allowed = _methods_at(_REAL_ROUTES, scope)
+        # Omitted rather than guessed if the walk finds nothing: an Allow header
+        # naming the wrong verbs is worse than no header at all.
+        headers = {"Allow": ", ".join(sorted(allowed))} if allowed else {}
+        return JSONResponse({"detail": "Method not allowed"}, status_code=405, headers=headers)
+
+    # Starlette redirects a trailing slash to the route that exists, and a 307
+    # preserves the method and the body — so `POST /api/analyze/url/` used to
+    # complete the submission. Claiming every path under /api made that fallback
+    # unreachable and turned it into a hard 404 that drops the body. Reissued.
+    path: str = scope.get("path", "")
+    if path.endswith("/") and len(path) > 1:
+        probe = dict(scope, path=path.rstrip("/"))
+        if any(route.matches(probe)[0] is not Match.NONE for route in _REAL_ROUTES):
+            query = scope.get("query_string", b"").decode("latin-1")
+            return RedirectResponse(
+                probe["path"] + (f"?{query}" if query else ""), status_code=307
+            )
 
     # The same shape every other error on this API uses, so one client branch
     # handles all of them.
-    raise HTTPException(status_code=404, detail="Unknown API endpoint")
+    return JSONResponse({"detail": "Unknown API endpoint"}, status_code=404)
+
+
+class _AnyMethod:
+    """An ASGI endpoint, deliberately not a function.
+
+    `Route(..., methods=None)` means "every verb" only when the endpoint is an
+    ASGI app. Given a plain function, Starlette quietly substitutes
+    `methods = ["GET"]` — so the first version of this registered a GET-only
+    fallback, and `POST /api/does-not-exist` partial-matched it into a framework
+    405 instead of reaching the handler at all. An instance is not a function,
+    so `methods=None` survives and the route matches TRACE, PROPFIND and
+    anything else a scanner invents.
+    """
+
+    async def __call__(self, scope, receive, send) -> None:
+        response = await api_not_found(Request(scope, receive))
+        await response(scope, receive, send)
+
+
+for _fallback_path in ("/api", "/api/{rest:path}"):
+    app.router.routes.append(
+        Route(_fallback_path, _AnyMethod(), methods=None, include_in_schema=False)
+    )
 
 
 # --- serve the built frontend ------------------------------------------------
@@ -257,13 +299,24 @@ if _FRONTEND_DIST.is_dir():
     def spa(full_path: str):
         """Return a real file when one exists, else index.html for client routing.
 
-        /api/* never reaches here — every real route is registered above and
-        matches first, and `api_not_found` claims everything else under that
-        prefix. That second half used to be missing, which is how an unknown API
-        path came to answer 200 text/html. Path traversal is contained: the
-        resolved path must stay inside the dist directory.
+        Path traversal is contained: the resolved path must stay inside the dist
+        directory.
         """
+        # `api_not_found` above claims everything under a literal, single-slash,
+        # lower-case `/api`. A router match is exact, so `//api/jobs` and
+        # `/API/jobs` are not that path — they arrived here and were answered
+        # with 200 text/html, which is the entire bug that fallback was written
+        # to close, still reachable by anyone whose URL builder emits a double
+        # slash. Anything that READS as an API path is refused here too.
+        if _looks_like_api(full_path):
+            raise HTTPException(status_code=404, detail="Unknown API endpoint")
         candidate = (_FRONTEND_DIST / full_path).resolve()
         if _FRONTEND_DIST in candidate.parents and candidate.is_file():
             return FileResponse(candidate)
         return FileResponse(_FRONTEND_DIST / "index.html")
+
+
+def _looks_like_api(full_path: str) -> bool:
+    """Would a human call this an API path, whatever the router thinks?"""
+    normalised = full_path.lstrip("/").lower()
+    return normalised == "api" or normalised.startswith("api/")

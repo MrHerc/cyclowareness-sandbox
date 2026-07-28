@@ -45,6 +45,13 @@ export function Queue() {
   const shownFrom = total === 0 ? 0 : offset + 1
   const shownTo = offset + jobs.length
 
+  // An empty PAGE is not an empty DEPLOYMENT. Retention deletes rows and the
+  // page polls every three seconds, so an offset can outlive the rows behind
+  // it — and branching on `jobs.length` alone put "Nothing analysed yet" over a
+  // table of 271 samples with no control left on screen to get back, because
+  // the pager lived inside the other branch.
+  const pagedPastTheEnd = total > 0 && jobs.length === 0 && offset > 0
+
   /**
    * Whole-row click, without the row *being* the control.
    *
@@ -73,6 +80,17 @@ export function Queue() {
         {!data ? (
           <div className="p-5">
             <LoadState error={error} label="Loading the queue" onRetry={refresh} />
+          </div>
+        ) : pagedPastTheEnd ? (
+          <div className="p-5 space-y-3">
+            <Empty icon={<FileSearch size={20} aria-hidden />}>
+              Nothing on this page — the queue holds {total} sample{total === 1 ? '' : 's'}.
+            </Empty>
+            <div className="flex justify-center">
+              <Button size="sm" onClick={() => setOffset(0)}>
+                Back to the newest
+              </Button>
+            </div>
           </div>
         ) : jobs.length === 0 ? (
           <div className="p-5">

@@ -33,7 +33,9 @@ UNKNOWN = [
     "/api/jobs/xyz",
     "/api/audit/nope",
     "/api/result/a/b",
-    "/api/jobs/",
+    # NOT `/api/jobs/` — that one names a route that exists and is redirected,
+    # see test_a_trailing_slash_still_redirects_to_the_route_that_exists.
+    "/api/nope/",
     "/api/",
     "/api",
     "/api/admin",
@@ -61,6 +63,57 @@ def test_every_method_gets_the_same_answer(client, method) -> None:
     assert isinstance(response.json().get("detail"), str)
 
 
+@pytest.mark.parametrize("method", ["TRACE", "PROPFIND", "LOCK", "MKCOL", "SEARCH"])
+def test_every_method_means_every_method(client, method) -> None:
+    """Enumerating verbs is how this was wrong the first time.
+
+    The fallback listed seven, so anything outside the list fell past it into a
+    framework 405 advertising `Allow: DELETE, GET, HEAD, OPTIONS, PATCH, POST,
+    PUT` — seven methods that endpoint does not have, on a path that does not
+    exist. It is registered with `methods=None` now, which matches all of them.
+    """
+    response = client.request(method, "/api/does-not-exist")
+    assert response.status_code == 404, (
+        f"{method} -> {response.status_code} allow={response.headers.get('allow')}"
+    )
+
+
+@pytest.mark.parametrize("path", ["//api/jobs", "/API/jobs", "///api/does-not-exist"])
+def test_a_path_that_reads_as_api_never_answers_html(client, path) -> None:
+    """A router match is exact, so `//api/jobs` is not `/api/jobs` and went
+    straight to the SPA — 200 text/html for an API-shaped path, which is the
+    whole bug this file is about, still reachable by anyone whose URL builder
+    emits a double slash.
+
+    In the suite there is no compiled frontend, so these 404 either way; the
+    assertion that matters is the content type, which is what differs in the
+    image customers actually run.
+    """
+    response = client.get(path)
+    assert response.status_code == 404, response.status_code
+    assert not response.headers["content-type"].startswith("text/html"), (
+        f"{path} answered HTML"
+    )
+
+
+def test_a_trailing_slash_still_redirects_to_the_route_that_exists(client, auth) -> None:
+    """A 307 preserves the method and the body, so `POST /api/analyze/url/`
+    completed the submission. Claiming every path under /api made Starlette's
+    redirect unreachable and turned it into a hard 404 that drops the body."""
+    response = client.get("/api/jobs/", headers=auth, follow_redirects=False)
+    assert response.status_code == 307, response.status_code
+    assert response.headers["location"].endswith("/api/jobs")
+
+    # The query string has to survive it, or paging through a trailing slash
+    # silently returns page one.
+    response = client.get("/api/jobs/?limit=1&offset=2", headers=auth, follow_redirects=False)
+    assert response.status_code == 307
+    assert response.headers["location"].endswith("/api/jobs?limit=1&offset=2")
+
+    # And a trailing slash on a path that is not a route is still a 404.
+    assert client.get("/api/nope/", headers=auth).status_code == 404
+
+
 def test_it_does_not_shadow_a_route_that_exists(client, auth) -> None:
     """The fallback is registered after every router, so a real path still wins.
 
@@ -71,7 +124,11 @@ def test_it_does_not_shadow_a_route_that_exists(client, auth) -> None:
     assert client.get("/api/jobs", headers=auth).status_code == 200
     assert client.get("/api/jobs").status_code == 401
     assert client.get("/api/capabilities").status_code == 200
-    assert client.get("/api/health").status_code in (200, 404)
+    # Not `in (200, 404)`. That is what this test exists to catch, and writing
+    # the failure into the assertion permits it — `/api/health` is
+    # render.yaml's healthCheckPath, so a 404 here is the deployment going
+    # unhealthy, not an acceptable alternative.
+    assert client.get("/api/health").status_code == 200
 
 
 def test_a_real_path_with_the_wrong_verb_is_405_not_404(client, auth) -> None:
