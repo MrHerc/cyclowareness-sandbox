@@ -200,6 +200,18 @@ def _worst(signals: list) -> str:
     return max(signals, key=lambda s: SEVERITY_ORDER.get(s.severity, 0)).severity
 
 
+def _evidence_group(signal_id: str) -> str | None:
+    """Which correlated-evidence group a signal belongs to, if any.
+
+    Shared with the scoring model so the two cannot disagree about what counts
+    as one fact. A signal that scores once must also detect once — if they drift,
+    a fact suppressed in the score comes back as an extra engine in the panel.
+    """
+    from .scoring import EVIDENCE_GROUPS
+
+    return EVIDENCE_GROUPS.get(signal_id)
+
+
 def classify(
     family: str,
     mime: str,
@@ -230,12 +242,16 @@ def classify(
         if result.analyzer == "yara":
             # Expand each matched rule as its own detection row.
             for sig in result.signals:
-                engines.append({
+                row = {
                     "engine": f"CS-YARA/{sig.id.split('.')[-1]}",
                     "detected": True,
                     "result": sig.title,
                     "severity": sig.severity,
-                })
+                }
+                group = _evidence_group(sig.id)
+                if group:
+                    row["evidence_group"] = group
+                engines.append(row)
             if not result.signals:
                 engines.append({"engine": "CS-YARA", "detected": False, "result": "undetected", "severity": "info"})
             continue
@@ -267,12 +283,25 @@ def classify(
             # findings. Measured: that alone was flagging 7-Zip, WinMerge,
             # Python and Notepad++ as detections.
             flagged = worst in {'high', 'critical'}
-        engines.append({
+        row = {
             "engine": name,
             "detected": flagged,
             "result": f"{platform}.{category}.{fam}" if flagged else "undetected",
             "severity": worst,
-        })
+        }
+        # A row is attributed to an evidence group only when EVERY signal that
+        # could have flagged it belongs to that group. A PE analyzer that fired
+        # on packing and on something else is a genuinely separate opinion, and
+        # collapsing it would hide a real second finding.
+        if flagged:
+            deciding = [
+                s for s in result.signals
+                if SEVERITY_ORDER.get(s.severity, 0) >= SEVERITY_ORDER["high"]
+            ] if not result.analyzer.startswith("dynamic.") else []
+            groups = {_evidence_group(s.id) for s in deciding}
+            if deciding and len(groups) == 1 and None not in groups:
+                row["evidence_group"] = groups.pop()
+        engines.append(row)
 
     # Heuristic capability engine. It fires on a capability worth *accusing* a
     # sample of - not on any capability at all.
@@ -344,7 +373,30 @@ def classify(
         "severity": _worst(bad_rep) if bad_rep else "info",
     })
 
-    detected = sum(1 for e in engines if e["detected"])
+    # Count distinct EVIDENCE, not distinct rows.
+    #
+    # A detection panel is only worth reading if its rows are independent
+    # opinions, and they are not always. A UPX-packed binary trips the PE
+    # analyzer's entropy and section-size checks AND a UPX YARA rule, so "this is
+    # packed" arrives as two engines agreeing when it is one fact seen twice.
+    # Under `caps and final_score >= 30 and detected >= 2` that pair alone
+    # reaches `malicious` — which is how Rufus, a signed disk utility, got there
+    # with no accusing capability at all.
+    #
+    # Rows resting entirely on one correlated evidence group count once. The
+    # panel still SHOWS every row: an analyst should see that both detectors
+    # noticed, and should not be told they are two independent findings.
+    counted_groups: set[str] = set()
+    detected = 0
+    for entry in engines:
+        if not entry["detected"]:
+            continue
+        group = entry.get("evidence_group")
+        if group is not None:
+            if group in counted_groups:
+                continue
+            counted_groups.add(group)
+        detected += 1
     total = len(engines)
 
     # The verdict and the score are two views of the same evidence, so they are

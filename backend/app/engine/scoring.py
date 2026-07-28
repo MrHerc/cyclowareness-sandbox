@@ -57,10 +57,62 @@ def _saturate(weight: float, count: int) -> float:
     return weight * (1 - _DECAY**count) / (1 - _DECAY)
 
 
+#: Signals that are all evidence of the SAME underlying fact, grouped so the fact
+#: is scored once instead of once per detector that noticed it.
+#:
+#: Banding already saturates — the second signal in a band is worth 45% of the
+#: first — but saturation assumes the signals are independent observations. These
+#: are not. "This binary is packed" is one fact, and a packed binary trips the
+#: entropy check AND the section-size check AND the packer-name check AND a UPX
+#: YARA rule, by construction, every time.
+#:
+#: Measured: Rufus, a signed and widely-used disk utility that ships UPX-packed,
+#: scored 74.1 on the rule side with three of its six high signals being that one
+#: fact — 43 of the 46.9 points its high band contributed — and came out
+#: `malicious` at 64 with no accusing capability at all.
+#:
+#: This is not a deny-list of "signals benign software trips". It is a statement
+#: about which detectors are correlated by construction, which is a property of
+#: the detectors and knowable in advance.
+EVIDENCE_GROUPS: dict[str, str] = {
+    # Is this binary packed? Four ways of asking one question.
+    "pe.high_entropy_section": "packed",
+    "pe.section_size_anomaly": "packed",
+    "pe.packer_section_name": "packed",
+    "yara.upx_packed_executable": "packed",
+    "capev2.packer_entropy": "packed",
+    "capev2.packer_unknown_pe_section_name": "packed",
+    "capev2.pe_section_vsize_rsize_anomaly": "packed",
+    "capev2.pe_deep_entrypoint": "packed",
+}
+
+
+def _collapse_correlated(signals: list[Signal]) -> list[Signal]:
+    """Keep the strongest signal from each correlated group, drop the rest.
+
+    The strongest is kept rather than the group being dropped: the fact is real
+    and should score. It should just score once.
+    """
+    strongest: dict[str, Signal] = {}
+    out: list[Signal] = []
+    for signal in signals:
+        group = EVIDENCE_GROUPS.get(signal.id)
+        if group is None:
+            out.append(signal)
+            continue
+        current = strongest.get(group)
+        if current is None or SEVERITY_ORDER.get(signal.severity, 0) > SEVERITY_ORDER.get(
+            current.severity, 0
+        ):
+            strongest[group] = signal
+    out.extend(strongest.values())
+    return out
+
+
 def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
     """Severity-weighted rule score in 0-100, plus the per-band arithmetic."""
     bands: dict[str, list[Signal]] = {}
-    for signal in signals:
+    for signal in _collapse_correlated(list(signals)):
         bands.setdefault(signal.severity, []).append(signal)
 
     total = 0.0
