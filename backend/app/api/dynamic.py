@@ -247,6 +247,56 @@ def _result_from_stored(name: str, payload: dict) -> AnalyzerResult:
     )
 
 
+def _static_results(job: SandboxJob) -> list[AnalyzerResult]:
+    """The job's static findings, re-run against the CURRENT engine if it can be.
+
+    Ingest used to rebuild the static half purely from the stored JSON, which
+    froze it at whatever engine version first scored the sample. A detonation
+    arrives minutes to days later, so the two halves of one verdict could come
+    from two different builds — and an operator re-scoring their database after
+    a rules change silently missed every job that happened to be in the
+    detonation queue at the time.
+
+    Measured on this deployment: a sweep re-scored 412 jobs, and
+    `sample_093.msi` came back afterwards still carrying
+    `generic.embedded_executable` — the exact finding that sweep existed to
+    remove — because its report landed after the sweep passed it.
+
+    The bytes are already on disk and the static tier costs milliseconds, so
+    re-running it is the honest answer. Retention may have purged the sample,
+    though, and a report is not worth losing over that: with no bytes, fall back
+    to the stored findings. Analyzers the fresh pass does not produce — the
+    archive stage's `archive` and `archive-contents`, which cost an unpack and
+    would re-create child jobs — are carried over from storage either way.
+    """
+    stored = {
+        name: payload
+        for name, payload in (job.analysis or {}).items()
+        if not name.startswith("dynamic.") and isinstance(payload, dict)
+    }
+    by_name: dict[str, AnalyzerResult] = {}
+
+    path = quarantine_root() / job.sha256[:2] / job.sha256
+    if job.sample_deleted_at is None and path.exists():
+        from ..engine import analyzers
+        from ..engine.pipeline import _sample_from, _yara_result
+
+        try:
+            sample = _sample_from(job, str(path))
+            fresh = analyzers.run_all(sample, sample.family)
+            fresh.append(_yara_result(sample))
+            by_name = {r.analyzer: r for r in fresh}
+        except Exception:  # noqa: BLE001
+            # A failed re-run must not cost the detonation. Report it and use
+            # what is on the row.
+            logger.exception("static re-run failed on ingest for %s", job.public_id)
+            by_name = {}
+
+    for name, payload in stored.items():
+        by_name.setdefault(name, _result_from_stored(name, payload))
+    return list(by_name.values())
+
+
 @router.post("/report/{public_id}", response_model=JobDetail)
 def ingest_report(
     public_id: str,
@@ -281,12 +331,8 @@ def ingest_report(
         duration_ms=report.duration_ms,
     )
 
-    # Rebuild the static results, drop any prior dynamic entry, add this one.
-    results = [
-        _result_from_stored(name, payload)
-        for name, payload in (job.analysis or {}).items()
-        if not name.startswith("dynamic.")
-    ]
+    # Re-run the static tier, drop any prior dynamic entry, add this one.
+    results = _static_results(job)
     results.append(dyn_result)
 
     merged = IOCs()
