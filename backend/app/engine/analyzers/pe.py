@@ -567,19 +567,31 @@ def _analyze_parsed(
             ]},
         ))
 
+    # Executable only. A section that reserves memory and carries no data is the
+    # shape of a packer stub — but it is equally the shape of `.bss`, which every
+    # C compiler emits for uninitialised data, and of `.ndata`, which every NSIS
+    # installer carries. Measured on real files: `.bss` and `.ndata` appear in
+    # both halves of the corpus (WinMerge and Notepad++ on one side, Heodo and
+    # GuLoader on the other), so the NAME separates nothing.
+    #
+    # What separates them is whether the empty section is executable. Code that
+    # only exists after unpacking is a packer; data that only exists after
+    # loading is how programs are linked.
     stubs = [
         s for s in sections
-        if s["raw_size"] == 0 and s["virtual_size"] >= 0x1000
+        if s["raw_size"] == 0 and s["virtual_size"] >= 0x1000 and s.get("executable")
     ]
     if stubs:
         signals.append(Signal(
             id="pe.section_size_anomaly",
-            title="Section reserves memory but carries no data on disk",
+            title="Executable section reserves memory but carries no code on disk",
             severity="high",
             detail=(
-                "A section with zero raw size and a large virtual size is space "
-                "reserved for content that only exists after unpacking. It is the "
-                "standard shape of a packer stub."
+                "An executable section with zero raw size and a large virtual "
+                "size is space reserved for code that only exists after "
+                "unpacking. It is the standard shape of a packer stub. "
+                "Non-executable sections of the same shape are ordinary — `.bss` "
+                "and an installer's `.ndata` both look like this."
             ),
             evidence={"sections": [
                 {"name": s["name"], "raw_size": 0, "virtual_size": s["virtual_size"]}
