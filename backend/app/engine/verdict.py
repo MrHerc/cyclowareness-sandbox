@@ -235,7 +235,26 @@ def classify(
         if name is None:
             name = f"CS-{result.analyzer}"
         worst = _worst(result.signals)
-        flagged = worst in _FLAGGING
+        if result.analyzer.startswith("dynamic."):
+            # A detonation ALWAYS produces medium-or-worse signals — every
+            # program that runs performs discovery, touches the registry and
+            # trips an evasion-categorised rule or two. Counting "we ran it and
+            # saw activity" as a detection therefore handed every detonated
+            # sample a guaranteed extra engine hit, which with an ordinary risk
+            # score is enough to reach `malicious`.
+            #
+            # Measured on 107 real samples through the full pipeline: 86 of 87
+            # malware caught, and **all five signed installers called malicious**
+            # — 7-Zip, WinMerge, Python, PuTTY, Notepad++ — with
+            # `CS-dynamic.capev2` firing on every one of them.
+            #
+            # Behaviour is not detection. This row now fires on the same standard
+            # as the heuristic engine: an accusing capability demonstrated by the
+            # behaviour it observed.
+            observed = detect_capabilities(result.signals, None)
+            flagged = bool(observed & ACCUSING_CAPABILITIES)
+        else:
+            flagged = worst in _FLAGGING
         engines.append({
             "engine": name,
             "detected": flagged,
@@ -331,7 +350,15 @@ def classify(
     # If no capability was demonstrated we have a pile of unexplained anomalies,
     # which is "suspicious" — reporting malicious there produced the absurd pair
     # verdict=malicious / threat=Win32.Clean in the same payload.
-    if caps and final_score >= 60:
+    # Identification outranks the score. A sandbox matching known malware in
+    # process memory, or recovering a family's configuration block, is an
+    # identity claim - "this IS Locky" - not a behavioural guess, and it does not
+    # get weaker because the sample failed to do much. Locky detonated here with
+    # a long-dead C2: it encrypted nothing, demonstrated no accusing capability
+    # and scored 39, and it is still unmistakably Locky.
+    if identification:
+        verdict = "malicious"
+    elif caps and final_score >= 60:
         verdict = "malicious"
     elif caps and final_score >= 30 and detected >= 2:
         verdict = "malicious"
