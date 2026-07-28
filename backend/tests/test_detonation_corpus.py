@@ -59,7 +59,16 @@ BENIGN = [s for s in SAMPLES if s["kind"] == "benign"]
 #: Raising it after an improvement is correct. Lowering it to make a run pass is
 #: how the false-positive regression got in — if a change costs detections, that
 #: is a fact to weigh, not a number to edit.
-MIN_MALWARE_DETECTED = 72
+#:
+#: Lowered ONCE, from 72, and the reason is written down rather than assumed:
+#: `pe.writable_executable_section` stopped asserting the `injection` capability,
+#: because a writable+executable section is how every packer works — a fact about
+#: how a binary was built, not about what it does to other processes. It cost
+#: exactly three samples, all Prometei, whose only accusing capability was that
+#: they were packed. It bought back Rufus, a signed and widely-used disk utility
+#: that ships UPX-packed and was being called malicious at 64 — and with it the
+#: whole class of packed benign software, which is far larger than three samples.
+MIN_MALWARE_DETECTED = 69
 
 #: Benign impact ratings, as measured. A ratchet: none may get worse.
 #:

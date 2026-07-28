@@ -75,8 +75,20 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     # The sample loads or runs code that is not statically visible.
     # pe.import_combination (not the individual import groups, which are facts
     # present in ordinary software) is what argues for this on a PE.
+    #
+    # `pe.writable_executable_section` used to be in this set and is NOT evidence
+    # of injection. A section that is both writable and executable is how every
+    # packer works — the stub must decompress into memory it then runs — so it is
+    # a fact about how the binary was BUILT, not about what it does to other
+    # processes. Measured on the corpus: it fires on 4 of 102 malware, and on
+    # Rufus, a signed and widely-used disk utility that ships UPX-packed, where
+    # it alone supplied the accusing capability that made it `malicious` at 64.
+    #
+    # The signal still exists and still raises the score. It just no longer
+    # asserts a capability on its own. Real injection is something the dynamic
+    # tier watches happen.
     "injection": frozenset({
-        "pe.writable_executable_section", "pe.import_combination",
+        "pe.import_combination",
         "jar.classloader", "jar.reflection", "jar.script_engine",
         "apk.dynamic_code",
         "script.dynamic_execution",

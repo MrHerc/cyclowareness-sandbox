@@ -1,14 +1,13 @@
 {
- "_source": "93 real CAPEv2 2.5 detonations on the Cyclowareness host, 2026-07-27/28. Every signal is exactly what the analyzers produced, read back from stored job output rather than re-synthesised. 88 malware from MalwareBazaar and theZoo across 25 families; 5 signed, current releases downloaded from their vendors.",
- "_guest": "Windows 10 22H2 Pro 19045.3803, BIOS, network-isolated, INetSim sinkhole active.",
- "_replay": "Every analyzer the job ran is stored, not the dynamic tier alone, and the score is the one the full pipeline computed. The eleven-sample fixture replayed dynamic signals only and recomputed the score with ioc_total=0, which reproduced a verdict the product never reached - 57/88 where the product gets 74/88. A fixture that does not replay the pipeline cannot regression-test it.",
+ "_source": "93 real CAPEv2 detonations on the Cyclowareness host. Dynamic signals read back from stored job output; static signals recomputed from the sample files with the shipped analyzers.",
+ "_guest": "Windows 10 22H2 Pro 19045.3803, BIOS, network-isolated, INetSim active.",
  "_measured": {
   "malware": 88,
-  "malware_malicious": 72,
+  "malware_malicious": 69,
   "benign": 5,
   "benign_malicious": 0
  },
- "_warning": "Do NOT tune a threshold to make a named sample pass. Over-fitting to eleven samples is what produced the false-positive regression this corpus replaced. A sample that moves is a reason to re-read its evidence, not to move a number.",
+ "_warning": "Do NOT tune a threshold to make a named sample pass. A sample that moves is a reason to re-read its evidence, not to move a number.",
  "samples": [
   {
    "task": 82,
@@ -18,7 +17,6 @@
    "family_label": "",
    "source": "vendor download",
    "final_score": 48.8,
-   "ioc_total": 10,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -301,13 +299,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Riskware.HardwareIdProfiling",
     "detection_ratio": "0 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 34,
@@ -317,7 +315,6 @@
    "family_label": "",
    "source": "vendor download",
    "final_score": 36.4,
-   "ioc_total": 22,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -473,13 +470,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HighEntropyOverall",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 119,
@@ -489,7 +486,6 @@
    "family_label": "",
    "source": "vendor download",
    "final_score": 44.0,
-   "ioc_total": 14,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -664,13 +660,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.PeDeepEntrypoint",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 122,
@@ -680,7 +676,6 @@
    "family_label": "",
    "source": "vendor download",
    "final_score": 45.6,
-   "ioc_total": 18,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -885,13 +880,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Backdoor.PersistenceAutorun",
     "detection_ratio": "0 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 54,
@@ -901,7 +896,6 @@
    "family_label": "",
    "source": "vendor download",
    "final_score": 49.8,
-   "ioc_total": 26,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -1298,13 +1292,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HardwareIdProfiling",
     "detection_ratio": "0 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 75,
@@ -1314,7 +1308,6 @@
    "family_label": "AgentTesla",
    "source": "malwarebazaar/theZoo",
    "final_score": 69.4,
-   "ioc_total": 9,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -1685,13 +1678,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AgentTesla",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 93,
@@ -1701,7 +1694,6 @@
    "family_label": "AgentTesla",
    "source": "malwarebazaar/theZoo",
    "final_score": 67.8,
-   "ioc_total": 19,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -2324,13 +2316,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AgentTesla",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 71,
@@ -2340,7 +2332,6 @@
    "family_label": "AgentTesla",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.9,
-   "ioc_total": 7,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -2724,13 +2715,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AgentTesla",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 50,
@@ -2740,7 +2731,6 @@
    "family_label": "AgentTesla",
    "source": "malwarebazaar/theZoo",
    "final_score": 61.7,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -3336,13 +3326,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AgentTesla",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 102,
@@ -3352,7 +3342,6 @@
    "family_label": "Amadey",
    "source": "malwarebazaar/theZoo",
    "final_score": 59.3,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -3797,13 +3786,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AntisandboxWindowsAc",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 46,
@@ -3813,7 +3802,6 @@
    "family_label": "Amadey",
    "source": "malwarebazaar/theZoo",
    "final_score": 50.5,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -4228,13 +4216,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Backdoor.AntisandboxUnhook",
     "detection_ratio": "0 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 56,
@@ -4244,7 +4232,6 @@
    "family_label": "Amadey",
    "source": "malwarebazaar/theZoo",
    "final_score": 37.0,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -4362,13 +4349,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HardwareIdProfiling",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 145,
@@ -4378,7 +4365,6 @@
    "family_label": "Amadey",
    "source": "malwarebazaar/theZoo",
    "final_score": 60.5,
-   "ioc_total": 43,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -4457,13 +4443,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Clean",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 127,
@@ -4473,7 +4459,6 @@
    "family_label": "AsyncRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 62.2,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -4735,13 +4720,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AsyncRAT",
     "detection_ratio": "3 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 91,
@@ -4751,7 +4736,6 @@
    "family_label": "AsyncRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.5,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -5344,13 +5328,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.XWorm",
     "detection_ratio": "3 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 61,
@@ -5360,7 +5344,6 @@
    "family_label": "AsyncRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 67.8,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -5752,13 +5735,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.XWorm",
     "detection_ratio": "3 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 77,
@@ -5768,7 +5751,6 @@
    "family_label": "AveMariaRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 69.7,
-   "ioc_total": 7,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -6199,13 +6181,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.WarzoneRAT",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 41,
@@ -6215,7 +6197,6 @@
    "family_label": "AveMariaRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 60.4,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -6401,13 +6382,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.HighEntropySection",
     "detection_ratio": "1 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 57,
@@ -6417,7 +6398,6 @@
    "family_label": "AveMariaRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 52.4,
-   "ioc_total": 9,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -6820,13 +6800,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HighEntropySection",
     "detection_ratio": "3 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 126,
@@ -6836,7 +6816,6 @@
    "family_label": "AveMariaRAT",
    "source": "malwarebazaar/theZoo",
    "final_score": 53.6,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -7262,13 +7241,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HighEntropySection",
     "detection_ratio": "3 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 113,
@@ -7278,7 +7257,6 @@
    "family_label": "CobaltStrike",
    "source": "malwarebazaar/theZoo",
    "final_score": 39.8,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -7441,13 +7419,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HighEntropySection",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 48,
@@ -7457,7 +7435,6 @@
    "family_label": "CoinMiner",
    "source": "malwarebazaar/theZoo",
    "final_score": 34.7,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -7541,13 +7518,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.VbaDownloadAndExecut",
     "detection_ratio": "2 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 110,
@@ -7557,7 +7534,6 @@
    "family_label": "DCRat",
    "source": "malwarebazaar/theZoo",
    "final_score": 66.5,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -8018,13 +7994,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.DCRat",
     "detection_ratio": "4 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 88,
@@ -8034,7 +8010,6 @@
    "family_label": "DCRat",
    "source": "malwarebazaar/theZoo",
    "final_score": 57.4,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -8585,13 +8560,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.PowershellDownloadCr",
     "detection_ratio": "3 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 89,
@@ -8601,7 +8576,6 @@
    "family_label": "DCRat",
    "source": "malwarebazaar/theZoo",
    "final_score": 62.1,
-   "ioc_total": 11,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -9304,13 +9278,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.PowershellDownloadCr",
     "detection_ratio": "3 / 7",
     "cir": 8.3
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 94,
@@ -9320,7 +9294,6 @@
    "family_label": "DCRat",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.5,
-   "ioc_total": 9,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -9926,13 +9899,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.PowershellDownloadCr",
     "detection_ratio": "3 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 92,
@@ -9942,7 +9915,6 @@
    "family_label": "Emotet",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.4,
-   "ioc_total": 19,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -10218,13 +10190,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AntisandboxSleep",
     "detection_ratio": "2 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 128,
@@ -10234,7 +10206,6 @@
    "family_label": "Emotet",
    "source": "malwarebazaar/theZoo",
    "final_score": 50.4,
-   "ioc_total": 27,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -10566,13 +10537,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Spyware.AntisandboxSleep",
     "detection_ratio": "2 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 107,
@@ -10582,7 +10553,6 @@
    "family_label": "Emotet",
    "source": "malwarebazaar/theZoo",
    "final_score": 46.4,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -10998,13 +10968,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HardwareIdProfiling",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 38,
@@ -11014,7 +10984,6 @@
    "family_label": "Emotet",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.2,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -11193,13 +11162,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.Emotet",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 84,
@@ -11209,7 +11178,6 @@
    "family_label": "Formbook",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.9,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -11660,13 +11628,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.Formbook",
     "detection_ratio": "5 / 7",
     "cir": 8.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 47,
@@ -11676,7 +11644,6 @@
    "family_label": "Formbook",
    "source": "malwarebazaar/theZoo",
    "final_score": 67.1,
-   "ioc_total": 18,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -12240,13 +12207,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.Formbook",
     "detection_ratio": "5 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 129,
@@ -12256,7 +12223,6 @@
    "family_label": "GuLoader",
    "source": "malwarebazaar/theZoo",
    "final_score": 47.1,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -12550,13 +12516,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AntivmDisplay",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 36,
@@ -12566,7 +12532,6 @@
    "family_label": "GuLoader",
    "source": "malwarebazaar/theZoo",
    "final_score": 45.8,
-   "ioc_total": 3,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -12770,13 +12735,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.UnbackedExceptionFil",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 32,
@@ -12786,7 +12751,6 @@
    "family_label": "Heodo",
    "source": "malwarebazaar/theZoo",
    "final_score": 65.4,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -12978,13 +12942,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.Emotet",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 99,
@@ -12994,7 +12958,6 @@
    "family_label": "Heodo",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.5,
-   "ioc_total": 18,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -13689,13 +13652,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Trojan.HardwareIdProfiling",
     "detection_ratio": "2 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 96,
@@ -13705,7 +13668,6 @@
    "family_label": "Heodo",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.2,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -13897,13 +13859,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.Emotet",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 65,
@@ -13913,7 +13875,6 @@
    "family_label": "Heodo",
    "source": "malwarebazaar/theZoo",
    "final_score": 65.1,
-   "ioc_total": 18,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -14459,13 +14420,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Backdoor.HijackLoader",
     "detection_ratio": "1 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 100,
@@ -14475,7 +14436,6 @@
    "family_label": "IcedID",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.1,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -14686,13 +14646,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.IcedIDLoader",
     "detection_ratio": "3 / 7",
     "cir": 5.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 105,
@@ -14702,7 +14662,6 @@
    "family_label": "IcedID",
    "source": "malwarebazaar/theZoo",
    "final_score": 58.3,
-   "ioc_total": 8,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -14802,13 +14761,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.AntisandboxSystemPar",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 63,
@@ -14818,7 +14777,6 @@
    "family_label": "IcedID",
    "source": "malwarebazaar/theZoo",
    "final_score": 45.5,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -14978,13 +14936,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.UnbackedApiResolutio",
     "detection_ratio": "2 / 7",
     "cir": 5.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 72,
@@ -14994,7 +14952,6 @@
    "family_label": "IcedID",
    "source": "malwarebazaar/theZoo",
    "final_score": 50.8,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -15111,13 +15068,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.IcedIDLoader",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 123,
@@ -15127,7 +15084,6 @@
    "family_label": "Loki",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.6,
-   "ioc_total": 8,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -15338,13 +15294,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Spyware.LokiBot",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 66,
@@ -15354,7 +15310,6 @@
    "family_label": "Loki",
    "source": "malwarebazaar/theZoo",
    "final_score": 73.4,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -15735,13 +15690,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Spyware.LokiBot",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 58,
@@ -15751,7 +15706,6 @@
    "family_label": "Loki",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.3,
-   "ioc_total": 7,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -15943,13 +15897,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Spyware.LokiBot",
     "detection_ratio": "4 / 7",
     "cir": 7.4
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 81,
@@ -15959,7 +15913,6 @@
    "family_label": "LummaStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 46.5,
-   "ioc_total": 72,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16090,13 +16043,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Trojan.ExceptionDrivenExecu",
     "detection_ratio": "0 / 7",
     "cir": 5.3
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 53,
@@ -16106,7 +16059,6 @@
    "family_label": "LummaStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 46.9,
-   "ioc_total": 79,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16227,13 +16179,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Trojan.ExceptionDrivenExecu",
     "detection_ratio": "0 / 7",
     "cir": 5.3
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 35,
@@ -16243,7 +16195,6 @@
    "family_label": "NanoCore",
    "source": "malwarebazaar/theZoo",
    "final_score": 65.9,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16319,13 +16270,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.NanoCore",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 90,
@@ -16335,7 +16286,6 @@
    "family_label": "NanoCore",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.0,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16551,13 +16501,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.NanoCore",
     "detection_ratio": "1 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 98,
@@ -16567,7 +16517,6 @@
    "family_label": "NanoCore",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.5,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16762,13 +16711,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.NanoCore",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 52,
@@ -16778,7 +16727,6 @@
    "family_label": "NanoCore",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.0,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -16973,13 +16921,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.NanoCore",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 69,
@@ -16989,7 +16937,6 @@
    "family_label": "Phorpiex",
    "source": "malwarebazaar/theZoo",
    "final_score": 40.9,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -17110,13 +17057,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.AntisandboxSleep",
     "detection_ratio": "1 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 83,
@@ -17126,7 +17073,6 @@
    "family_label": "Prometei",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.6,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -17355,13 +17301,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
-    "verdict": "malicious",
+    "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HighEntropySection",
-    "detection_ratio": "2 / 7",
+    "detection_ratio": "1 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 125,
@@ -17371,7 +17317,6 @@
    "family_label": "Prometei",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.0,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -17589,13 +17534,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
-    "verdict": "malicious",
+    "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HighEntropySection",
-    "detection_ratio": "2 / 7",
+    "detection_ratio": "1 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 39,
@@ -17605,7 +17550,6 @@
    "family_label": "Prometei",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.2,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -17878,13 +17822,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
-    "verdict": "malicious",
+    "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HighEntropySection",
-    "detection_ratio": "2 / 7",
+    "detection_ratio": "1 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 74,
@@ -17894,7 +17838,6 @@
    "family_label": "RaccoonStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 74.6,
-   "ioc_total": 10,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -18124,13 +18067,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.Raccoon",
     "detection_ratio": "1 / 6",
     "cir": 5.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 95,
@@ -18140,7 +18083,6 @@
    "family_label": "RaccoonStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.4,
-   "ioc_total": 19,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -18217,13 +18159,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Clean",
     "detection_ratio": "0 / 6",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 49,
@@ -18233,7 +18175,6 @@
    "family_label": "RaccoonStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 56.1,
-   "ioc_total": 17,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -18373,13 +18314,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.AntisandboxUnhook",
     "detection_ratio": "0 / 6",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 124,
@@ -18389,7 +18330,6 @@
    "family_label": "RedLineStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 70.3,
-   "ioc_total": 12,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -18985,13 +18925,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.RedLine",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 108,
@@ -19001,7 +18941,6 @@
    "family_label": "RedLineStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 63.4,
-   "ioc_total": 9,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -19254,13 +19193,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.RedLine",
     "detection_ratio": "4 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 111,
@@ -19270,7 +19209,6 @@
    "family_label": "RedLineStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 46.8,
-   "ioc_total": 5,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -19519,13 +19457,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HighEntropySection",
     "detection_ratio": "3 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 97,
@@ -19535,7 +19473,6 @@
    "family_label": "RedLineStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 69.3,
-   "ioc_total": 10,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -20142,13 +20079,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.RedLine",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 42,
@@ -20158,7 +20095,6 @@
    "family_label": "RemusStealer",
    "source": "malwarebazaar/theZoo",
    "final_score": 55.2,
-   "ioc_total": 38,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -20483,13 +20419,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HighEntropySection",
     "detection_ratio": "3 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 33,
@@ -20499,7 +20435,6 @@
    "family_label": "Rhadamanthys",
    "source": "malwarebazaar/theZoo",
    "final_score": 39.4,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -20593,13 +20528,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.DownloadAndExecute",
     "detection_ratio": "3 / 7",
     "cir": 5.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 104,
@@ -20609,7 +20544,6 @@
    "family_label": "Rhadamanthys",
    "source": "malwarebazaar/theZoo",
    "final_score": 60.3,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -21058,13 +20992,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.DownloadAndExecute",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 43,
@@ -21074,7 +21008,6 @@
    "family_label": "Rhadamanthys",
    "source": "malwarebazaar/theZoo",
    "final_score": 60.3,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -21555,13 +21488,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.DownloadAndExecute",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 45,
@@ -21571,7 +21504,6 @@
    "family_label": "Rhadamanthys",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.0,
-   "ioc_total": 4,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -21999,13 +21931,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.Rhadamanthys",
     "detection_ratio": "5 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 79,
@@ -22015,7 +21947,6 @@
    "family_label": "Smoke Loader",
    "source": "malwarebazaar/theZoo",
    "final_score": 47.0,
-   "ioc_total": 16,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -22288,13 +22219,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Riskware.ImportCombination",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 44,
@@ -22304,7 +22235,6 @@
    "family_label": "Smoke Loader",
    "source": "malwarebazaar/theZoo",
    "final_score": 48.6,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -22406,13 +22336,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.ImportCombination",
     "detection_ratio": "2 / 7",
     "cir": 5.3
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 114,
@@ -22422,7 +22352,6 @@
    "family_label": "Smoke Loader",
    "source": "malwarebazaar/theZoo",
    "final_score": 55.5,
-   "ioc_total": 71,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -22721,13 +22650,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.ImportCombination",
     "detection_ratio": "3 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 106,
@@ -22737,7 +22666,6 @@
    "family_label": "Smoke Loader",
    "source": "malwarebazaar/theZoo",
    "final_score": 33.8,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -22895,13 +22823,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.ImportCombination",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 103,
@@ -22911,7 +22839,6 @@
    "family_label": "SnakeKeylogger",
    "source": "malwarebazaar/theZoo",
    "final_score": 70.5,
-   "ioc_total": 11,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -23599,13 +23526,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.VIPKeyLogger",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 117,
@@ -23615,7 +23542,6 @@
    "family_label": "SnakeKeylogger",
    "source": "malwarebazaar/theZoo",
    "final_score": 70.6,
-   "ioc_total": 13,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -24107,13 +24033,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.VIPKeyLogger",
     "detection_ratio": "4 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 70,
@@ -24123,7 +24049,6 @@
    "family_label": "Stealc",
    "source": "malwarebazaar/theZoo",
    "final_score": 55.8,
-   "ioc_total": 13,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -24936,13 +24861,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AntisandboxUnhook",
     "detection_ratio": "2 / 7",
     "cir": 8.3
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 76,
@@ -24952,7 +24877,6 @@
    "family_label": "TrickBot",
    "source": "malwarebazaar/theZoo",
    "final_score": 50.6,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -24989,13 +24913,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.RemoteTemplate",
     "detection_ratio": "1 / 7",
     "cir": 6.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 86,
@@ -25005,7 +24929,6 @@
    "family_label": "TrickBot",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.3,
-   "ioc_total": 3,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25042,13 +24965,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.RemoteTemplate",
     "detection_ratio": "1 / 7",
     "cir": 6.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 60,
@@ -25058,7 +24981,6 @@
    "family_label": "TrickBot",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.3,
-   "ioc_total": 3,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25095,13 +25017,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.RemoteTemplate",
     "detection_ratio": "1 / 7",
     "cir": 6.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 40,
@@ -25111,7 +25033,6 @@
    "family_label": "TrickBot",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.3,
-   "ioc_total": 3,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25148,13 +25069,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.RemoteTemplate",
     "detection_ratio": "1 / 7",
     "cir": 6.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 78,
@@ -25164,7 +25085,6 @@
    "family_label": "Vidar",
    "source": "malwarebazaar/theZoo",
    "final_score": 48.5,
-   "ioc_total": 74,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25423,13 +25343,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HardwareIdProfiling",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 80,
@@ -25439,7 +25359,6 @@
    "family_label": "Vidar",
    "source": "malwarebazaar/theZoo",
    "final_score": 50.5,
-   "ioc_total": 74,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25698,13 +25617,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.HardwareIdProfiling",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 130,
@@ -25714,7 +25633,6 @@
    "family_label": "Vidar",
    "source": "malwarebazaar/theZoo",
    "final_score": 33.7,
-   "ioc_total": 74,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25802,13 +25720,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Clean",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 67,
@@ -25818,7 +25736,6 @@
    "family_label": "WannaCry",
    "source": "malwarebazaar/theZoo",
    "final_score": 41.0,
-   "ioc_total": 10,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -25915,13 +25832,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.StaticPeAnomaly",
     "detection_ratio": "0 / 7",
     "cir": 0.0
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 73,
@@ -25931,7 +25848,6 @@
    "family_label": "XWorm",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.4,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -26112,13 +26028,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.DynamicExecution",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 85,
@@ -26128,7 +26044,6 @@
    "family_label": "XWorm",
    "source": "malwarebazaar/theZoo",
    "final_score": 58.0,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -26659,13 +26574,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.DynamicExecution",
     "detection_ratio": "3 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 120,
@@ -26675,7 +26590,6 @@
    "family_label": "XWorm",
    "source": "malwarebazaar/theZoo",
    "final_score": 44.0,
-   "ioc_total": 1,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -26801,13 +26715,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.DynamicExecution",
     "detection_ratio": "2 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 59,
@@ -26817,7 +26731,6 @@
    "family_label": "XWorm",
    "source": "malwarebazaar/theZoo",
    "final_score": 51.7,
-   "ioc_total": 2,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -26995,13 +26908,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.DynamicExecution",
     "detection_ratio": "2 / 7",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 112,
@@ -27011,7 +26924,6 @@
    "family_label": "njrat",
    "source": "malwarebazaar/theZoo",
    "final_score": 68.2,
-   "ioc_total": 6,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -27539,13 +27451,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.XWorm",
     "detection_ratio": "5 / 8",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 109,
@@ -27555,7 +27467,6 @@
    "family_label": "njrat",
    "source": "malwarebazaar/theZoo",
    "final_score": 44.1,
-   "ioc_total": 0,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -27689,13 +27600,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Downloader.PowershellStealthFla",
     "detection_ratio": "2 / 8",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 62,
@@ -27705,7 +27616,6 @@
    "family_label": "njrat",
    "source": "malwarebazaar/theZoo",
    "final_score": 81.1,
-   "ioc_total": 39,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -28412,13 +28322,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.DLAgent10",
     "detection_ratio": "5 / 8",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 68,
@@ -28428,7 +28338,6 @@
    "family_label": "njrat",
    "source": "malwarebazaar/theZoo",
    "final_score": 54.4,
-   "ioc_total": 7,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -28831,13 +28740,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Backdoor.AntisandboxUnhook",
     "detection_ratio": "2 / 8",
     "cir": 7.5
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 87,
@@ -28847,7 +28756,6 @@
    "family_label": "unknown",
    "source": "malwarebazaar/theZoo",
    "final_score": 78.6,
-   "ioc_total": 34,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -29032,13 +28940,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Riskware.Salat",
     "detection_ratio": "1 / 7",
     "cir": 5.9
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 55,
@@ -29048,7 +28956,6 @@
    "family_label": "unknown",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.7,
-   "ioc_total": 72,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -29389,13 +29296,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "malicious",
     "threat_name": "Win32.Injector.AntivmDisplay",
     "detection_ratio": "2 / 7",
     "cir": 8.2
-   },
-   "static_refreshed": true
+   }
   },
   {
    "task": 64,
@@ -29405,7 +29312,6 @@
    "family_label": "unknown",
    "source": "malwarebazaar/theZoo",
    "final_score": 49.7,
-   "ioc_total": 17,
    "analyzers": {
     "generic": {
      "ran": true,
@@ -29694,13 +29600,13 @@
      ]
     }
    },
+   "static_refreshed": true,
    "expected": {
     "verdict": "suspicious",
     "threat_name": "Win32.Downloader.HardwareIdProfiling",
     "detection_ratio": "0 / 7",
     "cir": 6.9
-   },
-   "static_refreshed": true
+   }
   }
  ]
 }
