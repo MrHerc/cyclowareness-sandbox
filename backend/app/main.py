@@ -8,10 +8,15 @@ no CORS, and nothing to misconfigure between two deployments.
 from __future__ import annotations
 
 import logging
+import math
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
@@ -98,6 +103,34 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- a validation error must not itself be unserialisable --------------------
+#
+# FastAPI's default handler returns `jsonable_encoder(exc.errors())`, and every
+# entry carries the `input` that failed — so rejecting `{"rule_weight": NaN}`
+# put NaN in the 422 body, `json.dumps` refused it (Starlette hard-codes
+# `allow_nan=False`), and the 422 became a **500 in text/plain**: the only
+# non-JSON error this API produces, and the one no client branch handles.
+#
+# It is not specific to that field. Any endpoint taking a float had it, because
+# `NaN` and `Infinity` are what `json.dumps` emits by default and what
+# `json.loads` accepts, so they reach validation as real floats from any caller
+# using a stock JSON library.
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))})
+
+
+def _json_safe(value: Any) -> Any:
+    """Replace values JSON cannot carry with their literal names."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return repr(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
@@ -120,6 +153,40 @@ app.include_router(dynamic.router)
 app.include_router(audit.router)
 
 
+# --- an unknown /api path is a client error, not a page ----------------------
+#
+# Registered here: AFTER every real router, so a route that exists still wins,
+# and BEFORE the SPA fallback below, which would otherwise answer for it.
+#
+# In the Docker image — the only build customers run — the SPA fallback matched
+# every path that no route claimed, so `GET /api/does-not-exist`, `/api/analyse`
+# (a plausible typo for `/api/analyze`) and `/api/jobs/` with a trailing slash
+# all returned **200 text/html**: 925 bytes of `index.html`. Measured on eight
+# paths against production. `spa()`'s docstring asserted "/api/* never reaches
+# here", which is true only of paths that already match a route — exactly the
+# ones this is not about.
+#
+# The cost was not cosmetic. Every client's 404 handling became unreachable
+# code: `api.ts` decides an error occurred from the status alone, so a 200 went
+# straight to `res.json()` on HTML and threw a bare SyntaxError instead of an
+# ApiError, and the UI reported a parse failure rather than "no such endpoint".
+#
+# Declared for every method, not just GET. The SPA fallback is GET-only, so an
+# unknown path with any other verb produced a 405 whose Allow header advertised
+# GET on an endpoint that does not exist.
+_ANY_METHOD = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
+
+
+@app.api_route("/api", methods=_ANY_METHOD, include_in_schema=False)
+@app.api_route("/api/{rest:path}", methods=_ANY_METHOD, include_in_schema=False)
+def api_not_found(rest: str = "") -> None:
+    from fastapi import HTTPException
+
+    # The same shape every other error on this API uses, so one client branch
+    # handles all of them.
+    raise HTTPException(status_code=404, detail="Unknown API endpoint")
+
+
 # --- serve the built frontend ------------------------------------------------
 # Present only when a compiled SPA has been built in (the Docker image does this).
 # In local dev the directory does not exist and Vite serves the frontend, so this
@@ -136,9 +203,11 @@ if _FRONTEND_DIST.is_dir():
     def spa(full_path: str):
         """Return a real file when one exists, else index.html for client routing.
 
-        /api/* never reaches here — those routes are registered above and match
-        first. Path traversal is contained: the resolved path must stay inside
-        the dist directory.
+        /api/* never reaches here — every real route is registered above and
+        matches first, and `api_not_found` claims everything else under that
+        prefix. That second half used to be missing, which is how an unknown API
+        path came to answer 200 text/html. Path traversal is contained: the
+        resolved path must stay inside the dist directory.
         """
         candidate = (_FRONTEND_DIST / full_path).resolve()
         if _FRONTEND_DIST in candidate.parents and candidate.is_file():

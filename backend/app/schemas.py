@@ -57,6 +57,61 @@ class JobSummary(BaseModel):
         )
 
 
+class JobPage(BaseModel):
+    """One page of the queue, and how much of it there is.
+
+    `GET /api/jobs` used to return a bare array capped at 50 with no `offset`
+    and no total. Both pages that read it sent no parameters and presented the
+    result as everything: the Queue's own lede says "Every sample submitted to
+    this deployment", and the dashboard counted its tiles from whatever the page
+    happened to contain. Measured on the live deployment, the "Malicious" tile
+    read **10** against a true 151, and 71 jobs could not be reached through the
+    endpoint at any limit, because the ignored `offset` meant there was no
+    second page to ask for.
+
+    `total` is the count BEFORE limit and offset and after every filter, which
+    is what makes "showing 50 of 269" a sentence the UI can write truthfully.
+    """
+
+    items: list[JobSummary]
+    total: int
+    limit: int
+    offset: int
+
+
+class FamilyCount(BaseModel):
+    family: str
+    count: int
+
+
+class JobStats(BaseModel):
+    """The dashboard's numbers, counted in SQL over the whole tenant.
+
+    The dashboard cannot be honest by paging: it needs counts over everything,
+    and the page limit is 200 against a table that already holds more. Every
+    figure here is the aggregate, so the tiles stop being a property of how many
+    rows the last poll happened to fetch.
+
+    The definitions mirror `frontend/src/lib/format.ts` exactly, because two
+    definitions of "needs attention" is a defect waiting to happen: a job counts
+    when its verdict is malicious or suspicious, or — when it has no verdict at
+    all — when it scored 30 or more.
+    """
+
+    total: int
+    completed: int
+    in_flight: int
+    #: Keyed by verdict, over completed jobs. Always carries all four keys, so
+    #: the UI never has to distinguish "none" from "not reported".
+    verdicts: dict[str, int]
+    needs_attention: int
+    average_score: float
+    families: list[FamilyCount]
+    #: Worst first, by verdict and then by score — the same order the dashboard
+    #: applied client-side when it could only see one page.
+    top_risk: list[JobSummary]
+
+
 class JobDetail(JobSummary):
     md5: str
     magic: str
@@ -178,7 +233,27 @@ class DynamicReportIn(BaseModel):
 
 # --- admin -------------------------------------------------------------------
 class WeightsUpdate(BaseModel):
-    """Hackathon-tunable aggregation weights (rule vs. AI split)."""
+    """Hackathon-tunable aggregation weights (rule vs. AI split).
 
-    rule_weight: float | None = None
-    ai_weight: float | None = None
+    Bounded here as well as in ``scoring.set_weights`` so the API answers 422
+    with the usual ``{"detail": [...]}`` rather than letting a bad number reach
+    the engine. ``allow_inf_nan=False`` is the load-bearing part: ``NaN`` passed
+    every comparison in the engine's own validation (``nan <= 0`` and
+    ``nan < 0`` are both False), normalised to ``nan/nan``, and left the process
+    weights non-finite — after which ``GET /api/admin/weights``,
+    ``/api/capabilities`` and the signed export all returned 500, and every new
+    submission wrote a non-finite ``final_score``.
+
+    The ceiling is not arbitrary. Only the RATIO matters, so 1e6 expresses every
+    split anyone could want, and two values at that bound still sum to a finite
+    number. Without it, ``1e308 + 1e308`` overflows to ``inf``, each weight
+    normalises to ``inf`` divided into itself — ``0.0`` — and the endpoint
+    returned **200** for exactly the ``{0, 0}`` state it rejects with 422 when
+    asked for it directly. Every verdict after that scored 0.0/low while its own
+    body still carried rule_score 54.0 and three high-severity reasons.
+    """
+
+    model_config = {"allow_inf_nan": False}
+
+    rule_weight: float | None = Field(default=None, ge=0.0, le=1e6)
+    ai_weight: float | None = Field(default=None, ge=0.0, le=1e6)

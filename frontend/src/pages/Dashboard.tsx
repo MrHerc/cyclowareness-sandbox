@@ -16,9 +16,9 @@ import {
 import { VerdictDonut, FamilyBars } from '../components/Charts'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
-import { familyLabel, needsAttention, verdictOf } from '../lib/format'
+import { familyLabel, verdictOf } from '../lib/format'
 import { useCountUp } from '../lib/useCountUp'
-import type { JobSummary } from '../lib/types'
+import type { JobStats } from '../lib/types'
 
 /**
  * The dashboard buckets by the engine's verdict, not by the score band. The
@@ -72,7 +72,13 @@ function StatTile({
 
 export function Dashboard() {
   const navigate = useNavigate()
-  const { data, error, stale, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 4000)
+  // Counted over the whole tenant, not over a page. Deriving these from
+  // `/api/jobs` meant the tiles described the last 50 rows and called it the
+  // deployment: "Analysed" read 50 against 269, "Malicious" 10 against 151.
+  const { data, error, stale, refresh } = usePoll<JobStats>(
+    () => api.get('/api/jobs/stats'),
+    4000,
+  )
 
   if (!data) {
     return (
@@ -83,32 +89,22 @@ export function Dashboard() {
     )
   }
 
-  const completed = data.filter((j) => j.status === 'completed')
-  const running = data.filter((j) => j.status === 'running' || j.status === 'queued').length
-  const bucketOf = (j: JobSummary) => verdictOf(j) ?? 'unclassified'
-  const bucketCount = (k: string) => completed.filter((j) => bucketOf(j) === k).length
-  const total = completed.length
-  const attention = completed.filter(needsAttention)
-  const avg = total ? completed.reduce((s, j) => s + j.final_score, 0) / total : 0
+  const running = data.in_flight
+  const bucketCount = (k: string) => data.verdicts[k] ?? 0
+  const total = data.completed
+  const attention = data.needs_attention
+  const avg = data.average_score
 
   const slices = VERDICT_BUCKETS.map((b) => ({ key: b.key, label: b.label, value: bucketCount(b.key) }))
 
-  const familyCounts = new Map<string, number>()
-  for (const j of data) familyCounts.set(j.family, (familyCounts.get(j.family) ?? 0) + 1)
-  const families = Array.from(familyCounts.entries())
-    .map(([f, count]) => ({ label: familyLabel(f), count }))
-    .sort((a, b) => b.count - a.count)
+  const families = data.families
     .slice(0, 6)
+    .map((f) => ({ label: familyLabel(f.family), count: f.count }))
 
-  // Verdict first, magnitude second — a malicious sample outranks a suspicious
-  // one whatever their scores, which is the whole point of having a verdict.
-  const RANK: Record<string, number> = { malicious: 2, suspicious: 1 }
-  const topRisk = [...attention]
-    .sort(
-      (a, b) =>
-        (RANK[bucketOf(b)] ?? 0) - (RANK[bucketOf(a)] ?? 0) || b.final_score - a.final_score,
-    )
-    .slice(0, 5)
+  // Ordered by verdict then magnitude in SQL, for the same reason it used to be
+  // ordered that way here: a malicious sample outranks a suspicious one whatever
+  // their scores.
+  const topRisk = data.top_risk
 
   return (
     <div className="space-y-6">
@@ -137,8 +133,8 @@ export function Dashboard() {
         />
         <StatTile
           label="Needs attention"
-          value={attention.length}
-          tone={attention.length ? 'warning' : 'neutral'}
+          value={attention}
+          tone={attention ? 'warning' : 'neutral'}
           caption="malicious or suspicious"
           i={2}
         />

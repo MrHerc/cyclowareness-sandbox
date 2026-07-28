@@ -103,12 +103,16 @@ def test_the_job_list_shows_only_your_own(client) -> None:
     acme = _submit(client, ACME_KEY, "acme-list.ps1", b"Write-Host 'a'\n")
     globex = _submit(client, GLOBEX_KEY, "globex-list.ps1", b"Write-Host 'b'\n")
 
-    seen = {
-        j["public_id"]
-        for j in client.get("/api/jobs?limit=200", headers=_headers(ACME_KEY)).json()
-    }
+    page = client.get("/api/jobs?limit=200", headers=_headers(ACME_KEY)).json()
+    seen = {j["public_id"] for j in page["items"]}
     assert acme in seen
     assert globex not in seen, "the job list leaked another tenant's submission"
+    # The total is a count, and a count computed without the tenant filter is
+    # the same leak in a different shape: it would tell Acme how much traffic
+    # Globex puts through the deployment.
+    assert page["total"] == len(seen), (
+        f"total {page['total']} does not match the {len(seen)} rows this tenant can see"
+    )
 
 
 def test_mutating_routes_are_scoped_too(client, acme_job) -> None:

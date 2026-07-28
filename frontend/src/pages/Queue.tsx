@@ -1,7 +1,8 @@
-import { type MouseEvent } from 'react'
+import { type MouseEvent, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { FileSearch } from 'lucide-react'
 import {
+  Button,
   Empty,
   LoadState,
   PageHeader,
@@ -17,13 +18,32 @@ import {
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
 import { familyLabel, verdictOf } from '../lib/format'
-import type { JobSummary } from '../lib/types'
+import type { JobPage } from '../lib/types'
 
 const TERMINAL = new Set(['completed', 'failed', 'awaiting_password'])
 
+/**
+ * The API's own ceiling is 200; fifty is a screenful. The point of the pager is
+ * not the page size — it is that the rows past the first page are reachable at
+ * all. They were not: this page sent no parameters, took the default 50, and
+ * said "Every sample submitted to this deployment" over the top of them.
+ */
+const PAGE = 50
+
 export function Queue() {
   const navigate = useNavigate()
-  const { data, error, stale, refresh } = usePoll<JobSummary[]>(() => api.get('/api/jobs'), 3000)
+  const [offset, setOffset] = useState(0)
+  // `offset` is in the deps array, so changing page discards responses aimed at
+  // the previous one instead of letting a slow reply from page 1 land on page 2.
+  const { data, error, stale, refresh } = usePoll<JobPage>(
+    () => api.get(`/api/jobs?limit=${PAGE}&offset=${offset}`),
+    3000,
+    [offset],
+  )
+  const jobs = data?.items ?? []
+  const total = data?.total ?? 0
+  const shownFrom = total === 0 ? 0 : offset + 1
+  const shownTo = offset + jobs.length
 
   /**
    * Whole-row click, without the row *being* the control.
@@ -54,7 +74,7 @@ export function Queue() {
           <div className="p-5">
             <LoadState error={error} label="Loading the queue" onRetry={refresh} />
           </div>
-        ) : data.length === 0 ? (
+        ) : jobs.length === 0 ? (
           <div className="p-5">
             <Empty icon={<FileSearch size={20} aria-hidden />}>
               Nothing analysed yet. Submit a file or URL to get started.
@@ -74,7 +94,7 @@ export function Queue() {
                 </tr>
               </thead>
               <tbody>
-                {data.map((job) => (
+                {jobs.map((job) => (
                   <tr
                     key={job.public_id}
                     onClick={(e) => rowClick(e, job.public_id)}
@@ -116,6 +136,35 @@ export function Queue() {
                 ))}
               </tbody>
             </Table>
+
+            {/* Say which rows these are. The page used to show fifty and let the
+                header call them everything; on this deployment that was fifty of
+                269, with no way to ask for the rest. */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-c3 tabular-nums">
+                Showing {shownFrom}–{shownTo} of {total}
+              </p>
+              {total > PAGE && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={offset === 0}
+                    onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                  >
+                    Newer
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={shownTo >= total}
+                    onClick={() => setOffset(offset + PAGE)}
+                  >
+                    Older
+                  </Button>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </Panel>

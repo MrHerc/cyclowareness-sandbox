@@ -15,7 +15,7 @@ import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from .. import audit, metrics, sovereignty
@@ -30,8 +30,11 @@ from ..engine.models import Feedback, JobSource, JobStatus, SandboxJob
 from ..engine.storage import EmptySample, SampleTooLarge, store_stream
 from ..runner import submit_analysis
 from ..schemas import (
+    FamilyCount,
     FeedbackRequest,
     JobDetail,
+    JobPage,
+    JobStats,
     JobSummary,
     PasswordRequest,
     SubmitURLRequest,
@@ -210,31 +213,153 @@ def result(
     return JobDetail.of(job, children=children)
 
 
-@router.get("/jobs", response_model=list[JobSummary])
+def _visible_jobs(identity: Identity, status: str | None = None):
+    """The rows this caller may see, before any paging.
+
+    Scoped BEFORE the limit, never after. Filtering a page of results in Python
+    would silently shrink every page — and the same mistake in the worker queue
+    (LIMIT in SQL, filter in Python) once returned an empty list forever with a
+    hundred jobs waiting behind it.
+    """
+    conditions = [
+        SandboxJob.tenant_id == identity.tenant,
+        # Top-level jobs only; archive members are shown nested under their parent.
+        SandboxJob.parent_job_id.is_(None),
+    ]
+    if status:
+        conditions.append(SandboxJob.status == status)
+    return conditions
+
+
+@router.get("/jobs", response_model=JobPage)
 def list_jobs(
     status: str | None = None,
     # Bounded at the edge, not with ``min(limit, 200)``: that let a negative
     # through, and SQLite reads ``LIMIT -1`` as unbounded, so one authenticated
     # ``?limit=-1`` serialised the entire jobs table in a single response.
     limit: int = Query(default=50, ge=1, le=200),
+    # There was no offset at all. FastAPI ignores query parameters a handler
+    # does not declare, so `?offset=200` was accepted and silently dropped and
+    # every request returned the same newest page — 71 of the deployment's 269
+    # jobs were unreachable through this endpoint at any limit.
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
-    query = (
+    """One page of the queue, with the total the caller needs to page through it."""
+    conditions = _visible_jobs(identity, status)
+    total = db.execute(
+        select(func.count()).select_from(SandboxJob).where(*conditions)
+    ).scalar_one()
+    rows = db.execute(
         select(SandboxJob)
-        # Scoped BEFORE the limit, not after. Filtering a page of results in
-        # Python would silently shrink every page — and the same mistake in the
-        # worker queue (LIMIT in SQL, filter in Python) once returned an empty
-        # list forever with a hundred jobs waiting behind it.
-        .where(SandboxJob.tenant_id == identity.tenant)
-        # Top-level jobs only; archive members are shown nested under their parent.
-        .where(SandboxJob.parent_job_id.is_(None))
-        .order_by(SandboxJob.created_at.desc())
+        .where(*conditions)
+        .order_by(SandboxJob.created_at.desc(), SandboxJob.id.desc())
         .limit(limit)
+        .offset(offset)
+    ).scalars().all()
+    return JobPage(
+        items=[JobSummary.of(j) for j in rows],
+        total=total,
+        limit=limit,
+        offset=offset,
     )
-    if status:
-        query = query.where(SandboxJob.status == status)
-    return [JobSummary.of(j) for j in db.execute(query).scalars().all()]
+
+
+#: A verdict the engine actually issued, as opposed to the absence of one. The
+#: column is JSON and may be NULL, `{}`, or hold a verdict this version does not
+#: know about; only these three count as classified.
+_VERDICTS = ("malicious", "suspicious", "clean")
+
+#: Matches `needsAttention` in frontend/src/lib/format.ts. Two definitions of
+#: "needs attention" is a defect waiting to happen, so this one is written to
+#: mirror that one line for line: a classified job counts unless it is clean,
+#: and an unclassified job counts on score alone.
+_ATTENTION_FLOOR = 30.0
+
+
+@router.get("/jobs/stats", response_model=JobStats)
+def job_stats(
+    db: Session = Depends(get_db),
+    identity: Identity = Depends(require_analyst),
+):
+    """Counts over EVERY job in the tenant, not over one page of them.
+
+    The dashboard computed its tiles, its donut, its family breakdown and its
+    top-risk list from whatever `GET /api/jobs` returned — 50 rows, unpaged.
+    Measured live: "Analysed" read 50 against 269, "Malicious" read 10 against
+    151, "Needs attention" 16 against 197. Paging cannot fix it, because the
+    page limit is 200 and the table is already larger; the counts have to be
+    counted where the rows are.
+    """
+    scope = _visible_jobs(identity)
+    verdict_of = SandboxJob.verdict["verdict"].as_string()
+    #: NULL and unknown verdicts collapse to one bucket, so the four keys the UI
+    #: draws always add up to `completed`.
+    bucket = case(
+        {v: v for v in _VERDICTS}, value=verdict_of, else_="unclassified"
+    )
+    completed_scope = [*scope, SandboxJob.status == JobStatus.COMPLETED]
+
+    total = db.execute(
+        select(func.count()).select_from(SandboxJob).where(*scope)
+    ).scalar_one()
+    in_flight = db.execute(
+        select(func.count()).select_from(SandboxJob).where(
+            *scope, SandboxJob.status.in_([JobStatus.QUEUED, JobStatus.RUNNING])
+        )
+    ).scalar_one()
+
+    counted = dict(
+        db.execute(
+            select(bucket, func.count()).where(*completed_scope).group_by(bucket)
+        ).all()
+    )
+    verdicts = {k: int(counted.get(k, 0)) for k in (*_VERDICTS, "unclassified")}
+    completed = sum(verdicts.values())
+
+    attention = (
+        verdict_of.in_(("malicious", "suspicious"))
+        | (~verdict_of.in_(_VERDICTS) & (SandboxJob.final_score >= _ATTENTION_FLOOR))
+        | (verdict_of.is_(None) & (SandboxJob.final_score >= _ATTENTION_FLOOR))
+    )
+    needs_attention = db.execute(
+        select(func.count()).select_from(SandboxJob).where(*completed_scope, attention)
+    ).scalar_one()
+    average = db.execute(
+        select(func.avg(SandboxJob.final_score)).where(*completed_scope)
+    ).scalar()
+
+    families = [
+        FamilyCount(family=name, count=int(n))
+        for name, n in db.execute(
+            select(SandboxJob.family, func.count())
+            .where(*scope)
+            .group_by(SandboxJob.family)
+            .order_by(func.count().desc(), SandboxJob.family)
+        ).all()
+    ]
+
+    # Verdict first, magnitude second — a malicious sample outranks a suspicious
+    # one whatever their scores, which is the whole point of having a verdict.
+    rank = case({"malicious": 2, "suspicious": 1}, value=verdict_of, else_=0)
+    top_risk = db.execute(
+        select(SandboxJob)
+        .where(*completed_scope, attention)
+        .order_by(rank.desc(), SandboxJob.final_score.desc(), SandboxJob.id.desc())
+        .limit(5)
+    ).scalars().all()
+
+    return JobStats(
+        total=total,
+        completed=completed,
+        in_flight=in_flight,
+        verdicts=verdicts,
+        needs_attention=needs_attention,
+        average_score=round(float(average or 0.0), 1),
+        families=families,
+        top_risk=[JobSummary.of(j) for j in top_risk],
+    )
 
 
 # --- job-centric actions -----------------------------------------------------

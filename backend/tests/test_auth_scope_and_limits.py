@@ -61,7 +61,7 @@ def test_limit_within_range_still_works(client, auth):
     for value in (1, 50, 200):
         response = client.get(f"/api/jobs?limit={value}", headers=auth)
         assert response.status_code == 200, response.text
-        assert len(response.json()) <= value
+        assert len(response.json()["items"]) <= value
 
 
 # --- admin scope --------------------------------------------------------------

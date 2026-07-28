@@ -319,9 +319,41 @@ def get_weights() -> dict[str, float]:
     return dict(_active)
 
 
+#: Only the ratio matters, so this expresses every split anyone could want — and
+#: two values at the bound still sum to a finite number, which is the property
+#: actually doing the work. See the second failure described below.
+MAX_WEIGHT = 1e6
+
+
 def set_weights(rule_weight: float, model_weight: float) -> dict[str, float]:
+    """Set the rule/model split. Rejects anything that cannot produce a ratio.
+
+    The finiteness check comes first, and the ordering is the whole fix: `NaN`
+    satisfied every comparison this function used to make — `nan <= 0` is False,
+    and so is `nan < 0` — so it passed validation, normalised to `nan / nan`,
+    and left the process weights non-finite. After that `GET /api/admin/weights`,
+    `/api/capabilities` and the signed export all returned 500, because
+    Starlette hard-codes `allow_nan=False`, and every later submission computed
+    a non-finite `final_score`. On SQLite that raised and left jobs stuck at
+    `queued` with `error = NULL`; on Postgres it is worse, because
+    `'NaN'::double precision` is a value it accepts — the row PERSISTS, and
+    `GET /api/jobs` then fails for every analyst in the tenant, surviving both
+    `weights/reset` and a restart.
+
+    The ceiling exists for the mirror image of the same problem. `1e308 + 1e308`
+    overflows to `inf`, both weights normalise to `0.0`, and the endpoint
+    returned 200 for precisely the `{0, 0}` state it raises on when asked for it
+    directly — after which every verdict read 0.0 / low beside its own unchanged
+    rule_score, impact rating and high-severity reasons.
+    """
+    if not (math.isfinite(rule_weight) and math.isfinite(model_weight)):
+        raise ValueError("weights must be finite numbers")
+    if rule_weight < 0 or model_weight < 0:
+        raise ValueError("weights must be non-negative and sum to a positive number")
+    if rule_weight > MAX_WEIGHT or model_weight > MAX_WEIGHT:
+        raise ValueError(f"each weight must be at most {MAX_WEIGHT:g}")
     total = rule_weight + model_weight
-    if total <= 0 or rule_weight < 0 or model_weight < 0:
+    if total <= 0:
         raise ValueError("weights must be non-negative and sum to a positive number")
     _active["rule"] = round(rule_weight / total, 4)
     _active["model"] = round(model_weight / total, 4)
@@ -357,6 +389,20 @@ def assess(
     ai, contributions = model_score(features)
     weights = get_weights()
     final = round(weights["rule"] * rules + weights["model"] * ai, 1)
+
+    # A non-finite score must never reach a row. `set_weights` is now the only
+    # way one could be introduced and it refuses to, so this is the second line
+    # rather than the first — but the failure it prevents is not proportionate
+    # to any bug that could cause it. Postgres accepts `'NaN'::double precision`
+    # and `final_score` is double precision, so a single poisoned row makes
+    # `GET /api/jobs` fail for every analyst in that tenant, permanently, and
+    # survives a restart because it is in the database rather than in memory.
+    # Failing this one job loudly, with the reason on the row, is recoverable.
+    if not math.isfinite(final):
+        raise ValueError(
+            f"refusing to store a non-finite score (rule={rules!r}, ai={ai!r}, "
+            f"weights={weights!r}) — a scoring input is corrupt"
+        )
 
     #: The top three reasons, in the words the analyzers used. This is what the
     #: PDF's executive summary and the UI headline both read from, so there is

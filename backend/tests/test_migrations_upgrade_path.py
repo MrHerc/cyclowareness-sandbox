@@ -188,7 +188,7 @@ def test_api_serves_a_previous_release_database_after_boot(temp_engine):
 
         listing = client.get("/api/jobs", headers=headers)
         assert listing.status_code == 200, listing.text
-        assert "legacy-job-2" in [job["public_id"] for job in listing.json()]
+        assert "legacy-job-2" in [job["public_id"] for job in listing.json()["items"]]
 
         detail = client.get("/api/result/legacy-job-2", headers=headers)
         assert detail.status_code == 200, detail.text

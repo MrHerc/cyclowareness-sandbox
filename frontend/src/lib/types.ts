@@ -81,6 +81,38 @@ export interface JobSummary {
   verdict?: VerdictT | null
 }
 
+/** One page of the queue. `total` counts every matching job, not this page. */
+export interface JobPage {
+  items: JobSummary[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface FamilyCount {
+  family: string
+  count: number
+}
+
+/**
+ * The dashboard's figures, counted server-side over every job in the tenant.
+ *
+ * They used to be derived from the first 50 rows of `/api/jobs` and presented
+ * as totals: the "Malicious" tile read 10 where the truth was 151. Counting in
+ * SQL is not an optimisation here, it is the only way the number can be right —
+ * the page limit is 200 and the table is already larger than that.
+ */
+export interface JobStats {
+  total: number
+  completed: number
+  in_flight: number
+  verdicts: Record<string, number>
+  needs_attention: number
+  average_score: number
+  families: FamilyCount[]
+  top_risk: JobSummary[]
+}
+
 export interface SignalT {
   id: string
   title: string

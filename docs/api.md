@@ -77,12 +77,40 @@ curl http://localhost:8000/api/result/<public_id> -H "X-API-Key: demo-key"
 ```
 
 ### `GET /api/jobs`
-Auth: required. Query: `status` (optional filter), `limit` (default 50, max 200).
-Returns a list of `JobSummary` (top-level jobs only; archive members nest under
-their parent). Summaries omit the heavy analysis payload.
+Auth: required. Query: `status` (optional filter), `limit` (default 50, max 200),
+`offset` (default 0). Returns one page:
+
+```json
+{ "items": [ /* JobSummary */ ], "total": 269, "limit": 50, "offset": 0 }
+```
+
+Top-level jobs only; archive members nest under their parent, and summaries omit
+the heavy analysis payload. `total` is the count after filtering and tenant
+scoping and **before** `limit`/`offset`, so a caller can page to the end without
+guessing: keep going until `offset + len(items) >= total`.
 
 ```bash
-curl "http://localhost:8000/api/jobs?limit=20" -H "X-API-Key: demo-key"
+curl "http://localhost:8000/api/jobs?limit=20&offset=20" -H "X-API-Key: demo-key"
+```
+
+### `GET /api/jobs/stats`
+Auth: required. Counts over every job the caller can see, rather than over one
+page — which is what a dashboard needs and what paging cannot give it once the
+table is larger than the maximum limit.
+
+| Field | Meaning |
+|---|---|
+| `total` | every top-level job |
+| `completed` | jobs in `completed` |
+| `in_flight` | jobs in `queued` or `running` |
+| `verdicts` | completed jobs by verdict; always carries `malicious`, `suspicious`, `clean` and `unclassified`, and always sums to `completed` |
+| `needs_attention` | completed jobs whose verdict is malicious or suspicious — or, where there is no verdict, that scored 30 or more |
+| `average_score` | mean `final_score` over completed jobs, to one decimal |
+| `families` | `[{family, count}]` over all top-level jobs, largest first |
+| `top_risk` | up to five `JobSummary`, worst verdict first and then worst score |
+
+```bash
+curl http://localhost:8000/api/jobs/stats -H "X-API-Key: demo-key"
 ```
 
 ---
@@ -241,7 +269,16 @@ Returns `{ "rule": float, "model": float }` (the live split).
 
 ### `PUT /api/admin/weights`
 Body `{ "rule_weight": float?, "ai_weight": float? }` — either may be omitted to
-keep the current value. Normalised to sum to 1. `422` if negative or both zero.
+keep the current value. Normalised to sum to 1, so only the ratio matters.
+
+`422` unless both values are **finite**, **non-negative**, **at most 1e6**, and
+**sum to more than zero**. Every one of those is load-bearing rather than
+defensive: `NaN` passed the old checks (it compares False to everything), left
+the process weights non-finite, and made this endpoint, `/api/capabilities` and
+the signed export all answer 500 while every new submission wrote a non-finite
+score — which PostgreSQL stores, so the jobs list then failed for every analyst
+until the row was deleted. `1e308` overflowed the sum to infinity and normalised
+both weights to zero, which silently took every verdict to 0.0 / low.
 
 ```bash
 curl -X PUT http://localhost:8000/api/admin/weights \
@@ -300,3 +337,17 @@ Job `status`: `queued`, `running`, `awaiting_password`, `completed`, `failed`.
 Job `source`: `upload`, `url`, `archive_member`. Detonatable families for the
 dynamic queue: `pe`, `elf`, `script`, `office`, `pdf`. Risk bands: `low` (0–29),
 `medium` (30–59), `high` (60–79), `critical` (80–100).
+
+---
+
+## Unknown endpoints
+
+Any path under `/api` that no route above claims returns **`404`** with the same
+`{"detail": str}` body as every other error, for every HTTP method.
+
+This is worth stating because it was not true. In the Docker image the compiled
+SPA is served by the same process, and its client-routing fallback answered for
+every unclaimed path — so `GET /api/analyse` (one letter from `/api/analyze`)
+returned `200 text/html` with the UI's `index.html` in the body. A client that
+decides success from the status code got a parse error at best, and at worst
+treated an empty page as an empty result.
