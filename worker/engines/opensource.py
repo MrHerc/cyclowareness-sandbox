@@ -398,14 +398,16 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
     report.facts.setdefault("external_engine", "cuckoo/cape")
 
     # --- identification, which is not behaviour --------------------------------
-    # A YARA match on process memory, or an extracted malware configuration, does
-    # not say what the sample *did* - it says what it *is*. That belongs to the
+    # A family the sandbox named, or a configuration block it extracted, does not
+    # say what the sample *did* - it says what it *is*. That belongs to the
     # verdict, not the capability model, so it is lifted separately.
     #
-    # It is also the only thing that separated our corpus cleanly. Measured over
-    # 8 malware and 3 signed installers: an in-memory YARA hit fired on 8/8 and
-    # 0/3, while the sandbox's own aggregate score did not discriminate at all
-    # (the 7-Zip installer scored 9.0, higher than Locky's 8.0).
+    # Only these two. An earlier version also treated any YARA hit as
+    # identification, on a measurement over 8 malware and 3 signed installers
+    # where it separated them 8/8 and 0/3. A wider benign corpus broke it: a
+    # signed WinMerge release matched `embedded_macho` and was called malicious.
+    # A rule matching is an observation about content; `detections` and
+    # `CAPE.configs` are the sandbox saying it recognises the strain.
     families: list[str] = []
     for det in data.get("detections") or []:
         fam = det.get("family") if isinstance(det, dict) else det
@@ -446,6 +448,44 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
             evidence={"family": cfg, "categories": ["identification"]},
         )
 
+    # --- which YARA rules matched, and where -----------------------------------
+    # CAPE collapses every YARA hit in the whole analysis into ONE signature,
+    # `procmem_yara`, described as "Yara detections observed in process dumps,
+    # payloads or dropped files". The rule name survives only inside a prose
+    # string in its `data` array, and we were discarding it.
+    #
+    # That is how a signed release of WinMerge came to be called malicious. The
+    # rule was `embedded_macho` — three 4-byte magics matched anywhere but offset
+    # 0, a coincidence in any multi-megabyte dump — and it hit in a file the
+    # installer had legitimately written to disk, not in process memory at all.
+    # Nothing in the report said so, so nothing in the report could be argued
+    # with. An analyst reading "a YARA rule matched" must be able to see which.
+    yara_matches: dict[str, list[str]] = {}
+
+    def _collect_yara(entries: Any, where: str) -> None:
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            for hit in entry.get("yara") or []:
+                name = hit.get("name") if isinstance(hit, dict) else hit
+                if not name:
+                    continue
+                seen = yara_matches.setdefault(where, [])
+                if str(name) not in seen:
+                    seen.append(str(name))
+
+    # procmemory and procdump are both process memory; the rest is disk. The
+    # distinction is the difference between "found running in the sample's own
+    # address space" and "found in a file it wrote", and they are not equally
+    # interesting.
+    _collect_yara(data.get("procmemory"), "process_memory")
+    _collect_yara(data.get("procdump"), "process_memory")
+    _collect_yara(cape.get("payloads") if isinstance(cape, dict) else None, "payload")
+    _collect_yara(data.get("dropped"), "dropped_file")
+    _collect_yara([(data.get("target") or {}).get("file") or {}], "submitted_sample")
+    if yara_matches:
+        report.facts["yara_matches"] = {k: sorted(v) for k, v in yara_matches.items()}
+
     # Behavioural signatures.
     for sig in data.get("signatures", []) or []:
         sev = _CAPE_SEVERITY.get(int(sig.get("severity", 1) or 1), "low")
@@ -459,16 +499,27 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         cats = sig.get("categories") or []
         if isinstance(cats, str):
             cats = [cats]
+        evidence: dict[str, Any] = {
+            "marks": len(sig.get("marks", []) or []),
+            "categories": [str(c) for c in cats],
+            "confidence": sig.get("confidence"),
+        }
+        detail = sig.get("description", "")
+        if yara_matches and _slug(name) == "procmem_yara":
+            evidence["yara_matches"] = {k: sorted(v) for k, v in yara_matches.items()}
+            detail = "{} Matched: {}.".format(
+                detail,
+                "; ".join(
+                    f"{', '.join(sorted(rules))} (in {place.replace('_', ' ')})"
+                    for place, rules in sorted(yara_matches.items())
+                ),
+            ).strip()
         report.add_signal(
             f"{prefix}.{_slug(name)}",
             sig.get("description", name)[:120],
             sev,
-            detail=sig.get("description", ""),
-            evidence={
-                "marks": len(sig.get("marks", []) or []),
-                "categories": [str(c) for c in cats],
-                "confidence": sig.get("confidence"),
-            },
+            detail=detail,
+            evidence=evidence,
         )
 
     # Network IOCs.

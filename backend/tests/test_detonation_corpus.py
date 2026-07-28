@@ -116,9 +116,30 @@ def test_the_corpus_is_what_it_claims_to_be() -> None:
 # --- the headline claim ------------------------------------------------------
 
 
+#: Malware this corpus does NOT reach a `malicious` verdict on, and why.
+#:
+#: An honest list beats a passing test. Locky detonated with a long-dead C2: it
+#: encrypted nothing, demonstrated no accusing capability and scored 39. It used
+#: to be called malicious because CAPE's `procmem_yara` signature fired and we
+#: read that as identification — but that signature only means "a YARA rule
+#: matched somewhere", and the rule that matched Locky
+#: (`INDICATOR_SUSPICIOUS_GENRansomware`) is not the rule that matched a signed
+#: release of WinMerge (`embedded_macho`, three 4-byte magics anywhere in a
+#: dump). The verdict could not tell them apart, so it called both malicious.
+#:
+#: CAPE never named Locky — its `detections` field is empty — so nothing in the
+#: evidence says "this IS Locky". `suspicious` is what we can defend. Getting it
+#: back means better identification, not a looser rule.
+KNOWN_MISSES = {
+    "Locky": "suspicious",
+}
+
+
 @pytest.mark.parametrize("sample", MALWARE, ids=_ids(MALWARE))
 def test_every_malware_sample_is_called_malicious(sample) -> None:
-    assert _assess(sample)["verdict"]["verdict"] == "malicious"
+    got = _assess(sample)["verdict"]["verdict"]
+    expected = KNOWN_MISSES.get(sample["name"], "malicious")
+    assert got == expected, f"{sample['name']} -> {got}, expected {expected}"
 
 
 @pytest.mark.parametrize("sample", BENIGN, ids=_ids(BENIGN))
@@ -159,24 +180,78 @@ def test_a_named_family_becomes_the_threat_name() -> None:
         assert expected in _assess(sample)["verdict"]["threat_name"]
 
 
-def test_a_sample_that_never_ran_is_still_identified() -> None:
+def test_a_signed_diff_tool_is_not_a_wiper() -> None:
+    """WinMerge, reduced to the two signals that made it `malicious`.
+
+    Both are real, taken from its detonation (CAPE task 148, job 119):
+
+    * `suspicious_iocontrol_codes`, high, categories `bootkit,rootkit,wiper` —
+      a sandbox files raw device IOCTLs under `wiper` because wipers issue them,
+      and so does a diff tool that walks volumes. One such signal used to grant
+      `destruction`, which fired two of the three engines against it.
+    * `procmem_yara`, high, category `malware` — which used to count as
+      identification and force `malicious` outright, no matter the score. The
+      rule was `embedded_macho`, and it hit in a file the installer had written
+      to disk.
+
+    Neither is a finding. Together they made a signed, open-source utility read
+    identically to ransomware.
+    """
+    winmerge = {
+        "kind": "benign", "name": "WinMerge", "virustotal": "1/70",
+        "families": [], "configs": [],
+        "signatures": [
+            {"name": "suspicious_iocontrol_codes", "severity": 3,
+             "categories": ["bootkit", "rootkit", "wiper"]},
+            {"name": "procmem_yara", "severity": 3, "categories": ["malware"]},
+            {"name": "mountpoint_manager_access", "severity": 3,
+             "categories": ["ransomware", "wiper", "discovery"]},
+            {"name": "hardware_id_profiling", "severity": 3,
+             "categories": ["evasion", "recon", "anti-sandbox"]},
+        ],
+    }
+    result = _assess(winmerge)
+    assert result["verdict"]["verdict"] != "malicious", result["verdict"]
+    assert not (result["caps"] & capabilities.HIGH_CONSEQUENCE), sorted(result["caps"])
+    assert not any(
+        e["engine"] == "CS-SandboxID" and e["detected"]
+        for e in result["verdict"]["engines"]
+    ), "a YARA rule matching is not an identification"
+
+
+def test_a_sample_that_never_ran_demonstrates_nothing() -> None:
     """Locky's C2 was dead, so it encrypted nothing: no capability, CIR 0.0.
 
-    Behaviour alone therefore misses it entirely. The sandbox still matched it in
-    process memory, and that is what has to carry the verdict.
+    Behaviour alone therefore misses it entirely, and nothing identified it — so
+    the honest answer is `suspicious`. This test exists to keep that visible: if
+    a future change makes Locky `malicious` again, the question to ask is *what
+    new evidence* did that, not whether the number moved the right way.
     """
     locky = next(s for s in MALWARE if "Locky" in s["name"])
     result = _assess(locky)
     assert not (result["caps"] & capabilities.HIGH_CONSEQUENCE)
     assert result["impact"]["base_score"] == 0.0
-    assert result["verdict"]["verdict"] == "malicious"
+    assert result["verdict"]["verdict"] == "suspicious"
 
 
-def test_identification_separates_the_corpus_completely() -> None:
-    """8/8 and 0/3 — the only signal in the report that did."""
+def test_identification_never_fires_on_ordinary_software() -> None:
+    """It fires when the sandbox NAMED the family — an identity claim.
+
+    It used to fire on any high-severity signal the sandbox filed under the
+    category "malware", which in practice meant "a YARA rule matched somewhere in
+    the analysis". Measured over this corpus that looked perfect (8/8 malware,
+    0/3 benign); measured over a wider one it called a signed WinMerge release
+    malicious on `embedded_macho`. A rule matching is an observation about
+    content, not an identification, and it no longer decides a verdict.
+
+    So this asserts the half that must never break — no benign sample is ever
+    identified — and reports the malware half rather than fixing it, because a
+    sandbox that cannot name a family is a coverage fact, not a bug in the rule.
+    """
     def identified(sample):
         engines = _assess(sample)["verdict"]["engines"]
         return any(e["engine"] == "CS-SandboxID" and e["detected"] for e in engines)
 
-    assert all(identified(s) for s in MALWARE)
     assert not any(identified(s) for s in BENIGN)
+    named = [s["name"] for s in MALWARE if identified(s)]
+    assert len(named) == 5, f"expected 5 named families, got {named}"

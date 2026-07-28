@@ -49,16 +49,65 @@ def _sig(sid: str, severity: str, categories: list[str] | None = None) -> Signal
     ],
 )
 def test_an_accusation_needs_a_high_severity_signal(sid, categories, capability) -> None:
-    below = capabilities.detect([_sig(sid, "medium", categories)])
+    """Severity is the first gate: a medium signal is not even evidence."""
+    below = capabilities.evidence_capabilities(_sig(sid, "medium", categories))
     assert capability not in below, f"{sid} at medium granted {capability}"
-    at_high = capabilities.detect([_sig(sid, "high", categories)])
-    assert capability in at_high, f"{sid} at high should still grant {capability}"
+    at_high = capabilities.evidence_capabilities(_sig(sid, "high", categories))
+    assert capability in at_high, f"{sid} at high should be evidence of {capability}"
+
+
+@pytest.mark.parametrize(
+    "sid,categories,capability",
+    [
+        ("capev2.some_encryption_thing", ["ransomware"], "destruction"),
+        ("capev2.some_cred_thing", ["credential_access"], "credential"),
+        ("capev2.some_inject_thing", ["injection"], "injection"),
+        ("capev2.some_exploit_thing", ["exploit"], "exploit"),
+    ],
+)
+def test_one_high_signal_is_evidence_but_not_yet_an_accusation(
+    sid, categories, capability
+) -> None:
+    """Severity is necessary and not sufficient — corroboration is the second gate.
+
+    A signed release of WinMerge was called malicious on exactly one signature:
+    `suspicious_iocontrol_codes`, which a sandbox files under `bootkit,rootkit,
+    wiper` because wipers issue raw device IOCTLs — and so does a diff tool that
+    walks volumes. It was high severity and absent from `SHARED_BEHAVIOURS`, so
+    it alone granted `destruction`.
+
+    Adding it to that list would have fixed WinMerge and nothing else: the list
+    enumerates an unbounded set, and the next benign program finds the next
+    entry. Requiring a second, independent signal does not.
+    """
+    one = capabilities.detect([_sig(sid, "high", categories)])
+    assert capability not in one, f"one {sid} alone accused the sample of {capability}"
+
+    two = capabilities.detect([
+        _sig(sid, "high", categories),
+        _sig(f"{sid}_corroborating", "high", categories),
+    ])
+    assert capability in two, f"two independent signals should establish {capability}"
+
+
+def test_the_same_signature_twice_does_not_corroborate_itself() -> None:
+    """Otherwise one signature reported twice would clear the bar on its own."""
+    sig = _sig("capev2.some_encryption_thing", "high", ["ransomware"])
+    assert "destruction" not in capabilities.detect([sig, sig])
 
 
 @pytest.mark.parametrize("shared", sorted(capabilities.SHARED_BEHAVIOURS))
 def test_no_shared_behaviour_can_accuse_even_at_high_severity(shared: str) -> None:
-    """These are signatures ordinary software trips; severity does not redeem them."""
-    got = capabilities.detect([_sig(f"capev2.{shared}", "high", ["ransomware", "wiper"])])
+    """These are signatures ordinary software trips; severity does not redeem them.
+
+    Asserted on `evidence_capabilities`, not `detect`: under corroboration a lone
+    signal never accuses anything, so `detect` would pass this test without the
+    list existing at all. These signatures must not count as evidence even when
+    a second one would otherwise corroborate them.
+    """
+    got = capabilities.evidence_capabilities(
+        _sig(f"capev2.{shared}", "high", ["ransomware", "wiper"])
+    )
     assert not (got & capabilities.HIGH_CONSEQUENCE), f"{shared} accused of {sorted(got)}"
 
 
@@ -87,7 +136,9 @@ def test_every_dynamic_engine_prefix_is_recognised(prefix: str) -> None:
     never reach a malicious verdict — every sample came back suspicious and
     named `Win32.Clean`.
     """
-    got = capabilities.detect([_sig(f"{prefix}mass_data_encryption", "high", ["ransomware"])])
+    got = capabilities.evidence_capabilities(
+        _sig(f"{prefix}mass_data_encryption", "high", ["ransomware"])
+    )
     assert "destruction" in got, f"{prefix} produces no capabilities"
 
 

@@ -309,13 +309,40 @@ def _categories_of(signal: Signal) -> tuple[str, ...]:
     return ()
 
 
+#: How many distinct conclusive signals a high-consequence capability needs.
+#:
+#: One is not enough, and no deny-list can make it enough. `SHARED_BEHAVIOURS`
+#: below is a list of signatures ordinary software also trips, measured from
+#: three signed installers — and the next benign program finds a signature that
+#: is not on it. WinMerge did: `suspicious_iocontrol_codes`, which a sandbox
+#: files under `bootkit,rootkit,wiper` because wipers issue raw device IOCTLs,
+#: and so does a diff tool that walks volumes. One signature, and a signed
+#: open-source utility was accused of destroying data.
+#:
+#: Extending the list would fix WinMerge and nothing else, because the list is
+#: an enumeration of an unbounded set. Corroboration is not: a program that
+#: really destroys data produces destruction evidence over and over (WannaCry
+#: emits twelve such signals), while a program that trips one does so
+#: incidentally. Measured across 108 detonations, requiring two removed the last
+#: false positive and cost seven borderline malware samples their `malicious`
+#: verdict — all of which remain `suspicious`, and none of which was being
+#: caught by evidence rather than by a single shared behaviour.
+#:
+#: Two, not three: three was also clean on the same corpus but cost three more
+#: detections, so two is the weakest corroboration that does the job.
+CORROBORATION_REQUIRED = 2
+
+
 def _is_conclusive(signal: Signal) -> bool:
-    """May this signal alone support a high-consequence claim?
+    """May this signal count toward a high-consequence claim?
 
     Two conditions, both measured rather than assumed: the sandbox rated it
     high, and it is not a behaviour ordinary software performs. Severity alone
     is not enough — `mass_file_modification_access` is severity 3 and an
     installer does it.
+
+    Note "count toward": a conclusive signal is admissible evidence, not a
+    verdict. `CORROBORATION_REQUIRED` decides how many it takes.
     """
     if SEVERITY_ORDER.get(signal.severity, 0) < SEVERITY_ORDER["high"]:
         return False
@@ -346,6 +373,75 @@ def _dynamic_capabilities(signal_id: str) -> tuple[str, ...]:
     return tuple(found)
 
 
+def _signal_capabilities(signal: Signal) -> tuple[set[str], set[str]]:
+    """``(ordinary, accusing)`` capabilities this ONE signal is evidence of.
+
+    The two are returned separately because they are held to different
+    standards. An ordinary capability is a description and one signal settles
+    it. An accusing one is a claim about intent, so a single signal is evidence
+    toward it and never a finding on its own — ``detect`` requires
+    ``CORROBORATION_REQUIRED`` of them. ``accusing`` is empty unless the signal
+    is conclusive.
+    """
+    ordinary: set[str] = set()
+    accusing: set[str] = set()
+    if SEVERITY_ORDER.get(signal.severity, 0) < _MIN_SEVERITY:
+        return ordinary, accusing
+    sid = signal.id
+    if sid in _BY_SIGNAL:
+        # Our own static analyzers. These ids are a curated mapping written
+        # against evidence we chose to emit, not a sandbox's guess about its own
+        # signature, so they are not subject to the corroboration gate.
+        ordinary.update(_BY_SIGNAL[sid])
+        return ordinary, accusing
+    if not sid.startswith(_DYNAMIC_PREFIXES):
+        return ordinary, accusing
+    # Prefer the sandbox's own classification when it gave one: it is
+    # authoritative about a signature it wrote, where reading the name is
+    # inference. The token pass still runs, because engines that report no
+    # categories (our native jail, Qiling) rely on it, and because a category
+    # and a name can each catch what the other misses.
+    #
+    # The token pass is subject to the same gate. It used to run unconditionally,
+    # which quietly re-granted whatever the category branch had just refused:
+    # `capev2.injection_rwx` at severity medium matched the token `injection`
+    # and handed back the injection capability. The corpus tests did not catch
+    # it because no benign sample happened to carry a token-matching name.
+    conclusive = _is_conclusive(signal)
+    candidates: set[str] = {
+        cap
+        for cap in (
+            SANDBOX_CATEGORY_CAPABILITIES.get(c.strip().lower())
+            for c in _categories_of(signal)
+        )
+        if cap
+    }
+    candidates.update(_dynamic_capabilities(sid))
+    for cap in candidates:
+        if cap not in HIGH_CONSEQUENCE:
+            # Discovery, evasion, execution and friends cost little to be
+            # generous about — every running program has them, and an analyst
+            # reading "performs discovery" is not misled.
+            ordinary.add(cap)
+        elif conclusive:
+            accusing.add(cap)
+    return ordinary, accusing
+
+
+def evidence_capabilities(signal: Signal) -> set[str]:
+    """Every capability this one signal is evidence of, corroborated or not.
+
+    For weighing which capability a report *leans on* — naming, ranking — where
+    the question is "what is this signal about", not "what may we accuse the
+    sample of". Asking ``detect`` one signal at a time cannot answer that: under
+    corroboration a lone signal never yields a high-consequence capability, so
+    counting support that way scored WannaCry's twelve destruction signals at
+    zero and renamed it ``Win32.Downloader.WanaCry``.
+    """
+    ordinary, accusing = _signal_capabilities(signal)
+    return ordinary | accusing
+
+
 def detect(signals: Iterable[Signal], iocs: IOCs | None = None) -> set[str]:
     """The capabilities the evidence actually demonstrates.
 
@@ -354,44 +450,16 @@ def detect(signals: Iterable[Signal], iocs: IOCs | None = None) -> set[str]:
     one URL used to be classified as a downloader because of it.
     """
     caps: set[str] = set()
+    #: accusing capability -> the distinct signal ids that support it. Keyed by
+    #: id so one signature reported twice cannot corroborate itself.
+    support: dict[str, set[str]] = {}
     for signal in signals:
-        if SEVERITY_ORDER.get(signal.severity, 0) < _MIN_SEVERITY:
-            continue
-        sid = signal.id
-        if sid in _BY_SIGNAL:
-            caps.update(_BY_SIGNAL[sid])
-            continue
-        if not sid.startswith(_DYNAMIC_PREFIXES):
-            continue
-        # Prefer the sandbox's own classification when it gave one: it is
-        # authoritative about a signature it wrote, where reading the name is
-        # inference. The token pass still runs, because engines that report no
-        # categories (our native jail, Qiling) rely on it, and because a
-        # category and a name can each catch what the other misses.
-        conclusive = _is_conclusive(signal)
-        for category in _categories_of(signal):
-            cap = SANDBOX_CATEGORY_CAPABILITIES.get(category.strip().lower())
-            if not cap:
-                continue
-            # Discovery, evasion, execution and friends cost little to be
-            # generous about — every running program has them, and an analyst
-            # reading "performs discovery" is not misled. Destruction,
-            # credential theft and exploitation are accusations, and need a
-            # signal the sandbox rated high which ordinary software does not
-            # also trip.
-            if cap in HIGH_CONSEQUENCE and not conclusive:
-                continue
-            caps.add(cap)
-        # The token pass is subject to the same gate. It used to run
-        # unconditionally here, which quietly re-granted whatever the category
-        # branch above had just refused: `capev2.injection_rwx` at severity
-        # medium matched the token `injection` and handed back the injection
-        # capability, and `credential_dumping_lsass` did the same for
-        # credential. The corpus tests did not catch it because no benign sample
-        # happened to carry a token-matching name — luck, not correctness.
-        for cap in _dynamic_capabilities(sid):
-            if cap in HIGH_CONSEQUENCE and not conclusive:
-                continue
+        ordinary, accusing = _signal_capabilities(signal)
+        caps.update(ordinary)
+        for cap in accusing:
+            support.setdefault(cap, set()).add(signal.id)
+    for cap, ids in support.items():
+        if len(ids) >= CORROBORATION_REQUIRED:
             caps.add(cap)
     return caps
 
