@@ -77,9 +77,26 @@ def new_job(
     submitted_by: str | None = None,
     parent: SandboxJob | None = None,
     archive_path: str | None = None,
+    tenant: str | None = None,
 ) -> SandboxJob:
+    # A file extracted from an archive belongs to whoever submitted the archive,
+    # never to whoever happens to be creating it. Inheriting from the parent is
+    # not a convenience here — an archive member that landed in the wrong tenant
+    # would be a leak nobody submitted and nobody could see coming, because the
+    # unpack stage runs in the background with no request identity at all.
+    if parent is not None:
+        owner = parent.tenant_id
+    else:
+        owner = (tenant or "").strip()
+    if not owner:
+        raise ValueError(
+            "create_job needs a tenant: pass one, or a parent to inherit from. "
+            "Defaulting here would put unowned evidence in whichever tenant the "
+            "default happened to be."
+        )
     job = SandboxJob(
         public_id=str(uuid.uuid4()),
+        tenant_id=owner[:64],
         source=source,
         submitted_by=submitted_by,
         original_name=original_name[:512],

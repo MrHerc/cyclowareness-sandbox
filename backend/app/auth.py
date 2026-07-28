@@ -38,6 +38,13 @@ class Identity:
 
     subject: str
     method: str  # "session" | "api_key"
+    #: Which tenant's data this identity may see. Every job is stamped with one
+    #: at creation and every read is scoped to it, so this is the whole of the
+    #: isolation boundary — if a query forgets it, the boundary is not there.
+    #:
+    #: Not optional and never empty: a default would be a silent hole, and the
+    #: one thing worse than no isolation is isolation that appears to be on.
+    tenant: str
 
 
 def _b64e(raw: bytes) -> str:
@@ -68,11 +75,20 @@ def _sign(payload: bytes, key: str) -> str:
 
 
 def issue_token(subject: str, *, settings: Settings | None = None) -> tuple[str, int]:
-    """Return ``(token, expires_at_epoch)`` for an authenticated analyst."""
+    """Return ``(token, expires_at_epoch)`` for an authenticated analyst.
+
+    The tenant is a signed claim rather than something re-read from settings on
+    each request: a token must keep meaning exactly what it meant when it was
+    issued. Re-reading would silently move every live session the moment an
+    operator edited ``ANALYST_TENANT``.
+    """
     settings = settings or get_settings()
     key = ensure_secret_key(settings)
     exp = int(time.time()) + settings.token_ttl_hours * 3600
-    body = json.dumps({"sub": subject, "exp": exp}, separators=(",", ":")).encode("utf-8")
+    body = json.dumps(
+        {"sub": subject, "exp": exp, "tnt": settings.analyst_tenant_name},
+        separators=(",", ":"),
+    ).encode("utf-8")
     token = f"{_b64e(body)}.{_sign(body, key)}"
     return token, exp
 
@@ -95,7 +111,14 @@ def _verify_token(token: str, settings: Settings) -> Identity | None:
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject:
         return None
-    return Identity(subject=subject, method="session")
+    # A token issued before tenancy existed carries no claim. It is signed and
+    # unexpired, so it is valid — and it belongs to the default tenant, which is
+    # where its jobs were backfilled. Rejecting it would log every analyst out on
+    # deploy; inventing a different tenant would hide their own data from them.
+    tenant = claims.get("tnt")
+    if not isinstance(tenant, str) or not tenant:
+        tenant = settings.analyst_tenant_name
+    return Identity(subject=subject, method="session", tenant=tenant)
 
 
 def verify_login(username: str, password: str, settings: Settings) -> bool:
@@ -105,11 +128,17 @@ def verify_login(username: str, password: str, settings: Settings) -> bool:
     return user_ok and pass_ok
 
 
-def _match_api_key(candidate: str, settings: Settings) -> bool:
-    for key in settings.api_key_list:
-        if _secure_equals(candidate, key):
-            return True
-    return False
+def _match_api_key(candidate: str, settings: Settings) -> str | None:
+    """The tenant this key belongs to, or None if it is not a configured key.
+
+    Every configured key is compared even after a match, so the time taken does
+    not depend on which key matched or on how far down the list it is.
+    """
+    found: str | None = None
+    for key, tenant in settings.api_key_tenants:
+        if _secure_equals(candidate, key) and found is None:
+            found = tenant
+    return found
 
 
 _UNAUTH = HTTPException(
@@ -129,8 +158,13 @@ def require_analyst(
         identity = _verify_token(authorization[7:].strip(), settings)
         if identity is not None:
             return identity
-    if x_api_key and _match_api_key(x_api_key.strip(), settings):
-        return Identity(subject="api-client", method="api_key")
+    if x_api_key:
+        tenant = _match_api_key(x_api_key.strip(), settings)
+        if tenant is not None:
+            # The subject names the tenant so the audit trail can tell two API
+            # clients apart. It was "api-client" for everyone, which made every
+            # programmatic action in the custody chain indistinguishable.
+            return Identity(subject=f"api-client:{tenant}", method="api_key", tenant=tenant)
     raise _UNAUTH
 
 

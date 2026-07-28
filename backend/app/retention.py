@@ -165,18 +165,25 @@ def sweep(db: Session, *, actor: str = "system") -> SweepResult:
                 job.sample_deleted_at = now
             result.samples_deleted += 1
             result.bytes_reclaimed += reclaimed
-            audit.record(
-                action=audit.AuditAction.SAMPLE_PURGED,
-                actor=actor,
-                actor_method="system",
-                object_type="sample",
-                object_id=sha256,
-                detail={
-                    "bytes_reclaimed": reclaimed,
-                    "jobs": [j.public_id for j in jobs][:20],
-                    "policy_days": sample_days,
-                },
-            )
+            # Quarantine is addressed by content hash, so ONE file can back jobs
+            # from several tenants. Deleting it affects all of them, and each
+            # gets its own record: a tenant reading its trail must see that its
+            # sample is gone, not be told nothing because another tenant owned
+            # the row that happened to trigger the purge.
+            for tenant in sorted({j.tenant_id for j in jobs}):
+                audit.record(
+                    action=audit.AuditAction.SAMPLE_PURGED,
+                    actor=actor,
+                    actor_method="system",
+                    tenant=tenant,
+                    object_type="sample",
+                    object_id=sha256,
+                    detail={
+                        "bytes_reclaimed": reclaimed,
+                        "jobs": [j.public_id for j in jobs if j.tenant_id == tenant][:20],
+                        "policy_days": sample_days,
+                    },
+                )
         db.commit()
 
     # --- reports --------------------------------------------------------
@@ -195,13 +202,14 @@ def sweep(db: Session, *, actor: str = "system") -> SweepResult:
                 _unlink(job.sha256)
             except OSError:
                 pass
-            public_id, sha256 = job.public_id, job.sha256
+            public_id, sha256, tenant = job.public_id, job.sha256, job.tenant_id
             db.delete(job)
             result.reports_deleted += 1
             audit.record(
                 action=audit.AuditAction.REPORT_PURGED,
                 actor=actor,
                 actor_method="system",
+                tenant=tenant,
                 object_type="sample",
                 object_id=public_id,
                 detail={"sha256": sha256, "policy_days": report_days},

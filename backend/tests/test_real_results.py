@@ -67,7 +67,7 @@ def test_pipeline_populates_real_results(db):
         b"schtasks /create /tn U /tr a.exe /f\n"
     )
     stored = storage.store_bytes(ps)
-    job = pipeline.new_job(db, stored, original_name="update.ps1")
+    job = pipeline.new_job(db, stored, original_name="update.ps1", tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

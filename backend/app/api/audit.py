@@ -41,6 +41,7 @@ def list_events(
         action=action,
         object_type=object_type,
         object_id=object_id,
+        tenant=identity.tenant,
         limit=limit,
         offset=offset,
     )
@@ -61,6 +62,18 @@ def verify(
 
     Answers 200 either way: "the chain is broken at row 41" is a successful
     verification, and an auditor needs that answer in the body, not as an error.
+
+    DEPLOYMENT-WIDE, not tenant-scoped, and that is not an oversight. The chain
+    is one hash chain over every action on this deployment — that is what makes
+    a deleted row detectable. Verifying only a tenant's own rows would verify a
+    subsequence, which any subsequence of a valid chain trivially fails, and
+    re-chaining per tenant would mean a row could be deleted from one tenant's
+    chain without any other chain noticing.
+
+    The cost is stated rather than hidden: the counts and head hash returned here
+    are deployment-wide, so on a multi-tenant install they tell a caller roughly
+    how much activity the other tenants generate. `require_admin` keeps that to
+    an interactive session; an API key cannot reach it.
     """
     return audit.verify_chain(db)
 
@@ -90,6 +103,7 @@ def export(
         action=action,
         object_type=object_type,
         object_id=object_id,
+        tenant=identity.tenant,
         limit=limit,
         offset=offset,
     )

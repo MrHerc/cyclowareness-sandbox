@@ -138,7 +138,7 @@ def test_benign_corpus_produces_no_malicious_verdict(db):
     high_impact: list[str] = []
     for name, data in corpus:
         stored = storage.store_bytes(data)
-        job = pipeline.new_job(db, stored, original_name=name)
+        job = pipeline.new_job(db, stored, original_name=name, tenant="default")
         db.commit()
         pipeline.run(db, job)
         db.commit()
@@ -174,7 +174,7 @@ def test_benign_corpus_produces_no_malicious_verdict(db):
 def test_real_threats_are_still_caught(db, name, payload):
     """The cure for false positives must not be detecting nothing."""
     stored = storage.store_bytes(payload)
-    job = pipeline.new_job(db, stored, original_name=name)
+    job = pipeline.new_job(db, stored, original_name=name, tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

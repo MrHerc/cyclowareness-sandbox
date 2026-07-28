@@ -34,6 +34,10 @@ def login(
             action=audit.AuditAction.LOGIN_FAILURE,
             actor=attempted,
             actor_method="session",
+            # No authenticated identity exists yet, so this is filed under the
+            # tenant the analyst account belongs to. A failed login is that
+            # tenant's security event to see — it is their account being probed.
+            tenant=settings.analyst_tenant_name,
             outcome=audit.AuditOutcome.FAILURE,
             source_ip=source_ip,
         )
@@ -45,6 +49,7 @@ def login(
         action=audit.AuditAction.LOGIN_SUCCESS,
         actor=payload.username[:64],
         actor_method="session",
+        tenant=settings.analyst_tenant_name,
         source_ip=source_ip,
         detail={"expires_at": exp},
     )

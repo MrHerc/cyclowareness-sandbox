@@ -107,6 +107,18 @@ class AuditEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     occurred_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
 
+    #: Which tenant's action this was. What the audit API filters on, so one
+    #: tenant cannot read another's history.
+    #:
+    #: Deliberately NOT part of `_canonical`, and therefore not covered by
+    #: `entry_hash`: that form is frozen, and adding a field to it would make
+    #: every event written before tenancy existed fail verification. `record()`
+    #: also writes the tenant into `detail`, which IS hashed, so events from here
+    #: on carry it inside the chain as well.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="default", server_default="default", index=True
+    )
+
     #: Who acted. A plain string for the same reason sandbox_jobs.submitted_by is
     #: one: this service owns no users table, it authenticates against configured
     #: credentials and records the subject it authenticated.
@@ -269,14 +281,23 @@ def record(
     source_ip: str | None = None,
     outcome: str = AuditOutcome.SUCCESS,
     detail: dict[str, Any] | None = None,
+    tenant: str = "",
 ) -> AuditEvent | None:
     """Append one link to the chain. Returns ``None`` if the write failed.
 
     Runs in its own session rather than the caller's: an audit record must not
     disappear because the request's transaction rolled back afterwards, and a
     login has no request session at all.
+
+    ``tenant`` lands in two places on purpose. The column is what the audit API
+    filters on, so one tenant cannot read another's actions. The copy inside
+    ``detail`` is what the hash covers — the canonical form is frozen, and adding
+    a field to it would make every event written before today read as tampered,
+    which is a worse outcome than a metadata column the chain does not protect.
     """
     clean = _sanitise(detail)
+    if tenant:
+        clean = {**clean, "tenant": tenant}
     occurred_at = utcnow()
     # Two attempts: a concurrent append makes the unique prev_hash collide, and
     # the correct response is to re-read the tail and chain onto it. A second
@@ -291,6 +312,7 @@ def record(
             prev_hash = _tail_hash(db)
             event = AuditEvent(
                 occurred_at=occurred_at,
+                tenant_id=(tenant or "default")[:64],
                 actor=actor[:128],
                 actor_method=actor_method[:16],
                 action=action[:64],
@@ -421,11 +443,20 @@ def query(
     action: str | None = None,
     object_type: str | None = None,
     object_id: str | None = None,
+    tenant: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> tuple[int, list[AuditEvent]]:
-    """``(total_matching, page)`` — oldest first, because a chain reads forward."""
+    """``(total_matching, page)`` — oldest first, because a chain reads forward.
+
+    ``tenant`` scopes the read. It filters the COUNT as well as the page: a total
+    computed over every tenant tells a reader how much traffic the other tenants
+    on this deployment are generating, which is a leak that needs no row to be
+    returned at all.
+    """
     filters = []
+    if tenant:
+        filters.append(AuditEvent.tenant_id == tenant)
     if actor:
         filters.append(AuditEvent.actor == actor)
     if action:

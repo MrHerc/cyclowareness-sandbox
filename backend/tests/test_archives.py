@@ -26,7 +26,7 @@ _MALICIOUS_MEMBER = (
 
 def _analyse(db, name: str, data: bytes, password: str | None = None) -> SandboxJob:
     stored = store_bytes(data)
-    job = pipeline.new_job(db, stored, original_name=name)
+    job = pipeline.new_job(db, stored, original_name=name, tenant="default")
     db.commit()
     pipeline.run(db, job, password=password)
     db.commit()

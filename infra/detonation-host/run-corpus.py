@@ -103,9 +103,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--benign-dir", default="/opt/samples/benign")
     parser.add_argument("--deadline-hours", type=float, default=6.0)
     parser.add_argument(
-        "--sample-timeout-minutes", type=float, default=45.0,
-        help="give up on an individual job. There was no per-sample limit at all, "
-             "so one wedged guest held the entire run against the global deadline.",
+        "--stall-minutes", type=float, default=45.0,
+        help="give up when NOTHING resolves for this long. NOT a per-sample age: "
+             "a sample waiting its turn behind a hundred others is not stuck, and "
+             "timing it out measures the queue instead of the product.",
     )
     args = parser.parse_args(argv)
     key = open(KEY_PATH).read().strip()
@@ -151,24 +152,40 @@ def main(argv: list[str] | None = None) -> int:
 
     start = time.time()
     done: dict[str, dict] = {}
-    first_seen: dict[str, float] = {}
     abandoned: set[str] = set()
     deadline = args.deadline_hours * 3600
-    per_sample = args.sample_timeout_minutes * 60
+    stall = args.stall_minutes * 60
+    last_progress = time.time()
 
+    # STALL, NOT AGE. The first version timed out each sample individually,
+    # measured from the first time it was polled — which is the moment it joined
+    # a queue, not the moment anything started working on it. With 152 samples,
+    # three guests and four minutes a detonation, the tail waits over two hours
+    # for its turn; a 45-minute per-sample limit therefore abandoned 110 samples
+    # that were queued and healthy, and reported "13/152 detonated" as if that
+    # were a property of the product. It was a property of the timeout.
+    #
+    # The real question is whether the SYSTEM is making progress. If nothing has
+    # resolved for `stall` minutes, something is wedged and waiting longer will
+    # not help. If jobs are still landing, the queue is simply long.
     while len(done) + len(abandoned) < len(submitted) and time.time() - start < deadline:
+        before = len(done)
         for entry in submitted:
             public_id = entry["public_id"]
             if public_id in done or public_id in abandoned:
                 continue
-            first_seen.setdefault(public_id, time.time())
             job = result(key, public_id)
             if worker_has_answered(job):
                 done[public_id] = job
-            elif time.time() - first_seen[public_id] > per_sample:
-                abandoned.add(public_id)
-                print(f"     abandoned {entry['label']} after "
-                      f"{args.sample_timeout_minutes:.0f}m", flush=True)
+        if len(done) > before:
+            last_progress = time.time()
+        elif time.time() - last_progress > stall:
+            for entry in submitted:
+                if entry["public_id"] not in done:
+                    abandoned.add(entry["public_id"])
+            print(f"     STALLED: nothing resolved in {args.stall_minutes:.0f}m; "
+                  f"abandoning {len(abandoned)} unresolved sample(s)", flush=True)
+            break
         print(f"  {len(done)}/{len(submitted)} resolved, {len(abandoned)} abandoned "
               f"({int((time.time() - start) / 60)}m elapsed)", flush=True)
         if len(done) + len(abandoned) < len(submitted):
@@ -200,15 +217,27 @@ def main(argv: list[str] | None = None) -> int:
 
     malware = [r for r in rows if r["kind"] == "malware"]
     benign = [r for r in rows if r["kind"] == "benign"]
-    caught = sum(1 for r in malware if r["verdict"] == "malicious")
-    false_positives = [r["label"] for r in benign if r["verdict"] == "malicious"]
     detonated = [r for r in rows if r["dynamic_ran"]]
     not_detonated = [r for r in rows if not r["dynamic_ran"]]
 
+    # Rates over DETONATED samples only. Computing them over everything mixes in
+    # rows the sandbox never ran, so a run that detonated a tenth of the corpus
+    # still printed a detection rate — one that describes the static tier alone
+    # while reading as though it described the product.
+    mal_det = [r for r in malware if r["dynamic_ran"]]
+    ben_det = [r for r in benign if r["dynamic_ran"]]
+    caught = sum(1 for r in mal_det if r["verdict"] == "malicious")
+    false_positives = [r["label"] for r in ben_det if r["verdict"] == "malicious"]
+
+    def _rate(hit: int, total: int) -> str:
+        return f"{hit}/{total} ({100.0 * hit / total:.0f}%)" if total else "0/0 (n/a)"
+
     print()
-    print(f"  detonated        : {len(detonated)}/{len(rows)}")
-    print(f"  malware caught   : {caught}/{len(malware)}")
-    print(f"  benign flagged   : {len(false_positives)}/{len(benign)}   <- must be 0")
+    print(f"  detonated        : {_rate(len(detonated), len(rows))}"
+          f"   [malware {len(mal_det)}/{len(malware)}, benign {len(ben_det)}/{len(benign)}]")
+    print("  --- over detonated samples only ---")
+    print(f"  malware caught   : {_rate(caught, len(mal_det))}")
+    print(f"  benign flagged   : {_rate(len(false_positives), len(ben_det))}   <- must be 0")
     if false_positives:
         print(f"     {false_positives}")
     # Never let a gap be silent. A run that quietly detonated 80% of the corpus

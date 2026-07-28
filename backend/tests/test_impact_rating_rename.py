@@ -43,7 +43,7 @@ _DROPPER_SCORE = 7.5
 
 
 def _run(db, payload: bytes, name: str) -> SandboxJob:
-    job = pipeline.new_job(db, storage.store_bytes(payload), original_name=name)
+    job = pipeline.new_job(db, storage.store_bytes(payload), original_name=name, tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

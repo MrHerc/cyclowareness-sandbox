@@ -48,6 +48,18 @@ class SandboxJob(Base):
     #: submitter sees, so job counts are not a side channel.
     public_id: Mapped[str] = mapped_column(String(36), unique=True, index=True)
 
+    #: Which tenant owns this job. Every read is scoped to it, so this column IS
+    #: the isolation boundary — a query that forgets it has no boundary at all.
+    #:
+    #: NOT NULL with a server default: a nullable owner is an owner nobody
+    #: checks, and the one row that slips through with NULL is visible to every
+    #: tenant at once. Existing rows backfill to `default_tenant`, which is where
+    #: the analyst session and any bare API key also land, so a single-tenant
+    #: deployment sees no change whatsoever.
+    tenant_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="default", server_default="default", index=True
+    )
+
     source: Mapped[str] = mapped_column(String(24), default=JobSource.UPLOAD)
     #: The analyst identity that submitted this sample, from the auth token.
     #: A plain string, not a foreign key: this service owns no users table —

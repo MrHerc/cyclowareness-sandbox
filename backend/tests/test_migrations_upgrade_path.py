@@ -28,10 +28,11 @@ from app.main import app
 #: Added after the baseline. Absent from a previous-release database.
 #: ``impact`` was added as ``cvss`` and renamed by 0003; either way it is the
 #: column an older database does not have. ``sample_deleted_at`` arrived with
-#: retention in 0005. Every new column has to be listed here, and that is the
+#: retention in 0005, ``tenant_id`` with multi-tenancy in 0006. Every new column
+#: has to be listed here, and that is the
 #: point: forgetting one makes the baseline-fidelity assertion fail loudly
 #: rather than letting a migration drift from the schema it claims to reproduce.
-POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre", "sample_deleted_at")
+POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre", "sample_deleted_at", "tenant_id")
 
 
 def _build_previous_release_schema(engine: sa.Engine) -> None:
@@ -45,6 +46,15 @@ def _build_previous_release_schema(engine: sa.Engine) -> None:
     table = SandboxJob.__table__.to_metadata(metadata)
     for name in POST_BASELINE_COLUMNS:
         table._columns.remove(table.c[name])
+    # Indexes are copied by to_metadata and do NOT follow the column out, so an
+    # index over a removed column survives and CREATE INDEX then fails with
+    # "no such column". Every post-baseline column so far happened to be
+    # unindexed, which is why this only surfaced with `tenant_id` — the helper
+    # was wrong all along and nothing had asked it the question.
+    dropped = set(POST_BASELINE_COLUMNS)
+    for index in list(table.indexes):
+        if {c.name for c in index.columns} & dropped:
+            table.indexes.discard(index)
     metadata.create_all(engine)
 
 

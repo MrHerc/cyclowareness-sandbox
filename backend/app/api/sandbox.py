@@ -65,6 +65,7 @@ def _trace(
         action=action,
         actor=identity.subject,
         actor_method=identity.method,
+        tenant=identity.tenant,
         object_type="sample" if public_id else "",
         object_id=public_id,
         source_ip=request.client.host if request.client else None,
@@ -72,9 +73,22 @@ def _trace(
     )
 
 
-def _job_or_404(db: Session, public_id: str) -> SandboxJob:
+def _job_or_404(db: Session, public_id: str, identity: Identity) -> SandboxJob:
+    """The one door to a single job — and therefore the whole isolation boundary.
+
+    Scoped in the WHERE clause, not checked after loading. A fetch-then-compare
+    still reads the row, and every later refactor that forgets the comparison
+    silently opens the door; a query that cannot see the row cannot leak it.
+
+    404, never 403. "You may not see this job" and "this job exists" are the same
+    sentence to anyone probing public ids, and confirming existence is itself the
+    leak — a competitor could learn how much a rival is analysing without ever
+    reading a report.
+    """
     job = db.execute(
-        select(SandboxJob).where(SandboxJob.public_id == public_id)
+        select(SandboxJob)
+        .where(SandboxJob.public_id == public_id)
+        .where(SandboxJob.tenant_id == identity.tenant)
     ).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Analysis job not found")
@@ -109,6 +123,7 @@ async def analyze(
         original_name=file.filename or "upload",
         source=JobSource.UPLOAD,
         submitted_by=identity.subject,
+        tenant=identity.tenant,
     )
     db.commit()
     metrics.uploads_total.labels(source="upload").inc()
@@ -162,6 +177,7 @@ def analyze_url(
         source=JobSource.URL,
         submitted_url=payload.url[:2000],
         submitted_by=identity.subject,
+        tenant=identity.tenant,
     )
     db.commit()
     metrics.uploads_total.labels(source="url").inc()
@@ -180,10 +196,15 @@ def result(
     identity: Identity = Depends(require_analyst),
 ):
     """The verdict and full analysis for one job (the ``/result`` endpoint)."""
-    job = _job_or_404(db, public_id)
+    job = _job_or_404(db, public_id, identity)
+    # Scoped too, though a child always inherits its parent's tenant so this
+    # should be redundant. It is here because "should be" is doing all the work
+    # in that sentence: a future path that creates a child some other way turns a
+    # redundant filter into the only thing standing between two customers.
     children = db.execute(
         select(SandboxJob)
         .where(SandboxJob.parent_job_id == job.id)
+        .where(SandboxJob.tenant_id == identity.tenant)
         .order_by(SandboxJob.final_score.desc())
     ).scalars().all()
     return JobDetail.of(job, children=children)
@@ -201,6 +222,11 @@ def list_jobs(
 ):
     query = (
         select(SandboxJob)
+        # Scoped BEFORE the limit, not after. Filtering a page of results in
+        # Python would silently shrink every page — and the same mistake in the
+        # worker queue (LIMIT in SQL, filter in Python) once returned an empty
+        # list forever with a hundred jobs waiting behind it.
+        .where(SandboxJob.tenant_id == identity.tenant)
         # Top-level jobs only; archive members are shown nested under their parent.
         .where(SandboxJob.parent_job_id.is_(None))
         .order_by(SandboxJob.created_at.desc())
@@ -225,7 +251,7 @@ def provide_password(
     Used once, never stored. Supplying it is the deliberate analyst action the
     brief requires; the engine never brute-forces.
     """
-    job = _job_or_404(db, public_id)
+    job = _job_or_404(db, public_id, identity)
     if job.status != JobStatus.AWAITING_PASSWORD:
         raise HTTPException(status_code=409, detail="This job is not waiting for a password")
     _trace(request, identity, audit.AuditAction.ARCHIVE_PASSWORD_SUPPLIED, public_id=job.public_id)
@@ -242,7 +268,7 @@ def reanalyze(
     identity: Identity = Depends(require_analyst),
 ):
     """Re-run analysis on the same quarantined bytes (e.g. after new YARA rules)."""
-    job = _job_or_404(db, public_id)
+    job = _job_or_404(db, public_id, identity)
     if job.status == JobStatus.RUNNING:
         raise HTTPException(status_code=409, detail="Analysis is already running")
     job.status = JobStatus.QUEUED
@@ -266,7 +292,7 @@ def submit_feedback(
         raise HTTPException(
             status_code=422, detail="verdict must be false_positive or true_positive"
         )
-    job = _job_or_404(db, public_id)
+    job = _job_or_404(db, public_id, identity)
     job.feedback = payload.verdict
     job.feedback_note = (payload.note or "")[:2000] or None
     db.commit()
@@ -287,7 +313,7 @@ def export_json(
     metrics.reports_generated_total.labels(format="json").inc()
     _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
            detail={"format": "json"})
-    return report_mod.as_json(_job_or_404(db, public_id))
+    return report_mod.as_json(_job_or_404(db, public_id, identity))
 
 
 @router.get("/jobs/{public_id}/export.stix")
@@ -300,7 +326,7 @@ def export_stix(
     metrics.reports_generated_total.labels(format="stix").inc()
     _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
            detail={"format": "stix"})
-    return report_mod.as_stix(_job_or_404(db, public_id))
+    return report_mod.as_stix(_job_or_404(db, public_id, identity))
 
 
 @router.get("/jobs/{public_id}/export.incident")
@@ -322,7 +348,7 @@ def export_incident(
     metrics.reports_generated_total.labels(format="incident").inc()
     _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
            detail={"format": "incident"})
-    return incident_mod.build(_job_or_404(db, public_id))
+    return incident_mod.build(_job_or_404(db, public_id, identity))
 
 
 @router.get("/jobs/{public_id}/export.pdf")
@@ -332,7 +358,7 @@ def export_pdf(
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
-    job = _job_or_404(db, public_id)
+    job = _job_or_404(db, public_id, identity)
     pdf = report_mod.as_pdf(job)
     metrics.reports_generated_total.labels(format="pdf").inc()
     _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
@@ -365,7 +391,7 @@ def export_signed(
     Without a SIGNING_KEY the document is still produced in full, and says
     plainly that it is unsigned rather than implying an assurance it lacks.
     """
-    envelope = attestation.attest(_job_or_404(db, public_id), settings=settings)
+    envelope = attestation.attest(_job_or_404(db, public_id, identity), settings=settings)
     metrics.reports_generated_total.labels(
         format="signed" if envelope["signed"] else "unsigned"
     ).inc()

@@ -40,6 +40,19 @@ router = APIRouter(prefix="/api/dynamic", tags=["dynamic"])
 #: Families a dynamic worker can meaningfully detonate/emulate.
 _DYNAMIC_FAMILIES = {"pe", "elf", "script", "office", "pdf"}
 
+#: THIS SEAM IS DEPLOYMENT-WIDE, NOT TENANT-SCOPED, ON PURPOSE.
+#:
+#: The queue hands out jobs from every tenant and the report endpoint accepts a
+#: result for any job, because the worker is not a tenant — it is the operator's
+#: own detonation hardware, authenticated by DYNAMIC_WORKER_TOKEN, and it exists
+#: to run samples for all of them. Scoping it per tenant would mean one worker
+#: and one set of guests per customer, which is a different product.
+#:
+#: So what a stolen worker token buys is the whole deployment rather than one
+#: tenant: every sample's bytes, and the ability to fabricate behaviour for any
+#: job. That blast radius is unchanged by tenancy — but it does make this the
+#: widest credential in the system, and it should be treated as such.
+
 
 def require_worker(
     x_worker_token: str | None = Header(default=None),

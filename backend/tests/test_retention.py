@@ -34,7 +34,7 @@ def policy(monkeypatch):
 
 def _job(db, name: str, data: bytes, *, age_days: float = 0.0) -> SandboxJob:
     stored = storage.store_bytes(data)
-    job = pipeline.new_job(db, stored, original_name=name)
+    job = pipeline.new_job(db, stored, original_name=name, tenant="default")
     if age_days:
         job.created_at = utcnow() - timedelta(days=age_days)
     db.commit()

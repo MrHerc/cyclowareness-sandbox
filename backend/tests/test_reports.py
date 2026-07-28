@@ -15,7 +15,7 @@ _MALICIOUS = (
 
 def _completed_high_risk_job(db) -> SandboxJob:
     stored = store_bytes(_MALICIOUS)
-    job = pipeline.new_job(db, stored, original_name="loader.ps1")
+    job = pipeline.new_job(db, stored, original_name="loader.ps1", tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

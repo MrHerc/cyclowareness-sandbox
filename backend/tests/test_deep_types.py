@@ -18,7 +18,7 @@ from app.engine import pipeline, storage
 
 def _run(db, name: str, data: bytes):
     stored = storage.store_bytes(data)
-    job = pipeline.new_job(db, stored, original_name=name, submitted_by="test")
+    job = pipeline.new_job(db, stored, original_name=name, submitted_by="test", tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

@@ -103,7 +103,7 @@ def _sample() -> Sample:
 
 
 def _run(db, payload: bytes, name: str) -> SandboxJob:
-    job = pipeline.new_job(db, store_bytes(payload), original_name=name)
+    job = pipeline.new_job(db, store_bytes(payload), original_name=name, tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()
@@ -432,7 +432,7 @@ def test_incident_record_never_claims_to_be_a_filing_or_to_advise(db):
 def test_incident_record_survives_an_analysis_that_never_completed(db):
     """A compliance function that only gets a document on the good days has no
     document on the day it needs one."""
-    job = pipeline.new_job(db, store_bytes(_MALICIOUS), original_name="stuck.ps1")
+    job = pipeline.new_job(db, store_bytes(_MALICIOUS), original_name="stuck.ps1", tenant="default")
     db.commit()
     record = incident_mod.build(job)
 

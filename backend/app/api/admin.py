@@ -92,6 +92,7 @@ def _audit_weights(
         action=audit.AuditAction.SCORING_WEIGHTS_CHANGED,
         actor=identity.subject,
         actor_method=identity.method,
+        tenant=identity.tenant,
         object_type="scoring_weights",
         object_id="global",
         source_ip=request.client.host if request.client else None,

@@ -44,6 +44,9 @@ _IMPACT_COLUMNS = {"impact", "verdict", "mitre"}
 #: The revision that added retention's deletion marker.
 RETENTION_REVISION = "0005_sample_deleted_at"
 _RETENTION_COLUMNS = {"sample_deleted_at", "impact", "verdict", "mitre"}
+#: The revision that gave every job and audit event an owning tenant.
+TENANT_REVISION = "0006_tenant_id"
+_TENANT_COLUMNS = {"tenant_id", "sample_deleted_at", "impact", "verdict", "mitre"}
 
 #: Newest revision first. A pre-Alembic database is stamped at the first entry
 #: whose marker columns are all present, then upgraded from there.
@@ -54,6 +57,7 @@ _RETENTION_COLUMNS = {"sample_deleted_at", "impact", "verdict", "mitre"}
 #: the next migration re-adds a column that already exists, and the service
 #: fails to boot. Every migration that adds a column adds a rung here.
 _ADOPTION_LADDER: tuple[tuple[str, set[str]], ...] = (
+    (TENANT_REVISION, _TENANT_COLUMNS),
     (RETENTION_REVISION, _RETENTION_COLUMNS),
     (IMPACT_REVISION, _IMPACT_COLUMNS),
     (CVSS_REVISION, _POST_BASELINE_COLUMNS),

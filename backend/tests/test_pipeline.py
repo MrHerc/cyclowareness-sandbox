@@ -13,7 +13,7 @@ from app.engine.storage import store_bytes
 
 def _analyse(db, name: str, data: bytes) -> SandboxJob:
     stored = store_bytes(data)
-    job = pipeline.new_job(db, stored, original_name=name, source=JobSource.UPLOAD)
+    job = pipeline.new_job(db, stored, original_name=name, source=JobSource.UPLOAD, tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()

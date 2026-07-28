@@ -29,7 +29,7 @@ _DROPPER = (
 
 
 def _analyse(db, name: str, data: bytes) -> SandboxJob:
-    job = pipeline.new_job(db, store_bytes(data), original_name=name)
+    job = pipeline.new_job(db, store_bytes(data), original_name=name, tenant="default")
     db.commit()
     pipeline.run(db, job)
     db.commit()
@@ -226,7 +226,7 @@ def test_total_child_budget_bounds_one_submission(db):
 def test_a_database_failure_records_a_failed_job_not_a_queued_one(db):
     """The first flush used to sit outside the try, so a DB error left the row at
     status='queued', error=NULL forever and the submitter waited on nothing."""
-    job = pipeline.new_job(db, store_bytes(b"anything at all\n"), original_name="x.txt")
+    job = pipeline.new_job(db, store_bytes(b"anything at all\n"), original_name="x.txt", tenant="default")
     db.commit()
     job_id = job.id
 

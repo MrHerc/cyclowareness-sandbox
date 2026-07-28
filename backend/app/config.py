@@ -37,8 +37,26 @@ class Settings(BaseSettings):
     analyst_password: str = Field(default="analyst")
     #: Static keys for programmatic access to /api/analyze (comma-separated).
     #: Empty in production unless set — API-key auth is opt-in.
+    #:
+    #: An entry may name the tenant it belongs to: ``acme:ck_live_x``. A bare key
+    #: belongs to ``default_tenant``, so an existing deployment keeps working
+    #: unchanged. A colon is therefore not valid inside a key itself.
     api_keys: str = Field(default="demo-key")
     token_ttl_hours: int = Field(default=12)
+
+    # --- tenancy ------------------------------------------------------------
+    #: Which tenant owns data that names no owner: the analyst session, bare API
+    #: keys, and every job that existed before tenancy did.
+    #:
+    #: One tenant is the normal case — a sovereign deployment analysing its own
+    #: organisation's samples, where this is invisible. The column exists so an
+    #: MSSP can run one deployment for several client organisations without
+    #: their evidence mixing, and because adding it later, to a database already
+    #: holding a customer's data, is a migration nobody wants to run under load.
+    default_tenant: str = Field(default="default")
+    #: The tenant the interactive analyst account belongs to. Empty means
+    #: ``default_tenant``, which is what a single-tenant deployment wants.
+    analyst_tenant: str = Field(default="")
 
     # --- ingest limits ------------------------------------------------------
     max_sample_mb: int = Field(default=32)
@@ -113,7 +131,34 @@ class Settings(BaseSettings):
 
     @property
     def api_key_list(self) -> list[str]:
-        return [k.strip() for k in self.api_keys.split(",") if k.strip()]
+        """Just the keys, without any tenant prefix — for comparison and checks."""
+        return [key for key, _tenant in self.api_key_tenants]
+
+    @property
+    def api_key_tenants(self) -> list[tuple[str, str]]:
+        """``[(key, tenant), …]`` — the parsed form of ``API_KEYS``.
+
+        ``acme:ck_live_x`` belongs to tenant ``acme``; a bare ``ck_live_y``
+        belongs to ``default_tenant``. Split on the FIRST colon only, so a key
+        containing one is still parsed the same way every time rather than
+        landing in a different tenant depending on how many colons it has.
+        """
+        out: list[tuple[str, str]] = []
+        fallback = self.default_tenant.strip() or "default"
+        for raw in self.api_keys.split(","):
+            entry = raw.strip()
+            if not entry:
+                continue
+            tenant, sep, key = entry.partition(":")
+            if sep and tenant.strip() and key.strip():
+                out.append((key.strip(), tenant.strip()))
+            else:
+                out.append((entry, fallback))
+        return out
+
+    @property
+    def analyst_tenant_name(self) -> str:
+        return self.analyst_tenant.strip() or self.default_tenant.strip() or "default"
 
     @property
     def cors_origin_list(self) -> list[str]:
