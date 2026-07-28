@@ -17,7 +17,29 @@ from dataclasses import dataclass
 #: Ordered longest-first at match time so ZIP-family containers (which all start
 #: PK\x03\x04) are resolved by their inner structure, not by the outer magic.
 _MAGIC: tuple[tuple[bytes, str, str, tuple[str, ...]], ...] = (
-    (b"MZ", "application/x-dosexec", "DOS/PE executable", (".exe", ".dll", ".sys", ".scr")),
+    # Every extension Windows legitimately gives a PE, not just the common four.
+    # This is a FACT about the format, and a closed one — unlike a list of
+    # "behaviours benign software performs", it can actually be completed.
+    #
+    # Measured cost of the short list: Python's own embeddable distribution puts
+    # eleven `.pyd` files (C extension modules, PE by definition) on disk, and
+    # every one was rated `malicious` at 60-66 on `generic.extension_mismatch`
+    # alone — the engine's strongest deception signal, at HIGH severity, saying
+    # a Microsoft-shipped Python module was disguising itself.
+    (b"MZ", "application/x-dosexec", "DOS/PE executable", (
+        ".exe", ".dll", ".sys", ".scr",
+        ".pyd",   # Python C extension module
+        ".node",  # Node.js native addon
+        ".ocx",   # ActiveX control
+        ".cpl",   # Control Panel applet
+        ".drv",   # driver
+        ".ax",    # DirectShow filter
+        ".mui",   # multilingual resource
+        ".tsp",   # telephony service provider
+        ".efi",   # UEFI application
+        ".com",   # DOS-era, still PE in practice
+        ".msstyles",  # visual style
+    )),
     (b"\x7fELF", "application/x-elf", "ELF binary", (".elf", ".bin", ".so", ".o")),
     (b"\xca\xfe\xba\xbe", "application/java-vm", "Java class / Mach-O fat binary", (".class",)),
     (b"%PDF", "application/pdf", "PDF document", (".pdf",)),
@@ -231,6 +253,11 @@ def identify(path: str, original_name: str) -> Identity:
         ".cfg", ".conf", ".toml", ".css", ".scss", ".html", ".htm", ".svg",
         ".ts", ".tsx", ".jsx", ".sql", ".rst", ".tex", ".c", ".h", ".cpp",
         ".java", ".go", ".rs", ".rb", ".php", ".pl", ".lua", ".r", ".m",
+        # PEM-armoured crypto material is text by design. curl's own
+        # `curl-ca-bundle.crt` — a CA trust store, the least deceptive file
+        # imaginable — was rated malicious at 81.1 as
+        # `Script.Downloader.ExtensionMismatch`.
+        ".crt", ".cer", ".pem", ".key", ".pub", ".csr", ".p7b", ".asc", ".sig",
     )
     same_text_family = family == "script" and (
         claimed in _SCRIPT_EXTENSIONS or claimed in _TEXTUAL_EXTENSIONS
