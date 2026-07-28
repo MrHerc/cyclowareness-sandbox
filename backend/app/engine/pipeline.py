@@ -262,6 +262,23 @@ def _archive_stage(
     members = unpacked.extracted()
     promoted = 0
 
+    # RE-ANALYSING AN ARCHIVE MUST NOT UNPACK IT TWICE.
+    #
+    # This stage creates a child job per member, and nothing stopped it doing so
+    # again. Re-analysis is the documented way to re-run a sample after a rules
+    # change — and on a container it would have doubled the tree every time: 22
+    # zips of ~25 members each, so a single sweep would have manufactured ~550
+    # duplicate jobs, each a second row for evidence that already existed.
+    #
+    # Keyed on (parent, archive_path), the pair that names one member of one
+    # container. A member whose row already exists is re-analysed in place by the
+    # normal path rather than cloned.
+    existing = {
+        row.archive_path: row
+        for row in db.query(SandboxJob).filter(SandboxJob.parent_job_id == job.id).all()
+        if row.archive_path
+    }
+
     if depth >= archives.MAX_DEPTH:
         # The members are extracted and hashed above; what stops here is the
         # recursion into them. Silently stopping is the failure mode that let an
@@ -311,15 +328,17 @@ def _archive_stage(
             )
             break
         assert member.stored is not None
-        child = new_job(
-            db,
-            member.stored,
-            original_name=member.name.rsplit("/", 1)[-1][:512],
-            source=JobSource.ARCHIVE_MEMBER,
-            submitted_by=job.submitted_by,
-            parent=job,
-            archive_path=member.name[:1000],
-        )
+        child = existing.get(member.name[:1000])
+        if child is None:
+            child = new_job(
+                db,
+                member.stored,
+                original_name=member.name.rsplit("/", 1)[-1][:512],
+                source=JobSource.ARCHIVE_MEMBER,
+                submitted_by=job.submitted_by,
+                parent=job,
+                archive_path=member.name[:1000],
+            )
         budget.remaining -= 1
         run(db, child, _depth=depth + 1, _budget=budget)
         promoted += 1
