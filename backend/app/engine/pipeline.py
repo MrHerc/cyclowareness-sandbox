@@ -113,6 +113,34 @@ def new_job(
     return job
 
 
+def _result_from_stored(name: str, payload: dict[str, Any]) -> AnalyzerResult:
+    """Rebuild an AnalyzerResult from what was persisted on the job.
+
+    Lives here rather than in the API layer so the pipeline can carry a stored
+    detonation forward without the engine importing from `app.api`.
+    """
+    signals = [
+        Signal(
+            id=s.get("id", ""),
+            title=s.get("title", ""),
+            severity=s.get("severity", "info"),
+            detail=s.get("detail", ""),
+            evidence=s.get("evidence", {}) or {},
+        )
+        for s in payload.get("signals", []) or []
+    ]
+    stored_iocs = payload.get("iocs", {}) or {}
+    return AnalyzerResult(
+        analyzer=name,
+        ran=bool(payload.get("ran", True)),
+        unavailable_reason=payload.get("unavailable_reason"),
+        signals=signals,
+        facts=payload.get("facts", {}) or {},
+        iocs=IOCs(**{f: list(stored_iocs.get(f, []) or []) for f in IOCs.FIELDS}),
+        duration_ms=int(payload.get("duration_ms", 0) or 0),
+    )
+
+
 def _tier_record(static_ran: bool, analyzer_gaps: dict[str, str]) -> dict[str, Any]:
     from . import native
 
@@ -518,6 +546,27 @@ def run(
                 AnalyzerResult(analyzer="archive-contents", ran=True, signals=contents_signals)
             )
 
+        # CARRY THE DETONATION FORWARD.
+        #
+        # `results` is rebuilt from the static analyzers every run, so a
+        # re-analysis — new YARA rules, say — used to overwrite `job.analysis`
+        # with static output alone and silently drop the `dynamic.*` entry. The
+        # job then went back to `tiers.dynamic.ran = False` and lost the score
+        # the behaviour had earned, while `job.dynamic` still held the report:
+        # the same row saying both that it was detonated and that it was not.
+        #
+        # Reproduced end to end: 74.9 high -> 95.2 critical after ingest ->
+        # 74.9 high after re-analysis, `status=completed`, `error=None`
+        # throughout. A detonation costs a guest and four minutes and cannot be
+        # recovered from the quarantined bytes without doing it again. Re-running
+        # the cheap tier must not destroy the expensive one.
+        for name, stored in (job.analysis or {}).items():
+            if not name.startswith("dynamic.") or not isinstance(stored, dict):
+                continue
+            if any(r.analyzer == name for r in results):
+                continue
+            results.append(_result_from_stored(name, stored))
+
         job.stage = "scoring"
         db.flush()
 
@@ -528,6 +577,16 @@ def run(
 
         gaps = analyzers.unavailable_analyzers()
         tiers = _tier_record(static_ran=any(r.ran for r in results), analyzer_gaps=gaps)
+        # A carried-forward detonation keeps the tier it earned. `_tier_record`
+        # hard-codes `ran: False` — correctly, because a fresh static pass has
+        # detonated nothing — but this job HAS been detonated, and the evidence
+        # is in `results` above. Leaving the tier False would state the opposite
+        # of what the same report contains.
+        carried = (job.tiers or {}).get("dynamic") or {}
+        if carried.get("ran") and any(
+            r.analyzer.startswith("dynamic.") and r.ran for r in results
+        ):
+            tiers["dynamic"] = dict(carried)
         assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
 
         # A container is at least as dangerous as the worst thing anywhere
