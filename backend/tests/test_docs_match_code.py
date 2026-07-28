@@ -71,13 +71,26 @@ def test_the_queue_contract_documents_every_field_it_returns() -> None:
 
 @pytest.mark.parametrize(
     "variable",
-    ["DYNAMIC_WORKER_TOKEN", "SANDBOX_DYNAMIC_WORKER", "SANDBOX_QUARANTINE"],
+    [
+        "DYNAMIC_WORKER_TOKEN",
+        "SANDBOX_DYNAMIC_WORKER",
+        "SANDBOX_QUARANTINE",
+        # Decides whether the worker checks containment before detonating at all.
+        # An operator who does not know it exists gets no gate, and the only sign
+        # is one line at startup.
+        "CONTAINMENT_CHECK",
+    ],
 )
 def test_environment_variables_the_product_depends_on_are_documented(variable) -> None:
     """SANDBOX_DYNAMIC_WORKER gated the entire dynamic tier and was in no document.
 
     An operator could set the documented token, attach a worker, watch it post
     reports, and still read "the sample was not run" on every one of them.
+
+    This list is hand-maintained, which is its weakness: `CONTAINMENT_CHECK` was
+    added to the worker and passed this file untouched, because a fixed list
+    cannot notice a variable nobody added to it. Add the entry when you add the
+    variable.
     """
     where = [p.name for p in MARKDOWN if variable in p.read_text(encoding="utf-8")]
     assert where, f"{variable} is read by the code but documented nowhere"

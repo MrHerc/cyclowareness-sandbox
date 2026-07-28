@@ -72,18 +72,37 @@ Linux box you control** (see [`worker/README.md`](worker/README.md)), give it th
 same `DYNAMIC_WORKER_TOKEN` and the API's URL, and it will claim jobs, detonate
 off-host, and post behaviour back. Never run the worker on shared infrastructure.
 
-**Two variables, not one.** They do different jobs and both are needed:
+**Three variables.** They do different jobs:
 
 | Variable | Set on | Effect |
 |---|---|---|
 | `DYNAMIC_WORKER_TOKEN` | API **and** worker | The shared secret for `/api/dynamic/*`. Without it the seam returns 503 and no worker can attach. |
 | `SANDBOX_DYNAMIC_WORKER` | API only | Declares that a worker exists. Until it is `1`/`true`/`yes`, every report states the sample was not detonated — even with a worker attached and posting. |
+| `CONTAINMENT_CHECK` | worker only | A command answering "is this host safe to detonate on, right now?". Exit 0 means contained. **Set this on any host that runs real samples.** |
 
 The second is deliberately a declaration rather than a probe: claiming
 behavioural analysis is a statement about hardware someone owns, so it should be
 switched on by whoever owns it and never inferred. It was also undocumented until
 now, which meant an operator could follow this page exactly and still see "no
 dynamic worker attached" on every report.
+
+The third is the gate that used to be a procedure. Containment was verified by
+remembering to run a script before a run, which is not containment — and it could
+not have worked anyway, because the rules lived where CAPE's rooter inserts an
+ACCEPT above them, so a host verified at one moment could be open the next. The
+worker now checks before every batch and **fails closed**: a timeout, a missing
+command, a crash, a non-zero exit or an unparseable answer all mean *not
+contained*, and the whole batch is reported as blocked rather than detonated.
+
+On the reference host:
+
+    CONTAINMENT_CHECK=/usr/local/sbin/cyclo-containment-status.sh
+
+Leaving it unset is allowed — a Qiling-only laptop confines by construction — but
+it is never silent: the worker logs `containment gate: NOT CONFIGURED` at startup,
+because "no gate" and "gate passing" must not read the same way in a log.
+`CONTAINMENT_CHECK_TIMEOUT_SECONDS` (default 15) bounds it; a gate that hangs is a
+gate that gets removed.
 
 For a full detonation host — Windows guest, containment, golden snapshot — see
 [`infra/detonation-host/README.md`](infra/detonation-host/README.md), and run its
