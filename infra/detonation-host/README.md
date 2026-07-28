@@ -138,11 +138,29 @@ comes up on a DHCP address `conf/kvm.conf` does not expect.
   and the Cyclowareness API container was reachable from a detonating sample.
   A permanent hole, not a race.
 
-`containment.nft` replaces all of it: `iptables-save | iptables-restore` cannot
-see an `inet` table, and its hooks run before the iptables chains whatever anyone
+`containment.nft` fixes all of it: `iptables-save | iptables-restore` cannot see
+an `inet` table, and its hooks run before the iptables chains whatever anyone
 inserts at position 1. Both properties were verified on this host, not assumed.
 Egress is matched by **exclusion** (`oifname != "virbr0"`), so a new interface
 cannot open a new hole.
+
+**It does not replace `guest-isolation.sh`, and that was measured.** Retiring the
+iptables layer and re-running the gate with the nft table alone: egress stayed
+blocked, and the **result server on 192.168.122.1:2042 went unreachable** along
+with the sinkhole's HTTP — every analysis would have come back empty. An `accept`
+in an nft base chain only lets a packet reach the iptables chains, where INPUT's
+policy is DROP. **That table can forbid; it cannot permit.**
+
+Two layers, different jobs, neither spare:
+
+| Layer | Holds | If it goes missing |
+|---|---|---|
+| `containment.nft` | the DROPs | the guest reaches the internet — silently |
+| `guest-isolation.sh` + timer | the ACCEPTs (result server, sinkhole, DHCP) | analyses return empty — loudly, and the gate catches it |
+
+That asymmetry is the argument for keeping them split: the rules that must never
+be missing sit where nothing can flush or reorder them, and the rules whose
+absence is merely disruptive sit where losing them is immediately obvious.
 
 **Not covered:** guest-to-guest. All three guests share virbr0 and bridged traffic
 never reaches the ip/inet forward hook — `net.bridge.bridge-nf-call-iptables = 0`.
@@ -154,8 +172,8 @@ way it is): an *appended* `-i virbr0 -j DROP` never fires — ufw's "allow 22/tc
 from anywhere" is in a chain INPUT jumps to first, and the guest could reach the
 host's SSH. And `ESTABLISHED,RELATED` must be accepted *before* that DROP, or
 CAPE's own connections to the agent lose their replies and the sandbox goes
-silent. That script is now a redundant second layer; retire it and its timer once
-`verify-containment.sh` has passed with a guest up and the nft table loaded.
+silent. Its DROP half is superseded by the nft table, but **do not retire the
+script or its timer** — see above; its ACCEPT half is what makes the sandbox work.
 
 **Never enable `nftables.service` to persist these rules.** Ubuntu's stock
 `/etc/nftables.conf` opens with `flush ruleset`, so enabling it wipes ufw, Docker

@@ -1,13 +1,18 @@
 #!/bin/bash
-# SECONDARY containment. The primary is `containment.nft`.
+# The PERMITTING half of containment. The forbidding half is `containment.nft`.
 #
-# Read that file first - it explains why this one is no longer load-bearing, and
-# retire this script (and its timer) once verify-containment.sh has passed with a
-# guest running and the nft table in place.
+# DO NOT RETIRE THIS. It was tried, and the gate caught it: with the nft table as
+# the sole containment, egress stayed blocked and the **result server on
+# 192.168.122.1:2042 went unreachable**, along with the sinkhole's HTTP. Every
+# analysis would have come back empty. An `accept` in an nft base chain only lets
+# a packet reach the iptables chains, where INPUT's policy is DROP - that table
+# can forbid, it cannot permit. The ACCEPT rules below are what let the sandbox
+# work at all, and nothing else grants them.
 #
-# Three things here are now known to be wrong, and are left alone on purpose
-# because the nft table covers all of them and rewriting a safety script that is
-# being retired is how the next incident starts:
+# What IS superseded is the DROP half below, and the timer's job of re-asserting
+# it. Three things here are known to be wrong and are left alone on purpose,
+# because the nft table now covers every one of them, and rewriting a live safety
+# script to fix problems that no longer bite is how the next incident starts:
 #
 #   * The premise below is FALSE. Rooter's `cleanup_rooter` keeps every line not
 #     containing the literal "CAPE-rooter" (utils/rooter.py:164), and these rules

@@ -53,18 +53,22 @@ systemctl daemon-reload
 systemctl enable cyclo-containment.service >/dev/null
 echo "   boot unit: $(systemctl is-enabled cyclo-containment.service)"
 
-# The old timer is NOT retired here, deliberately. Its rules are now redundant,
-# and its own delete-then-insert is a recurring 150-230ms hole - so it should go.
-# But it should go after a guest has been probed end to end with the nft table in
-# place, not before: if the table ever turned out to block the result server or
-# the sinkhole, the whole sandbox goes dark and returns empty reports, which is
-# the failure mode this project has hit before. Belt and braces until then.
-if systemctl is-enabled --quiet cyclo-guest-isolation.timer 2>/dev/null; then
+# The iptables layer STAYS, and that was measured rather than assumed. Retiring
+# it and re-running the gate with the nft table alone: egress stayed blocked, and
+# the result server on 192.168.122.1:2042 went unreachable along with the
+# sinkhole's HTTP - every analysis would have come back empty. An `accept` in an
+# nft base chain only lets a packet reach the iptables chains, where INPUT's
+# policy is DROP. The nft table can forbid; it cannot permit.
+#
+# So the two layers do different jobs, and neither is spare: nft holds the drops
+# where nothing can flush or reorder them, iptables holds the accepts the sandbox
+# needs in order to work at all.
+if ! systemctl is-enabled --quiet cyclo-guest-isolation.timer 2>/dev/null; then
   cat <<'NOTE'
-   NOTE: the old re-assertion timer is still enabled, on purpose.
-   Once verify-containment.sh has passed with a guest running, retire it:
-       systemctl disable --now cyclo-guest-isolation.timer
-   Keeping both indefinitely means keeping the timer's own periodic hole.
+   WARNING: cyclo-guest-isolation.timer is disabled.
+   The nft table still blocks egress, but nothing is granting the guest the
+   result server or the sinkhole, so every analysis will come back empty:
+       systemctl enable --now cyclo-guest-isolation.timer
 NOTE
 fi
 

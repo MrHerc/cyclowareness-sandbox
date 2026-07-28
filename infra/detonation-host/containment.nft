@@ -39,6 +39,23 @@
 # means "this chain reached no verdict" and the packet continues to the iptables
 # chains as before. Only `drop` is final. That is the whole design.
 #
+# THIS TABLE CAN ONLY FORBID, NEVER PERMIT — and that is not a detail.
+# Measured on 2026-07-28 by retiring `guest-isolation.sh` and re-running the gate
+# with this table as the sole containment: every egress test still passed, and
+# the **result server on 192.168.122.1:2042 went unreachable**, along with the
+# sinkhole's HTTP. An `accept` here only lets a packet reach the iptables chains,
+# where INPUT's policy is DROP and ufw is waiting. The `accept` rules below state
+# intent; they do not grant anything.
+#
+# So `guest-isolation.sh` and its timer STAY, and the earlier note in this file
+# saying they could be retired was wrong. Their DROP half is superseded by this
+# table; their ACCEPT half is load-bearing and nothing here replaces it.
+#
+# The split is the right one anyway: the rules that must never go missing live
+# here, where nothing can flush or reorder them, and the rules that merely let
+# the sandbox work live in iptables, where losing them breaks analysis loudly
+# instead of opening egress quietly.
+#
 # WHAT THIS DOES NOT COVER
 # ------------------------
 # Guest-to-guest traffic. All three guests share virbr0, and bridged traffic
