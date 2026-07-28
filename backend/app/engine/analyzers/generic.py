@@ -521,6 +521,24 @@ _EMBED_EXEMPT_MIMES = {
     "application/x-elf",
 }
 
+#: Installer packages, exempted by EXTENSION rather than by mime.
+#:
+#: An MSI is an OLE compound document — same magic, same mime as a .doc — so
+#: exempting the mime would exempt Word documents too, and a .doc carrying an
+#: embedded PE is a genuine dropper. Only the claimed extension separates them,
+#: and here it is load-bearing rather than decorative.
+#:
+#: Carrying an executable is what a package format IS. Measured: PuTTY's and the
+#: GitHub CLI's official MSI installers both came out `malicious` on this signal
+#: alone — `Office.Dropper.EmbeddedExecutable`, 45-47. The signal cannot separate
+#: a malicious MSI from any other, because every MSI ever built contains a
+#: payload. Same shape as `embedded_macho` matching a 4-byte magic, and as `.pyd`
+#: being read as a disguise: a fact about the format reported as a finding.
+#:
+#: A malicious MSI is still parsed by the office analyzer, still scanned by YARA,
+#: and still detonated.
+_EMBED_EXEMPT_EXTENSIONS = {".msi", ".msp", ".msm"}
+
 
 def _pe_at(data: bytes, offset: int) -> bool:
     if offset + 0x40 > len(data):
@@ -707,7 +725,11 @@ def analyze(sample: Sample, *, family: str = "") -> AnalyzerResult:
         )
 
     # --- an executable hiding inside something that is not one
-    if family not in _EMBED_EXEMPT_FAMILIES and (sample.mime or "") not in _EMBED_EXEMPT_MIMES:
+    if (
+        family not in _EMBED_EXEMPT_FAMILIES
+        and (sample.mime or "") not in _EMBED_EXEMPT_MIMES
+        and (sample.claimed_extension or "") not in _EMBED_EXEMPT_EXTENSIONS
+    ):
         embedded = _find_embedded_executables(data)
         if embedded:
             facts["embedded_executables"] = embedded
