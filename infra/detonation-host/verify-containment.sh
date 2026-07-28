@@ -61,6 +61,30 @@ sys.stdout.write((d.get("stdout") or "") + (d.get("stderr") or ""))' | tr -d '\r
 
 [[ -n ${OUT:-} ]] || { echo "   the probe produced no output - refusing to certify" >&2; exit 1; }
 
+# --- the probe must have FINISHED, and every answer must be present ----------
+#
+# This is the gate on the gate. Every verdict below is a `while read` loop that
+# only inspects lines whose first field matches, so a probe that stopped early
+# skipped the loop body entirely, left `fail` at 0, and printed "Safe to
+# detonate" having tested nothing. Reproduced: synthetic output containing the
+# single line `RESULTSERVER True` and nothing else certified the host.
+#
+# So: count the answers before believing any of them. A truncated probe is a
+# failed probe, not a passing one.
+completed=$(awk '/^PROBE-COMPLETE/{print $2}' <<< "$OUT")
+if [[ -z ${completed:-} ]]; then
+  echo "   the probe did not run to completion (no PROBE-COMPLETE line)." >&2
+  echo "   Refusing to certify a host on partial evidence." >&2
+  exit 1
+fi
+answers=$(grep -cE '^(PORT|RESULTSERVER|DOCKER|EGRESS|EGRESSUDP|DNS|HTTP) ' <<< "$OUT")
+if (( answers != completed )); then
+  echo "   the probe reported $completed answers but $answers arrived." >&2
+  echo "   Output was truncated; refusing to certify." >&2
+  exit 1
+fi
+note "probe answers" "$answers/$completed complete"
+
 echo
 echo "== guest -> host: the result server and the sinkhole, nothing else =="
 while read -r kind arg value; do
@@ -81,6 +105,20 @@ else
 fi
 
 echo
+echo "== guest -> the container network: nothing =="
+# The old host rules named an interface pair, so virbr0 -> docker0 matched
+# nothing and the Cyclowareness API container was reachable from a detonating
+# sample. Neither the rules nor this probe covered it.
+while read -r kind arg value; do
+  [[ $kind == DOCKER ]] || continue
+  case "$value" in
+    False) note "docker $arg" "blocked" ;;
+    True)  note "docker $arg" "REACHABLE"; bad "the guest reached the container network" ;;
+    *)     note "docker $arg" "UNKNOWN"; bad "could not determine reachability" ;;
+  esac
+done <<< "$OUT"
+
+echo
 echo "== guest -> internet: nothing, by raw address =="
 while read -r kind arg value; do
   [[ $kind == EGRESS ]] || continue
@@ -90,6 +128,15 @@ while read -r kind arg value; do
     *)     note "egress $arg" "UNKNOWN"; bad "could not determine egress" ;;
   esac
 done <<< "$OUT"
+
+# UDP, which the old probe never tested at all. TCP/80 being blocked says
+# nothing about the channel malware actually uses to tunnel out.
+udp=$(awk '/^EGRESSUDP/{print $3}' <<< "$OUT")
+case "$udp" in
+  False) note "egress udp 8.8.8.8:53" "blocked" ;;
+  True)  note "egress udp 8.8.8.8:53" "ANSWERED"; bad "UDP egress reaches the real internet" ;;
+  *)     note "egress udp 8.8.8.8:53" "UNKNOWN"; bad "could not determine UDP egress" ;;
+esac
 
 echo
 dns=$(awk '/^DNS/{print $2}' <<< "$OUT")

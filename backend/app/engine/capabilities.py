@@ -312,21 +312,32 @@ def _categories_of(signal: Signal) -> tuple[str, ...]:
 #: How many distinct conclusive signals a high-consequence capability needs.
 #:
 #: One is not enough, and no deny-list can make it enough. `SHARED_BEHAVIOURS`
-#: below is a list of signatures ordinary software also trips, measured from
-#: three signed installers — and the next benign program finds a signature that
-#: is not on it. WinMerge did: `suspicious_iocontrol_codes`, which a sandbox
-#: files under `bootkit,rootkit,wiper` because wipers issue raw device IOCTLs,
-#: and so does a diff tool that walks volumes. One signature, and a signed
-#: open-source utility was accused of destroying data.
+#: below lists signatures ordinary software also trips, measured from three
+#: signed installers — and the next benign program finds one that is not on it.
 #:
-#: Extending the list would fix WinMerge and nothing else, because the list is
-#: an enumeration of an unbounded set. Corroboration is not: a program that
-#: really destroys data produces destruction evidence over and over (WannaCry
-#: emits twelve such signals), while a program that trips one does so
-#: incidentally. Measured across 108 detonations, requiring two removed the last
-#: false positive and cost seven borderline malware samples their `malicious`
-#: verdict — all of which remain `suspicious`, and none of which was being
-#: caught by evidence rather than by a single shared behaviour.
+#: A signed release of WinMerge was accused of `destruction` on a single
+#: signature, `suspicious_iocontrol_codes` (filed by the sandbox under
+#: bootkit/rootkit/wiper). WinMerge did not issue it. The signature's only
+#: evidence is two calls from **pid 5832, `mousocoreworker.exe`** — the Windows
+#: Update Session Orchestrator, a child of svchost — while the sample ran as pid
+#: 5168 under explorer. Different branch of the process tree entirely. CAPE
+#: attributes signatures to the ANALYSIS, not to a process, so whatever the
+#: operating system happened to do during those two minutes became evidence
+#: against the sample.
+#:
+#: That is why the deny-list cannot be completed. It is not enumerating
+#: behaviours ordinary software performs — it is trying to enumerate everything
+#: a Windows install might do while a sample is running. Corroboration does not
+#: need that: real destructive behaviour produces destruction evidence over and
+#: over (this WannaCry detonation emits twelve such signals), while background
+#: noise contributes one. Measured across 108 detonations, requiring two removed
+#: the last false positive and cost seven borderline malware samples their
+#: `malicious` verdict — all of which remain `suspicious`.
+#:
+#: Filtering by process would be the direct fix and is NOT safe: malware
+#: legitimately injects into other processes, and 29 malware jobs in this corpus
+#: carry a high-severity signature marked only in a foreign process. It is also
+#: not currently possible — see the `marks`/`data` note in the CAPE normaliser.
 #:
 #: Two, not three: three was also clean on the same corpus but cost three more
 #: detections, so two is the weakest corroboration that does the job.

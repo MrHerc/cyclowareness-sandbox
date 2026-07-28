@@ -183,16 +183,22 @@ def test_a_named_family_becomes_the_threat_name() -> None:
 def test_a_signed_diff_tool_is_not_a_wiper() -> None:
     """WinMerge, reduced to the two signals that made it `malicious`.
 
-    Both are real, taken from its detonation (CAPE task 148, job 119):
+    Both are real, taken from its detonation (CAPE task 148, job 119), and
+    neither was produced by WinMerge:
 
-    * `suspicious_iocontrol_codes`, high, categories `bootkit,rootkit,wiper` —
-      a sandbox files raw device IOCTLs under `wiper` because wipers issue them,
-      and so does a diff tool that walks volumes. One such signal used to grant
-      `destruction`, which fired two of the three engines against it.
-    * `procmem_yara`, high, category `malware` — which used to count as
-      identification and force `malicious` outright, no matter the score. The
-      rule was `embedded_macho`, and it hit in a file the installer had written
-      to disk.
+    * `suspicious_iocontrol_codes`, high, categories `bootkit,rootkit,wiper`.
+      Its two calls came from pid 5832, `mousocoreworker.exe` — the Windows
+      Update Session Orchestrator, a child of svchost — while the sample ran as
+      pid 5168 under explorer. CAPE attributes signatures to the analysis, not
+      to a process, so Windows updating itself became evidence. One such signal
+      used to grant `destruction`, which fired two of the three engines.
+    * `procmem_yara`, high, category `malware`, which used to count as
+      identification and force `malicious` outright whatever the score. The rule
+      was `embedded_macho`, and it matched `7z.dll` — a file WinMerge's installer
+      writes, because WinMerge bundles 7-Zip. The matching bytes are 7-Zip's own
+      table of archive-format magic numbers, the ones it needs in order to
+      RECOGNISE a Mach-O file. A parser was flagged for containing the constants
+      that make it a parser.
 
     Neither is a finding. Together they made a signed, open-source utility read
     identically to ransomware.

@@ -70,15 +70,18 @@ def test_one_high_signal_is_evidence_but_not_yet_an_accusation(
 ) -> None:
     """Severity is necessary and not sufficient — corroboration is the second gate.
 
-    A signed release of WinMerge was called malicious on exactly one signature:
-    `suspicious_iocontrol_codes`, which a sandbox files under `bootkit,rootkit,
-    wiper` because wipers issue raw device IOCTLs — and so does a diff tool that
-    walks volumes. It was high severity and absent from `SHARED_BEHAVIOURS`, so
-    it alone granted `destruction`.
+    A signed release of WinMerge was accused of `destruction` on exactly one
+    signature, `suspicious_iocontrol_codes`, which it never issued: the two calls
+    behind it came from `mousocoreworker.exe`, the Windows Update Session
+    Orchestrator, in a different branch of the process tree. CAPE attributes
+    signatures to the analysis rather than to a process, so the operating system's
+    own background activity became evidence against the sample.
 
-    Adding it to that list would have fixed WinMerge and nothing else: the list
-    enumerates an unbounded set, and the next benign program finds the next
-    entry. Requiring a second, independent signal does not.
+    Adding that signature to `SHARED_BEHAVIOURS` would have fixed WinMerge and
+    nothing else. The list cannot be completed, because it is not enumerating
+    what ordinary software does — it is enumerating what Windows might do while a
+    sample runs. Requiring a second independent signal does not need that list to
+    be complete.
     """
     one = capabilities.detect([_sig(sid, "high", categories)])
     assert capability not in one, f"one {sid} alone accused the sample of {capability}"

@@ -519,11 +519,33 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         cats = sig.get("categories") or []
         if isinstance(cats, str):
             cats = [cats]
+        # CAPE 2.5 puts a signature's supporting evidence in `data`, not `marks`.
+        # Measured across every report on this host: 0 signatures carry `marks`,
+        # 3605 carry `data`, and 2808 of those name the process that raised the
+        # signature. So `marks` counted zero for every signal this product has
+        # ever ingested, and the pid went with it.
+        #
+        # The pid matters because CAPE attributes a signature to the ANALYSIS,
+        # not to a process. A signed WinMerge release was accused of destruction
+        # by `suspicious_iocontrol_codes` whose only two calls came from
+        # `mousocoreworker.exe` — Windows Update, in a different branch of the
+        # process tree from the sample. Recorded, not acted on: malware
+        # legitimately injects into other processes, and 29 malware jobs in this
+        # corpus carry a high-severity signature marked only in a foreign
+        # process, so discarding those would be a worse error than keeping them.
+        # An analyst can now see which process did what; the scorer still does
+        # not guess.
+        marks = sig.get("marks") or sig.get("data") or []
+        pids = sorted(
+            {m["pid"] for m in marks if isinstance(m, dict) and isinstance(m.get("pid"), int)}
+        )
         evidence: dict[str, Any] = {
-            "marks": len(sig.get("marks", []) or []),
+            "marks": len(marks),
             "categories": [str(c) for c in cats],
             "confidence": sig.get("confidence"),
         }
+        if pids:
+            evidence["pids"] = pids
         detail = sig.get("description", "")
         if yara_matches and _slug(name) == "procmem_yara":
             evidence["yara_matches"] = {k: sorted(v) for k, v in yara_matches.items()}
