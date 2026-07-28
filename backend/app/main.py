@@ -17,6 +17,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.routing import Match
 
 from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
@@ -176,11 +177,64 @@ app.include_router(audit.router)
 # GET on an endpoint that does not exist.
 _ANY_METHOD = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]
 
+#: The routes that existed before this fallback did. Snapshotted because the
+#: fallback itself matches everything, so it cannot be asked whether a path is
+#: real without excluding itself — and the SPA mount registered after it would
+#: answer for every path too.
+_REAL_ROUTES = list(app.router.routes)
+
+
+def _sub_routes(route: Any) -> list[Any]:
+    """The routes inside a router wrapper, if this is one.
+
+    `include_router` does not flatten into `app.router.routes` on this FastAPI
+    (0.140): it appends a `_IncludedRouter` that holds the original router. Such
+    a wrapper answers `matches()` correctly but has no `methods` of its own, so
+    the methods for the Allow header have to be gathered from its children.
+    Written against the *shape* rather than the class, so a version that goes
+    back to flattening — or forward to another wrapper — still works.
+    """
+    inner = getattr(route, "routes", None)
+    if inner is None:
+        inner = getattr(getattr(route, "original_router", None), "routes", None)
+    return list(inner) if inner else []
+
+
+def _methods_at(routes: list[Any], scope: dict[str, Any]) -> set[str]:
+    """Every method some real route accepts at this scope's path."""
+    found: set[str] = set()
+    for route in routes:
+        children = _sub_routes(route)
+        if children:
+            found |= _methods_at(children, scope)
+            continue
+        match, _child = route.matches(scope)
+        if match in (Match.PARTIAL, Match.FULL):
+            found |= set(getattr(route, "methods", None) or ())
+    return found
+
 
 @app.api_route("/api", methods=_ANY_METHOD, include_in_schema=False)
 @app.api_route("/api/{rest:path}", methods=_ANY_METHOD, include_in_schema=False)
-def api_not_found(rest: str = "") -> None:
+def api_not_found(request: Request, rest: str = "") -> None:
     from fastapi import HTTPException
+
+    # "No such endpoint" and "not with that verb" are different answers, and
+    # claiming the first when the second is true is its own small lie. FastAPI
+    # does not add HEAD to a GET route, so `HEAD /api/jobs` reaches here — and
+    # answering 404 would say an endpoint the very next request will
+    # successfully use does not exist. Measured on the previous image, before
+    # this fallback existed, Starlette answered 405; this reproduces that for
+    # the paths that are real, Allow header and all.
+    if any(route.matches(request.scope)[0] is Match.PARTIAL for route in _REAL_ROUTES):
+        allowed = _methods_at(_REAL_ROUTES, request.scope)
+        raise HTTPException(
+            status_code=405,
+            detail="Method not allowed",
+            # Omitted rather than guessed if the walk found nothing: an Allow
+            # header naming the wrong verbs is worse than none.
+            headers={"Allow": ", ".join(sorted(allowed))} if allowed else None,
+        )
 
     # The same shape every other error on this API uses, so one client branch
     # handles all of them.

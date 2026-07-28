@@ -74,6 +74,28 @@ def test_it_does_not_shadow_a_route_that_exists(client, auth) -> None:
     assert client.get("/api/health").status_code in (200, 404)
 
 
+def test_a_real_path_with_the_wrong_verb_is_405_not_404(client, auth) -> None:
+    """"No such endpoint" and "not with that verb" are different answers.
+
+    FastAPI does not add HEAD to a GET route, so `HEAD /api/jobs` falls through
+    to the fallback. Answering 404 there would say an endpoint the very next
+    request will successfully use does not exist — and it is a regression from
+    what the framework did before the fallback existed. Measured on the previous
+    image: `HEAD /api/jobs` was 405.
+    """
+    response = client.head("/api/jobs", headers=auth)
+    assert response.status_code == 405, response.status_code
+    assert "GET" in response.headers.get("allow", ""), response.headers
+
+    # POST to a GET-only route, and GET on a POST-only route.
+    assert client.post("/api/jobs", headers=auth).status_code == 405
+    assert client.get("/api/analyze", headers=auth).status_code == 405
+
+    # And a path that really is not there stays 404 for every verb.
+    assert client.head("/api/does-not-exist", headers=auth).status_code == 404
+    assert client.post("/api/does-not-exist", headers=auth).status_code == 404
+
+
 def test_an_unknown_path_does_not_leak_whether_a_job_exists(client, auth) -> None:
     """404 is already the answer for a job in another tenant. An unknown route
     must be indistinguishable from it, or the shape of the error becomes the

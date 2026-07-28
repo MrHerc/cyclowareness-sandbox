@@ -126,7 +126,16 @@ def test_verdict_is_only_read_when_the_engine_actually_decided():
 
 def test_dashboard_buckets_by_verdict_not_by_score_band():
     dash = _code(_read("pages", "Dashboard.tsx"))
-    assert "needsAttention" in dash, "'Needs attention' must be driven by the verdict"
+    # "Needs attention" must still be driven by the verdict — but the counting
+    # moved server-side, because deriving it in the browser meant deriving it
+    # from one page of fifty rows and presenting the answer as a total. The
+    # dashboard now reads the figure; `test_the_definitions_agree` in
+    # test_the_queue_is_not_a_page.py is what holds the SQL to the same rule
+    # `needsAttention` states in format.ts.
+    assert "needs_attention" in dash, "'Needs attention' must be driven by the verdict"
+    assert "/api/jobs/stats" in dash, (
+        "the dashboard must read counts computed over every job, not over one page"
+    )
     assert "Low / clean" not in dash, (
         "the legend must not file flagged samples under a row labelled clean"
     )
