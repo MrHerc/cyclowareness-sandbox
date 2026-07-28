@@ -140,3 +140,41 @@ def test_the_chain_still_verifies_after_all_of_this(client, auth) -> None:
     finally:
         db.close()
     assert result["ok"], result
+
+
+def test_handing_the_sample_to_the_worker_is_recorded(client, auth) -> None:
+    """The only point at which a sample LEAVES this platform.
+
+    Everything else in the chain records what was done to the evidence in place.
+    This copies the raw bytes to another machine, and it was the one action not
+    written down — "was this sample ever copied off the platform, and where to"
+    had no answer but an nginx log.
+    """
+    public_id = _submit(client, auth, "leaving.exe", b"MZ" + b"\x00" * 4096)
+    _poll_until_done(client, auth, public_id)
+
+    before = len(_events(audit.AuditAction.SAMPLE_RELEASED_TO_WORKER, public_id))
+    response = client.get(
+        f"/api/dynamic/sample/{public_id}", headers={"X-Worker-Token": WORKER_TOKEN}
+    )
+    assert response.status_code == 200, response.text
+
+    after = _events(audit.AuditAction.SAMPLE_RELEASED_TO_WORKER, public_id)
+    assert len(after) == before + 1, "the sample left the platform with no record"
+    assert after[-1].detail.get("sha256")
+
+
+def test_the_evidence_copy_export_is_recorded(client, auth) -> None:
+    """export.signed did not take `request`, so it could not audit and never did.
+
+    It is the copy handed to a regulator or opposing counsel — the one export
+    whose entire purpose is to be shown to someone who does not trust us.
+    """
+    public_id = _submit(client, auth, "for-counsel.ps1", b"Write-Host 'x'\n")
+    _poll_until_done(client, auth, public_id)
+
+    before = len(_events(audit.AuditAction.REPORT_EXPORTED, public_id))
+    assert client.get(f"/api/jobs/{public_id}/export.signed", headers=auth).status_code == 200
+    after = _events(audit.AuditAction.REPORT_EXPORTED, public_id)
+    assert len(after) == before + 1
+    assert after[-1].detail.get("format") == "signed"

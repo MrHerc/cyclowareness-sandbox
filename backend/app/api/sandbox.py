@@ -395,6 +395,7 @@ def export_pdf(
 
 @router.get("/jobs/{public_id}/export.signed")
 def export_signed(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
@@ -413,10 +414,19 @@ def export_signed(
     Without a SIGNING_KEY the document is still produced in full, and says
     plainly that it is unsigned rather than implying an assurance it lacks.
     """
-    envelope = attestation.attest(_job_or_404(db, public_id, identity), settings=settings)
+    job = _job_or_404(db, public_id, identity)
+    envelope = attestation.attest(job, settings=settings)
     metrics.reports_generated_total.labels(
         format="signed" if envelope["signed"] else "unsigned"
     ).inc()
+    # This route did not take `request` at all, so it could not call `_trace` and
+    # never did. Its four siblings all record an export — and this is the one that
+    # matters most: it is the copy handed to a regulator or opposing counsel, the
+    # only export whose whole purpose is to be shown to someone who does not
+    # trust us. "Who took the evidence copy, and when" is the first question
+    # asked about it, and the chain of custody could not answer.
+    _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=job.public_id,
+           detail={"format": "signed", "signed": bool(envelope["signed"])})
     return envelope
 
 

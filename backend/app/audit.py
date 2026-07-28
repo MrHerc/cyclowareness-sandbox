@@ -87,6 +87,10 @@ class AuditAction:
     REPORT_EXPORTED = "report.exported"
     SCORING_WEIGHTS_CHANGED = "config.scoring_weights_changed"
     DYNAMIC_REPORT_INGESTED = "sample.dynamic_report_ingested"
+    #: The one action that moves a sample OFF this platform: the raw bytes
+    #: handed to the detonation worker. Everything else here records what was
+    #: done to the evidence in place.
+    SAMPLE_RELEASED_TO_WORKER = "sample.released_to_worker"
     #: Retention deletions. A deletion nobody can prove happened is not one an
     #: auditor accepts, and these two lines are the answer to the erasure clause
     #: in a data-processing agreement.

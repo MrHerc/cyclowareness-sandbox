@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 import re
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -178,6 +178,7 @@ def dynamic_queue(
 
 @router.get("/sample/{public_id}")
 def dynamic_sample(
+    request: Request,
     public_id: str,
     db: Session = Depends(get_db),
     _worker: str = Depends(require_worker),
@@ -196,6 +197,22 @@ def dynamic_sample(
     path = quarantine_root() / job.sha256[:2] / job.sha256
     if not path.is_file():
         raise HTTPException(status_code=410, detail="Sample no longer in quarantine")
+    # The only point at which a customer's sample LEAVES this system. Everything
+    # else in the chain of custody records something done to the evidence here;
+    # this hands the raw bytes to another machine, and it was the one action not
+    # written down. "Was this sample ever copied off the platform, and where to"
+    # is a question a data-protection review asks first, and the answer was in
+    # nothing but an nginx log.
+    audit.record(
+        action=audit.AuditAction.SAMPLE_RELEASED_TO_WORKER,
+        actor="worker",
+        actor_method="worker",
+        tenant=job.tenant_id,
+        object_type="sample",
+        object_id=job.public_id,
+        source_ip=request.client.host if request.client else None,
+        detail={"sha256": job.sha256, "size_bytes": job.size_bytes},
+    )
     return FileResponse(
         str(path),
         media_type="application/octet-stream",

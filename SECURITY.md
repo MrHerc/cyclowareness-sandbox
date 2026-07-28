@@ -189,7 +189,7 @@ is safer than one they assume exists.
 Two items were listed here as deferred and are not any more:
 
 - **Tamper-evident audit trail** — [`app/audit.py`](backend/app/audit.py) records
-  a hash-chained, append-only log (nine event types), served under `/api/audit`
+  a hash-chained, append-only log (12 event types), served under `/api/audit`
   with an endpoint that re-walks the chain and reports the first break. It is
   what the chain-of-custody claim rests on.
 - **Sample retention** — [`app/retention.py`](backend/app/retention.py) enforces
