@@ -64,6 +64,22 @@ class Config:
     #: HTTP request timeout for talking to the backend (not the engine timeout).
     http_timeout_seconds: int = 30
 
+    # --- containment gate ---------------------------------------------------
+    #: A command that answers "is this host safe to detonate on, right now?".
+    #: Exit 0 means contained; anything else means it is not, and the batch is
+    #: refused. `infra/detonation-host/containment-status.sh` is the one written
+    #: for the reference host; it reads the nftables containment table and costs
+    #: a few milliseconds, so it can run before every batch.
+    #:
+    #: Empty disables the gate, which is correct for deployments that do not
+    #: detonate at all (a Qiling-only laptop confines by construction). It is NOT
+    #: silent: the worker says so once at startup, because "no gate configured"
+    #: and "gate passing" must never look the same in a log.
+    containment_check: str = ""
+    #: A gate that hangs is a gate that gets removed. Short by design: the check
+    #: reads a ruleset, it does not talk to a guest.
+    containment_check_timeout_seconds: int = 15
+
     # --- native engine ------------------------------------------------------
     #: Absolute path to firejail. If it is missing the native engine refuses to
     #: run rather than executing a sample unconfined — the safety invariant.
@@ -93,6 +109,8 @@ class Config:
             queue_limit=_int("QUEUE_LIMIT", 20),
             max_concurrent_jobs=max(1, _int("MAX_CONCURRENT_JOBS", 1)),
             http_timeout_seconds=_int("HTTP_TIMEOUT_SECONDS", 30),
+            containment_check=_str("CONTAINMENT_CHECK"),
+            containment_check_timeout_seconds=_int("CONTAINMENT_CHECK_TIMEOUT_SECONDS", 15),
             firejail_bin=_str("FIREJAIL_BIN", "firejail"),
             strace_bin=_str("STRACE_BIN", "strace"),
             native_sinkhole=_str("NATIVE_SINKHOLE"),

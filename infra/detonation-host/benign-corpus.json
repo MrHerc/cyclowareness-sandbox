@@ -1,0 +1,97 @@
+{
+  "_purpose": "The benign half of the detonation corpus, reproducibly fetchable.",
+  "_why": [
+    "Five benign samples cannot measure a false-positive rate, and tuning against",
+    "three is what produced the regression where every signed installer came out",
+    "malicious. Worse, detonation is not deterministic: the same 7-Zip binary was",
+    "called malicious on one run and suspicious on a rerun the next morning,",
+    "because an unrelated Windows service acted during the first one. A corpus of",
+    "five measures noise.",
+    "",
+    "Chosen for DIVERSITY OF TOOLCHAIN, not popularity, because that is what the",
+    "false positives keyed on: NSIS, Inno, WiX/MSI, SFX, MSIX, Squirrel, Go, Rust,",
+    ".NET, MinGW (.bss), MSVC, plus documents and scripts. Several entries are",
+    "deliberately hard - NirSoft ships UPX-packed and unsigned, PsExec is the most",
+    "flagged legitimate binary in existence, rustup-init is a downloader by design,",
+    "rclone is what ransomware crews use to exfiltrate, and Process Explorer reads",
+    "other processes' memory as its whole function."
+  ],
+  "_size_cap_bytes": 33554432,
+  "_size_cap_note": [
+    "backend/app/config.py max_sample_mb defaults to 32 and the API answers 413",
+    "above it. Nothing larger has ever been accepted by this deployment - the",
+    "reason git.exe (68 MB) and vlc.exe (43 MB) are absent from the last corpus run",
+    "is that they were REJECTED, not skipped. Entries over the cap are kept here,",
+    "marked, and skipped by the fetcher unless the cap is raised."
+  ],
+  "_verification": "Every URL was probed with a ranged GET and returned 206 with the recorded size and magic on 2026-07-28. Re-run the fetcher to re-verify; sizes drift as vendors publish.",
+  "samples": [
+    {"name": "npp-installer.exe", "toolchain": "NSIS", "bytes": 6541144, "url": "https://github.com/notepad-plus-plus/notepad-plus-plus/releases/download/v8.6.9/npp.8.6.9.Installer.x64.exe"},
+    {"name": "audacity.exe", "toolchain": "NSIS", "bytes": 16441216, "url": "https://github.com/audacity/audacity/releases/download/Audacity-3.6.4/audacity-win-3.6.4-64bit.exe"},
+    {"name": "git-lfs.exe", "toolchain": "NSIS", "bytes": 10715344, "url": "https://github.com/git-lfs/git-lfs/releases/download/v3.5.1/git-lfs-windows-v3.5.1.exe"},
+
+    {"name": "sumatrapdf.exe", "toolchain": "Inno Setup", "bytes": 8246744, "url": "https://www.sumatrapdfreader.org/dl/rel/3.5.2/SumatraPDF-3.5.2-64-install.exe"},
+    {"name": "everything.exe", "toolchain": "Inno Setup", "bytes": 1913064, "url": "https://www.voidtools.com/Everything-1.4.1.1026.x64-Setup.exe"},
+    {"name": "handbrake.exe", "toolchain": "Inno Setup", "bytes": 23779832, "url": "https://github.com/HandBrake/HandBrake/releases/download/1.8.2/HandBrake-1.8.2-x86_64-Win_GUI.exe"},
+    {"name": "greenshot.exe", "toolchain": "Inno Setup + .NET", "bytes": 1783200, "url": "https://github.com/greenshot/greenshot/releases/download/Greenshot-RELEASE-1.2.10.6/Greenshot-INSTALLER-1.2.10.6-RELEASE.exe"},
+
+    {"name": "putty-installer.msi", "toolchain": "WiX/MSI", "bytes": 3853824, "url": "https://the.earth.li/~sgtatham/putty/latest/w64/putty-64bit-0.84-installer.msi"},
+    {"name": "gh-cli.msi", "toolchain": "WiX/MSI over Go", "bytes": 13447168, "url": "https://github.com/cli/cli/releases/download/v2.59.0/gh_2.59.0_windows_amd64.msi"},
+    {"name": "ilspy.msi", "toolchain": "WiX/MSI over .NET", "bytes": 3952640, "url": "https://github.com/icsharpcode/ILSpy/releases/download/v10.1.1/ILSpy_Installer_10.1.1.8388-x64.msi", "hard_case": "a reverse-engineering tool, the class AV over-flags"},
+    {"name": "7z.msi", "toolchain": "WiX/MSI", "bytes": 1971200, "url": "https://www.7-zip.org/a/7z2408-x64.msi"},
+
+    {"name": "7z-installer.exe", "toolchain": "7-Zip SFX", "bytes": 1624144, "url": "https://www.7-zip.org/a/7z2408-x64.exe"},
+    {"name": "python.exe", "toolchain": "PSF bundle installer", "bytes": 26538304, "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"},
+    {"name": "vc-redist.exe", "toolchain": "MS bootstrapper", "bytes": 25635768, "url": "https://aka.ms/vs/17/release/vc_redist.x64.exe"},
+    {"name": "dotnet-runtime.exe", "toolchain": "MS bootstrapper", "bytes": 28639808, "url": "https://aka.ms/dotnet/8.0/dotnet-runtime-win-x64.exe"},
+
+    {"name": "windows-terminal.msixbundle", "toolchain": "MSIX", "bytes": 21853143, "url": "https://github.com/microsoft/terminal/releases/download/v1.21.2701.0/Microsoft.WindowsTerminal_1.21.2701.0_8wekyb3d8bbwe.msixbundle"},
+
+    {"name": "mc.exe", "toolchain": "Go (raw binary)", "bytes": 31468032, "url": "https://dl.min.io/client/mc/release/windows-amd64/mc.exe"},
+    {"name": "hugo.zip", "toolchain": "Go", "bytes": 23696115, "url": "https://github.com/gohugoio/hugo/releases/download/v0.136.5/hugo_0.136.5_windows-amd64.zip"},
+    {"name": "syncthing.zip", "toolchain": "Go", "bytes": 11299657, "url": "https://github.com/syncthing/syncthing/releases/download/v1.28.0/syncthing-windows-amd64-v1.28.0.zip", "hard_case": "network-heavy P2P"},
+    {"name": "caddy.zip", "toolchain": "Go", "bytes": 14853036, "url": "https://github.com/caddyserver/caddy/releases/download/v2.8.4/caddy_2.8.4_windows_amd64.zip"},
+    {"name": "rclone.zip", "toolchain": "Go", "bytes": 22431048, "url": "https://downloads.rclone.org/v1.68.1/rclone-v1.68.1-windows-amd64.zip", "hard_case": "the exfiltration tool ransomware crews actually use"},
+    {"name": "terraform.zip", "toolchain": "Go", "bytes": 27365272, "url": "https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_windows_amd64.zip"},
+    {"name": "gh-cli.zip", "toolchain": "Go (unwrapped)", "bytes": 13133360, "url": "https://github.com/cli/cli/releases/download/v2.59.0/gh_2.59.0_windows_amd64.zip", "hard_case": "same binary as gh-cli.msi without the wrapper - a controlled A/B"},
+
+    {"name": "rustup-init.exe", "toolchain": "Rust (raw binary)", "bytes": 12814336, "url": "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe", "hard_case": "a downloader by design"},
+    {"name": "ripgrep.zip", "toolchain": "Rust", "bytes": 2058893, "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip"},
+    {"name": "uv.zip", "toolchain": "Rust", "bytes": 14468359, "url": "https://github.com/astral-sh/uv/releases/download/0.4.27/uv-x86_64-pc-windows-msvc.zip"},
+    {"name": "fd.zip", "toolchain": "Rust", "bytes": 1315212, "url": "https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-x86_64-pc-windows-msvc.zip"},
+    {"name": "starship.zip", "toolchain": "Rust", "bytes": 3430813, "url": "https://github.com/starship/starship/releases/download/v1.21.1/starship-x86_64-pc-windows-msvc.zip"},
+
+    {"name": "ilspy.zip", "toolchain": ".NET self-contained", "bytes": 4113557, "url": "https://github.com/icsharpcode/ILSpy/releases/download/v10.1.1/ILSpy_binaries_10.1.1.8388-x64.zip"},
+
+    {"name": "curl-mingw.zip", "toolchain": "MinGW/GCC", "bytes": 8625821, "url": "https://curl.se/windows/dl-8.21.0_5/curl-8.21.0_5-win64-mingw.zip", "hard_case": "the canonical .bss case that tripped pe.section_size_anomaly"},
+
+    {"name": "putty.exe", "toolchain": "MSVC (raw binary)", "bytes": 1708656, "url": "https://the.earth.li/~sgtatham/putty/latest/w64/putty.exe"},
+    {"name": "7zr.exe", "toolchain": "MSVC (static)", "bytes": 602112, "url": "https://www.7-zip.org/a/7zr.exe"},
+    {"name": "rufus.exe", "toolchain": "MSVC", "bytes": 1622832, "url": "https://github.com/pbatard/rufus/releases/download/v4.6/rufus-4.6.exe", "hard_case": "raw-disk writer, needs elevation"},
+    {"name": "python-embed.zip", "toolchain": "MSVC", "bytes": 11062583, "url": "https://www.python.org/ftp/python/3.12.7/python-3.12.7-embed-amd64.zip"},
+
+    {"name": "procmon.zip", "toolchain": "Sysinternals", "bytes": 3099732, "url": "https://download.sysinternals.com/files/ProcessMonitor.zip", "hard_case": "installs a kernel driver"},
+    {"name": "procexp.zip", "toolchain": "Sysinternals", "bytes": 3511555, "url": "https://download.sysinternals.com/files/ProcessExplorer.zip", "hard_case": "reads other processes' memory by design"},
+    {"name": "autoruns.zip", "toolchain": "Sysinternals", "bytes": 3183752, "url": "https://download.sysinternals.com/files/Autoruns.zip", "hard_case": "enumerates every persistence location"},
+    {"name": "pstools.zip", "toolchain": "Sysinternals", "bytes": 5282424, "url": "https://download.sysinternals.com/files/PSTools.zip", "hard_case": "PsExec - the most flagged legitimate binary there is"},
+    {"name": "tcpview.zip", "toolchain": "Sysinternals", "bytes": 1604604, "url": "https://download.sysinternals.com/files/TCPView.zip"},
+
+    {"name": "nircmd.zip", "toolchain": "UPX-packed, unsigned", "bytes": 124310, "url": "https://www.nirsoft.net/utils/nircmd.zip", "hard_case": "NirSoft ships UPX-packed and unsigned and is FP'd by dozens of engines"},
+    {"name": "bluescreenview.zip", "toolchain": "UPX-packed, unsigned", "bytes": 67310, "url": "https://www.nirsoft.net/utils/bluescreenview.zip", "hard_case": "reads crash dumps"},
+    {"name": "wnetwatcher.zip", "toolchain": "UPX-packed, unsigned", "bytes": 511436, "url": "https://www.nirsoft.net/utils/wnetwatcher.zip", "hard_case": "scans the LAN"},
+    {"name": "upx.zip", "toolchain": "the packer itself", "bytes": 613368, "url": "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"},
+
+    {"name": "nist-csf.pdf", "toolchain": "PDF", "bytes": 1518858, "url": "https://nvlpubs.nist.gov/nistpubs/CSWP/NIST.CSWP.29.pdf"},
+    {"name": "nist-800-53.pdf", "toolchain": "PDF", "bytes": 6073678, "url": "https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-53r5.pdf", "hard_case": "a thousand pages - stresses the parser"},
+    {"name": "demo.docx", "toolchain": "OOXML", "bytes": 1311881, "url": "https://calibre-ebook.com/downloads/demos/demo.docx"},
+    {"name": "install-powershell.ps1", "toolchain": "PowerShell", "bytes": 16953, "url": "https://raw.githubusercontent.com/PowerShell/PowerShell/master/tools/install-powershell.ps1", "hard_case": "Microsoft's own script that downloads and executes"},
+    {"name": "jquery.min.js", "toolchain": "minified JS", "bytes": 87533, "url": "https://code.jquery.com/jquery-3.7.1.min.js", "hard_case": "minification trips obfuscation heuristics"},
+    {"name": "vue.global.js", "toolchain": "JS bundle", "bytes": 562700, "url": "https://cdn.jsdelivr.net/npm/vue@3.5.13/dist/vue.global.js"},
+
+    {"name": "gpg4win.exe", "toolchain": "NSIS + MinGW", "bytes": 35521800, "url": "https://files.gpg4win.org/gpg4win-4.3.1.exe", "over_cap": true},
+    {"name": "deno.zip", "toolchain": "Rust", "bytes": 42536111, "url": "https://github.com/denoland/deno/releases/download/v2.0.6/deno-x86_64-pc-windows-msvc.zip", "over_cap": true, "hard_case": "a script execution engine"},
+    {"name": "vlc.exe", "toolchain": "NSIS", "bytes": 44943296, "url": "https://ftp.osuosl.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.exe", "over_cap": true, "note": "use this mirror - get.videolan.org redirects to plain http"},
+    {"name": "git.exe", "toolchain": "Inno + MinGW", "bytes": 68778832, "url": "https://github.com/git-for-windows/git/releases/download/v2.47.0.windows.1/Git-2.47.0-64-bit.exe", "over_cap": true},
+    {"name": "teamviewer.exe", "toolchain": "vendor SFX", "bytes": 83986912, "url": "https://download.teamviewer.com/download/TeamViewer_Setup_x64.exe", "over_cap": true, "hard_case": "RMM tooling - the classic dual-use false positive"}
+  ]
+}

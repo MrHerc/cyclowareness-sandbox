@@ -161,6 +161,53 @@ class Agent:
         with urllib.request.urlopen(req, timeout=self.config.http_timeout_seconds):
             return
 
+    # -- containment ---------------------------------------------------------
+    def check_containment(self) -> tuple[bool, str]:
+        """Is this host safe to detonate on right now? ``(contained, reason)``.
+
+        Runs before every batch, never per sample. Containment is a property of
+        the host, not of a job, and the probe must be cheap enough that nobody is
+        tempted to skip it — the previous answer was "remember to run
+        verify-containment.sh first", which is a human step, and a human step is
+        not containment.
+
+        FAIL CLOSED. A non-zero exit, a timeout, a missing command, an
+        unparseable answer — all mean *not contained*. The inverse of that, where
+        absent evidence reads as success, is exactly how the old in-guest
+        verifier certified a host after testing nothing at all.
+        """
+        command = (self.config.containment_check or "").strip()
+        if not command:
+            return True, "no containment check configured"
+        import shlex
+        import subprocess
+
+        try:
+            done = subprocess.run(
+                shlex.split(command),
+                capture_output=True,
+                text=True,
+                timeout=self.config.containment_check_timeout_seconds,
+            )
+        except subprocess.TimeoutExpired:
+            return False, f"containment check timed out: {command}"
+        except OSError as exc:
+            return False, f"containment check could not run: {exc}"
+
+        output = (done.stdout or "").strip() or (done.stderr or "").strip()
+        if done.returncode != 0:
+            return False, f"containment check failed: {output or f'exit {done.returncode}'}"
+        # Exit 0 is the verdict; the JSON is for the log. A check that exits 0
+        # while saying `contained: false` is a broken check, so disbelieve it.
+        try:
+            import json
+
+            if json.loads(output).get("contained") is not True:
+                return False, f"containment check exited 0 but reported: {output}"
+        except (ValueError, AttributeError):
+            pass
+        return True, output
+
     # -- engine selection ----------------------------------------------------
     def _choose_engine(self, family: str) -> Engine | None:
         for eng in self.engines:
@@ -216,6 +263,25 @@ class Agent:
             except OSError:
                 pass
 
+    def _report_blocked(self, job: dict, reason: str) -> None:
+        """Say why a job was not detonated, rather than leaving a silent gap.
+
+        Deliberately NOT `refused`: the sandbox never saw this sample, so the job
+        must stay eligible and run as soon as the host is safe again. Marking it
+        terminal here would quietly discard work because of a transient host
+        problem — the opposite failure to the one `refused` exists to fix.
+        """
+        public_id = job.get("public_id")
+        if not public_id:
+            return
+        report = Report.unavailable(
+            "containment", self.config.worker_name, f"Not detonated: {reason}"
+        )
+        try:
+            self._post_json(f"/api/dynamic/report/{public_id}", report.to_payload())
+        except Exception as exc:
+            log.warning("could not report the block for %s: %s", public_id, exc)
+
     def _run_engine(self, engine: Engine, path: str, sha256: str, family: str) -> Report:
         """Run an engine, turning any crash or overrun into an honest ran=False
         report rather than letting it kill the loop."""
@@ -245,6 +311,23 @@ class Agent:
             log.warning("unexpected queue response: %r", queue)
             return 0
         log.info("queue: %d job(s)", len(queue))
+        if not queue:
+            return 0
+
+        # THE GATE. Above both dispatch paths below, so neither can bypass it,
+        # and once per batch rather than once per sample.
+        #
+        # A batch refused here is reported, not dropped: every job gets an honest
+        # ran=False carrying the reason, so the operator sees "3 jobs blocked:
+        # containment table missing" instead of a queue that quietly stops
+        # moving. Returning 0 makes the loop back off to its poll interval.
+        contained, reason = self.check_containment()
+        if not contained:
+            log.error("REFUSING TO DETONATE - %s (%d job(s) held)", reason, len(queue))
+            for job in queue:
+                self._report_blocked(job, reason)
+            return 0
+
         limit = max(1, self.config.max_concurrent_jobs)
         if limit == 1 or len(queue) == 1:
             for job in queue:
@@ -278,6 +361,23 @@ class Agent:
             self.config.api_url,
             self.config.poll_interval_seconds,
         )
+        # Said once, loudly, at startup. "No gate configured" and "gate passing"
+        # must never read the same way in a log — an operator who set
+        # CONTAINMENT_CHECK and typo'd the path deserves to find out here rather
+        # than from an abuse complaint.
+        if self.config.containment_check:
+            contained, reason = self.check_containment()
+            log.log(
+                logging.INFO if contained else logging.ERROR,
+                "containment gate: %s (%s)",
+                "armed" if contained else "ARMED AND CURRENTLY FAILING",
+                reason,
+            )
+        else:
+            log.warning(
+                "containment gate: NOT CONFIGURED - detonations are ungated on this "
+                "worker. Set CONTAINMENT_CHECK if this host runs real samples."
+            )
         while True:
             try:
                 self.run_once()

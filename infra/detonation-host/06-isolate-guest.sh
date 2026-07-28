@@ -16,24 +16,63 @@
 #     host-initiated connections to the agent lose their replies and the whole
 #     sandbox goes dark.
 #
-# The rules are re-applied on a timer because CAPE's rooter runs
-# `iptables-save | filter | iptables-restore` over the entire ruleset when it
-# stops, and a reboot loses them too.
+# Containment lives in `containment.nft` - a separate nftables table with its own
+# hooks, loaded once and never re-asserted. It replaced a 60-second timer over
+# hand-written iptables rules, which had a 65.3-second worst-case window, opened
+# a 150-230ms hole on every tick by deleting each DROP before re-inserting it,
+# and left virbr0 -> docker0 open permanently because its rules named an
+# interface pair. See the header of containment.nft for the measurements.
 set -euo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 GUEST_IP=${GUEST_IP:-192.168.122.105}
 AGENT="http://${GUEST_IP}:8000"
 
-echo "== installing =="
-install -m 700 "$HERE/guest-isolation.sh" /usr/local/sbin/cyclo-guest-isolation.sh
-install -m 644 "$HERE/systemd/cyclo-guest-isolation.service" /etc/systemd/system/
-install -m 644 "$HERE/systemd/cyclo-guest-isolation.timer" /etc/systemd/system/
+echo "== installing containment =="
+install -d -m 755 /etc/nftables.d
+install -m 644 "$HERE/containment.nft" /etc/nftables.d/cyclo-containment.nft
+
+# Syntax-check BEFORE loading. `nft -f` applies a file atomically, but a file
+# that does not parse leaves whatever was there - and on a first install that is
+# nothing at all, i.e. no containment, reported as a shell error nobody reads.
+nft -c -f /etc/nftables.d/cyclo-containment.nft
+nft -f /etc/nftables.d/cyclo-containment.nft
+
+# Replay it at boot, via our OWN unit, ordered before libvirtd - so containment
+# exists before anything can bring a guest up. That closes the boot window a
+# timer could never close.
+#
+# NOT by enabling nftables.service and NOT by adding an include to
+# /etc/nftables.conf. Ubuntu's stock /etc/nftables.conf opens with
+# `flush ruleset`, so enabling that unit would wipe the whole ruleset at boot -
+# ufw, Docker and libvirt with it - and leave three empty chains whose policy is
+# accept. It ships disabled precisely for that reason, and turning it on to
+# persist a containment rule would open the box far wider than the rule closes.
+install -m 644 "$HERE/systemd/cyclo-containment.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable --now cyclo-guest-isolation.service
-systemctl enable --now cyclo-guest-isolation.timer
-/usr/local/sbin/cyclo-guest-isolation.sh
-echo "   timer: $(systemctl is-active cyclo-guest-isolation.timer)"
+systemctl enable cyclo-containment.service >/dev/null
+echo "   boot unit: $(systemctl is-enabled cyclo-containment.service)"
+
+# The old timer is NOT retired here, deliberately. Its rules are now redundant,
+# and its own delete-then-insert is a recurring 150-230ms hole - so it should go.
+# But it should go after a guest has been probed end to end with the nft table in
+# place, not before: if the table ever turned out to block the result server or
+# the sinkhole, the whole sandbox goes dark and returns empty reports, which is
+# the failure mode this project has hit before. Belt and braces until then.
+if systemctl is-enabled --quiet cyclo-guest-isolation.timer 2>/dev/null; then
+  cat <<'NOTE'
+   NOTE: the old re-assertion timer is still enabled, on purpose.
+   Once verify-containment.sh has passed with a guest running, retire it:
+       systemctl disable --now cyclo-guest-isolation.timer
+   Keeping both indefinitely means keeping the timer's own periodic hole.
+NOTE
+fi
+
+echo "   nft table: $(nft list table inet cyclo_containment >/dev/null 2>&1 && echo loaded || echo MISSING)"
+echo "   survives an iptables restore: $(
+  iptables-save > /tmp/.cyclo-rt.$$ && iptables-restore < /tmp/.cyclo-rt.$$ \
+    && rm -f /tmp/.cyclo-rt.$$ \
+    && nft list table inet cyclo_containment >/dev/null 2>&1 && echo yes || echo NO)"
 
 echo
 echo "== verifying =="

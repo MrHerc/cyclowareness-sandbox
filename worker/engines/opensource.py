@@ -220,11 +220,26 @@ class CapeV2Engine(_HttpSandboxEngine):
 
         ``error`` is ``[]`` on success for create and ``False`` for reads, so it
         is truthiness — not presence — that signals a failure.
+
+        ``error_value`` is generic on the submission path: every refusal reads
+        "Error adding task to database", whatever the reason. The reason itself
+        is in the sibling ``errors`` array, and dropping it cost a night. Eight
+        corpus samples were refused and the only record anywhere said "Error
+        adding task to database" — CAPE does not log this path either
+        (``web_utils.py:916`` is a bare return). The real answer, present in the
+        response all along, was "Linux binaries analysis isn't enabled".
         """
         if not isinstance(payload, dict):
             return payload, None
         if payload.get("error"):
-            return None, str(payload.get("error_value") or payload.get("error"))
+            message = str(payload.get("error_value") or payload.get("error"))
+            for entry in payload.get("errors") or []:
+                # [{"<filename>": {"error": "<the actual reason>"}}]
+                for value in (entry or {}).values() if isinstance(entry, dict) else ():
+                    reason = value.get("error") if isinstance(value, dict) else value
+                    if reason and str(reason) not in message:
+                        message = f"{message}: {reason}"
+            return None, message
         return payload.get("data", payload), None
 
     def run(self, sample_path: str, sha256: str, family: str) -> Report:
@@ -246,10 +261,15 @@ class CapeV2Engine(_HttpSandboxEngine):
             resp.raise_for_status()
             data, err = self._unwrap(resp.json())
             if err:
-                return Report.unavailable(self.name, self.config.worker_name, f"CAPE refused the sample: {err}")
+                # The sandbox looked at this sample and said no. Retrying sends
+                # the identical bytes under the identical name and gets the
+                # identical answer, so this is terminal, not "not right now".
+                return Report.refused_sample(
+                    self.name, self.config.worker_name, f"CAPE refused the sample: {err}"
+                )
             task_ids = (data or {}).get("task_ids") or []
             if not task_ids:
-                return Report.unavailable(
+                return Report.refused_sample(
                     self.name, self.config.worker_name, f"CAPE returned no task id: {data!r}"
                 )
             task_id = task_ids[0]
@@ -398,14 +418,16 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
     report.facts.setdefault("external_engine", "cuckoo/cape")
 
     # --- identification, which is not behaviour --------------------------------
-    # A YARA match on process memory, or an extracted malware configuration, does
-    # not say what the sample *did* - it says what it *is*. That belongs to the
+    # A family the sandbox named, or a configuration block it extracted, does not
+    # say what the sample *did* - it says what it *is*. That belongs to the
     # verdict, not the capability model, so it is lifted separately.
     #
-    # It is also the only thing that separated our corpus cleanly. Measured over
-    # 8 malware and 3 signed installers: an in-memory YARA hit fired on 8/8 and
-    # 0/3, while the sandbox's own aggregate score did not discriminate at all
-    # (the 7-Zip installer scored 9.0, higher than Locky's 8.0).
+    # Only these two. An earlier version also treated any YARA hit as
+    # identification, on a measurement over 8 malware and 3 signed installers
+    # where it separated them 8/8 and 0/3. A wider benign corpus broke it: a
+    # signed WinMerge release matched `embedded_macho` and was called malicious.
+    # A rule matching is an observation about content; `detections` and
+    # `CAPE.configs` are the sandbox saying it recognises the strain.
     families: list[str] = []
     for det in data.get("detections") or []:
         fam = det.get("family") if isinstance(det, dict) else det
@@ -446,6 +468,44 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
             evidence={"family": cfg, "categories": ["identification"]},
         )
 
+    # --- which YARA rules matched, and where -----------------------------------
+    # CAPE collapses every YARA hit in the whole analysis into ONE signature,
+    # `procmem_yara`, described as "Yara detections observed in process dumps,
+    # payloads or dropped files". The rule name survives only inside a prose
+    # string in its `data` array, and we were discarding it.
+    #
+    # That is how a signed release of WinMerge came to be called malicious. The
+    # rule was `embedded_macho` — three 4-byte magics matched anywhere but offset
+    # 0, a coincidence in any multi-megabyte dump — and it hit in a file the
+    # installer had legitimately written to disk, not in process memory at all.
+    # Nothing in the report said so, so nothing in the report could be argued
+    # with. An analyst reading "a YARA rule matched" must be able to see which.
+    yara_matches: dict[str, list[str]] = {}
+
+    def _collect_yara(entries: Any, where: str) -> None:
+        for entry in entries or []:
+            if not isinstance(entry, dict):
+                continue
+            for hit in entry.get("yara") or []:
+                name = hit.get("name") if isinstance(hit, dict) else hit
+                if not name:
+                    continue
+                seen = yara_matches.setdefault(where, [])
+                if str(name) not in seen:
+                    seen.append(str(name))
+
+    # procmemory and procdump are both process memory; the rest is disk. The
+    # distinction is the difference between "found running in the sample's own
+    # address space" and "found in a file it wrote", and they are not equally
+    # interesting.
+    _collect_yara(data.get("procmemory"), "process_memory")
+    _collect_yara(data.get("procdump"), "process_memory")
+    _collect_yara(cape.get("payloads") if isinstance(cape, dict) else None, "payload")
+    _collect_yara(data.get("dropped"), "dropped_file")
+    _collect_yara([(data.get("target") or {}).get("file") or {}], "submitted_sample")
+    if yara_matches:
+        report.facts["yara_matches"] = {k: sorted(v) for k, v in yara_matches.items()}
+
     # Behavioural signatures.
     for sig in data.get("signatures", []) or []:
         sev = _CAPE_SEVERITY.get(int(sig.get("severity", 1) or 1), "low")
@@ -459,16 +519,49 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         cats = sig.get("categories") or []
         if isinstance(cats, str):
             cats = [cats]
+        # CAPE 2.5 puts a signature's supporting evidence in `data`, not `marks`.
+        # Measured across every report on this host: 0 signatures carry `marks`,
+        # 3605 carry `data`, and 2808 of those name the process that raised the
+        # signature. So `marks` counted zero for every signal this product has
+        # ever ingested, and the pid went with it.
+        #
+        # The pid matters because CAPE attributes a signature to the ANALYSIS,
+        # not to a process. A signed WinMerge release was accused of destruction
+        # by `suspicious_iocontrol_codes` whose only two calls came from
+        # `mousocoreworker.exe` — Windows Update, in a different branch of the
+        # process tree from the sample. Recorded, not acted on: malware
+        # legitimately injects into other processes, and 29 malware jobs in this
+        # corpus carry a high-severity signature marked only in a foreign
+        # process, so discarding those would be a worse error than keeping them.
+        # An analyst can now see which process did what; the scorer still does
+        # not guess.
+        marks = sig.get("marks") or sig.get("data") or []
+        pids = sorted(
+            {m["pid"] for m in marks if isinstance(m, dict) and isinstance(m.get("pid"), int)}
+        )
+        evidence: dict[str, Any] = {
+            "marks": len(marks),
+            "categories": [str(c) for c in cats],
+            "confidence": sig.get("confidence"),
+        }
+        if pids:
+            evidence["pids"] = pids
+        detail = sig.get("description", "")
+        if yara_matches and _slug(name) == "procmem_yara":
+            evidence["yara_matches"] = {k: sorted(v) for k, v in yara_matches.items()}
+            detail = "{} Matched: {}.".format(
+                detail,
+                "; ".join(
+                    f"{', '.join(sorted(rules))} (in {place.replace('_', ' ')})"
+                    for place, rules in sorted(yara_matches.items())
+                ),
+            ).strip()
         report.add_signal(
             f"{prefix}.{_slug(name)}",
             sig.get("description", name)[:120],
             sev,
-            detail=sig.get("description", ""),
-            evidence={
-                "marks": len(sig.get("marks", []) or []),
-                "categories": [str(c) for c in cats],
-                "confidence": sig.get("confidence"),
-            },
+            detail=detail,
+            evidence=evidence,
         )
 
     # Network IOCs.

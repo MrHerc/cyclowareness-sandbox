@@ -84,7 +84,7 @@ def _category_for(caps: set[str], signals: list) -> str | None:
     produces overwhelmingly destructive evidence and still comes out `Ransom`;
     one that merely touched a volume on its way to stealing passwords does not.
     """
-    from .capabilities import detect as _detect
+    from .capabilities import evidence_capabilities as _evidence
 
     if not caps:
         return None
@@ -97,11 +97,18 @@ def _category_for(caps: set[str], signals: list) -> str | None:
     # the most common thing any program does, so raw counts crowned `Riskware`
     # on WannaCry. Severity is what separates "touched a volume" from "encrypted
     # the disk".
+    #
+    # Support is measured with `evidence_capabilities`, not `detect`. This asks
+    # what each signal is ABOUT, which is a different question from what the
+    # report may accuse the sample of: `detect` requires corroboration, so a
+    # lone signal never yields a high-consequence capability and every
+    # destruction signal would score zero support. That renamed WannaCry
+    # `Win32.Downloader.WanaCry` and Formbook `Win32.Riskware.Formbook`.
     support: dict[str, int] = {}
     for signal in signals:
         if SEVERITY_ORDER.get(signal.severity, 0) < SEVERITY_ORDER["high"]:
             continue
-        for cap in _detect([signal]):
+        for cap in _evidence(signal):
             support[cap] = support.get(cap, 0) + 1
 
     # Priority still leads; support only overrides it when another capability has
@@ -287,41 +294,35 @@ def classify(
 
     # Sandbox identification. Distinct from every engine above, because those
     # reason about what a sample *did* and this one is about what it *is*: a
-    # named family, an extracted configuration block, or a YARA rule matching
-    # known malware in process memory.
+    # named family, or an extracted configuration block. Both are identity
+    # claims a benign program cannot manufacture — configuration extraction
+    # succeeds only against the real family, and a family name is the sandbox
+    # saying it recognises the strain.
     #
-    # It exists because behaviour alone misses a sample that never got going.
-    # Locky, detonated here, produced eight signatures and no capability — its
-    # C2 was long dead so it never encrypted anything — and scored zero. The
-    # sandbox still matched it in memory. Measured across 8 malware and 3 signed
-    # installers, this fired 8/8 and 0/3, while the sandbox's own aggregate
-    # score did not separate them at all.
+    # It exists because behaviour alone misses a sample that never got going: a
+    # loader whose C2 is dead does almost nothing, and still is what it is.
+    #
+    # It used to ALSO fire on any high-severity signal the sandbox filed under
+    # the category "malware", which in practice meant CAPE's `procmem_yara` —
+    # "a YARA rule matched somewhere in the analysis". That is not an identity
+    # claim, and reading it as one made a signed release of WinMerge malicious.
+    # The rule it matched was `embedded_macho`, which fires on three 4-byte
+    # magics (`CA FE BA BE`, `CE FA ED FE`, `FE ED FA CE`) appearing anywhere
+    # except offset 0 — a coincidence in any multi-megabyte dump, and it hit in
+    # a file the installer had legitimately written to disk. CAPE's own
+    # `detections` field was empty: the sandbox never claimed to know what it
+    # was, we inferred it from the signature's category.
+    #
+    # That is the same mistake as the three before it, in a fourth costume:
+    # counting an observation as a detection. A rule matched is an observation.
+    # It still raises the score; it no longer decides the verdict.
     identification = [
-        s
-        for s in all_signals
-        if (getattr(s, "evidence", None) or {}).get("family")
-        or (
-            SEVERITY_ORDER.get(s.severity, 0) >= SEVERITY_ORDER["high"]
-            and "malware" in {
-                str(c).lower()
-                for c in ((getattr(s, "evidence", None) or {}).get("categories") or [])
-            }
-        )
+        s for s in all_signals if (getattr(s, "evidence", None) or {}).get("family")
     ]
-    named = next(
-        (
-            (getattr(s, "evidence", None) or {}).get("family")
-            for s in identification
-            if (getattr(s, "evidence", None) or {}).get("family")
-        ),
-        None,
-    )
     engines.append({
         "engine": "CS-SandboxID",
         "detected": bool(identification),
-        "result": (f"{platform}.{category}.{fam}" if named else "Sandbox.MemoryMatch")
-        if identification
-        else "undetected",
+        "result": f"{platform}.{category}.{fam}" if identification else "undetected",
         "severity": _worst(identification) if identification else "info",
     })
     # Reputation engine. It must key off indicators that are themselves *bad*
@@ -355,12 +356,11 @@ def classify(
     # If no capability was demonstrated we have a pile of unexplained anomalies,
     # which is "suspicious" — reporting malicious there produced the absurd pair
     # verdict=malicious / threat=Win32.Clean in the same payload.
-    # Identification outranks the score. A sandbox matching known malware in
-    # process memory, or recovering a family's configuration block, is an
-    # identity claim - "this IS Locky" - not a behavioural guess, and it does not
-    # get weaker because the sample failed to do much. Locky detonated here with
-    # a long-dead C2: it encrypted nothing, demonstrated no accusing capability
-    # and scored 39, and it is still unmistakably Locky.
+    # Identification outranks the score. A sandbox naming the family, or
+    # recovering its configuration block, is an identity claim - "this IS
+    # Formbook" - not a behavioural guess, and it does not get weaker because the
+    # sample failed to do much: a loader whose C2 is dead does almost nothing and
+    # is still what it is.
     if identification:
         verdict = "malicious"
     elif caps and final_score >= 60:

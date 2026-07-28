@@ -1,0 +1,25 @@
+[Unit]
+Description=Cyclowareness: guest containment rules (nftables)
+Documentation=file:/etc/nftables.d/cyclo-containment.nft
+# Containment must exist before anything can start a guest. libvirtd is what
+# brings virbr0 up and what CAPE asks to boot a machine, so being ordered before
+# it closes the boot window that a 60-second timer could never close.
+After=network-pre.target
+Before=libvirtd.service cape.service cape-rooter.service
+
+# NOT nftables.service. Ubuntu's stock /etc/nftables.conf begins with
+# `flush ruleset`, so enabling that unit would wipe the ENTIRE ruleset at boot -
+# ufw, Docker and libvirt included - and replace it with three empty chains
+# whose policy is accept. It ships disabled for that reason. This unit only ever
+# adds one table and flushes nothing.
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# -c first: a file that does not parse must fail here, loudly, rather than
+# leave the host with no containment and an error nobody reads.
+ExecStartPre=/usr/sbin/nft -c -f /etc/nftables.d/cyclo-containment.nft
+ExecStart=/usr/sbin/nft -f /etc/nftables.d/cyclo-containment.nft
+ExecReload=/usr/sbin/nft -f /etc/nftables.d/cyclo-containment.nft
+
+[Install]
+WantedBy=multi-user.target

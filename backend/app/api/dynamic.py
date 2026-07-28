@@ -60,7 +60,15 @@ def require_worker(
 
 def _needs_dynamic(job: SandboxJob) -> bool:
     tiers = job.tiers or {}
-    if (tiers.get("dynamic") or {}).get("ran"):
+    dynamic = tiers.get("dynamic") or {}
+    if dynamic.get("ran"):
+        return False
+    # A sandbox that declined this sample will decline it again — the request is
+    # byte-identical. Without this, eight ELF samples CAPE refused (it has Linux
+    # analysis disabled and only Windows guests) were re-downloaded, re-submitted
+    # and re-refused on every single poll, forever, while each job read
+    # `completed` with no error recorded.
+    if dynamic.get("refused"):
         return False
     return job.status == JobStatus.COMPLETED and job.family in _DYNAMIC_FAMILIES
 
@@ -264,6 +272,8 @@ def ingest_report(
         "detail": report.unavailable_reason
         or f"Detonated on the {report.engine} worker ({report.worker}).",
     }
+    if report.refused:
+        tiers["dynamic"]["refused"] = True
 
     assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
 
@@ -274,11 +284,22 @@ def ingest_report(
         "engine": report.engine,
         "worker": report.worker,
         "ran": report.ran,
+        # Without this the reason existed only in `tiers`, and the field the UI
+        # and the exports read said nothing at all: eight refused samples showed
+        # `{"ran": false, "signals": []}` and were indistinguishable from a
+        # detonation that observed nothing.
+        "unavailable_reason": report.unavailable_reason,
+        "refused": bool(report.refused),
         "timeline": report.timeline,
         "signals": [s.to_dict() for s in dyn_signals],
         "facts": dyn_result.facts,
         "duration_ms": report.duration_ms,
     }
+    # A refused sample is a hole in the evidence, not a quiet result. Recording
+    # it on the job itself is what stops a live Mirai binary reading `completed`
+    # / `low` with `error = NULL`, which is how all eight of them read.
+    if report.refused:
+        job.error = report.unavailable_reason
     job.score_breakdown = assessment.breakdown
     job.rule_score = assessment.rule_score
     job.ai_score = assessment.ai_score

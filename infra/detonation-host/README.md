@@ -62,12 +62,26 @@ CDBOOT matches `BOOTMGR` exactly.
 | `06-isolate-guest.sh` | installs the containment rules, then runs the gate below | no |
 | `07-golden-snapshot.sh` | takes the running snapshot and proves a revert discards state | no |
 
-Two helpers the numbered steps call, and which are worth running on their own:
+Helpers the numbered steps call, and which are worth running on their own:
 
 | Helper | Does |
 |---|---|
 | `build-provision-iso.sh` | masters the second CD: `autounattend.xml`, `setup.cmd`, `harden.py`, the CAPE agent taken from the local checkout, and a Python runtime. Verifies the answer file is at the root of **both** filesystem trees — plain 8.3 truncates it to `AUTOUNAT.XML`, and Setup then silently ignores it and stops on the language prompt. |
-| `verify-containment.sh` | **the safety gate.** Changes nothing; answers only "is this host safe to detonate on right now". Run it before every real-malware run and after anything that touches the firewall. |
+| `containment.nft` | **the containment rules.** A separate nftables table, loaded once by `cyclo-containment.service` before libvirtd. Read its header before changing anything about isolation — it records what was measured and why the previous design could not work. |
+| `containment-status.sh` | the CHEAP structural check, milliseconds. Exit 0 = contained. This is what `CONTAINMENT_CHECK` points the worker at, so it runs before every batch. |
+| `verify-containment.sh` | **the deep gate.** Boots a probe inside the guest and observes the guest's own view — the only thing that can. Changes nothing. Run it after every boot, after every `cape-rooter` restart, and before any corpus run. |
+| `run-corpus.py` | submits the whole corpus through `/api/analyze` the way a customer would, and reports what did **not** detonate rather than hiding it. |
+| `fetch-benign-corpus.py` + `benign-corpus.json` | the benign half, 54 entries across 31 toolchain classes, with a sha256 recorded per file. |
+| `regenerate-corpus.py` | rebuilds `backend/tests/data/detonation_corpus.json` from the database and the sample files. |
+
+**The two containment checks are not alternatives.** `containment-status.sh` asks
+whether the ruleset is still what it should be, which is cheap enough to ask every
+time and catches the ruleset changing between runs.
+`verify-containment.sh` asks what a program inside the guest can actually reach,
+which is the only question that really matters and costs a guest boot. Neither
+substitutes for the other: a point-in-time probe cannot promise anything about the
+moment a sample runs, and a structural check cannot see a hole the structure does
+not describe.
 
 `verify-containment.sh` is separate from `06` on purpose. When the checks lived
 inside `06` they ran *after* it had applied the rules, so it verified a state it
@@ -107,13 +121,46 @@ every analysis simply comes back empty. `02-cape-repair.sh` fixes it.
 `<Identifier>Ethernet</Identifier>` never binds to the real adapter; the guest
 comes up on a DHCP address `conf/kvm.conf` does not expect.
 
-**Firewall rule order.** An *appended* `-i virbr0 -j DROP` never fires — ufw's
-"allow 22/tcp from anywhere" is in a chain INPUT jumps to first, and the guest
-could reach the host's SSH. And `ESTABLISHED,RELATED` must be accepted *before*
-that DROP, or CAPE's own connections to the agent lose their replies and the
-sandbox goes silent. `guest-isolation.sh` gets both right, and a systemd timer
-re-applies it every minute because CAPE's rooter rewrites the whole ruleset when
-it stops.
+**Why containment is not in iptables.** It used to be, re-applied by a
+60-second timer, and that could not work:
+
+- The premise was false. CAPE's rooter does **not** flush our rules —
+  `cleanup_rooter` keeps every line not containing the literal `CAPE-rooter`, and
+  ours carried no comment. What it does is re-**insert** an ACCEPT at FORWARD
+  position 1, *above* them (`rooter.py:173-174`, and again per task at `:1086`).
+  Position was the exposure, and re-asserting never touched it.
+- The window was 65.3 seconds (`OnUnitActiveSec=60` + `AccuracySec=5`, measured
+  start-to-start at exactly 65.000s).
+- The re-assertion script **opened the hole itself**, deleting each DROP before
+  re-inserting it — INPUT was open for 145–233ms on every tick, which is exactly
+  the guest-reaches-host-SSH condition below.
+- And the rules named an interface *pair*, so `virbr0 → docker0` matched neither
+  and the Cyclowareness API container was reachable from a detonating sample.
+  A permanent hole, not a race.
+
+`containment.nft` replaces all of it: `iptables-save | iptables-restore` cannot
+see an `inet` table, and its hooks run before the iptables chains whatever anyone
+inserts at position 1. Both properties were verified on this host, not assumed.
+Egress is matched by **exclusion** (`oifname != "virbr0"`), so a new interface
+cannot open a new hole.
+
+**Not covered:** guest-to-guest. All three guests share virbr0 and bridged traffic
+never reaches the ip/inet forward hook — `net.bridge.bridge-nf-call-iptables = 0`.
+A rule there would look like containment and never fire. Closing it needs a
+`table bridge`, which is untested against a running guest.
+
+**Firewall rule order** (still true, and why `guest-isolation.sh` is written the
+way it is): an *appended* `-i virbr0 -j DROP` never fires — ufw's "allow 22/tcp
+from anywhere" is in a chain INPUT jumps to first, and the guest could reach the
+host's SSH. And `ESTABLISHED,RELATED` must be accepted *before* that DROP, or
+CAPE's own connections to the agent lose their replies and the sandbox goes
+silent. That script is now a redundant second layer; retire it and its timer once
+`verify-containment.sh` has passed with a guest up and the nft table loaded.
+
+**Never enable `nftables.service` to persist these rules.** Ubuntu's stock
+`/etc/nftables.conf` opens with `flush ruleset`, so enabling it wipes ufw, Docker
+and libvirt at every boot and leaves three empty accept-policy chains. It ships
+disabled for that reason. `cyclo-containment.service` only ever adds one table.
 
 ## Operating it
 

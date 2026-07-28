@@ -1,10 +1,36 @@
 #!/bin/bash
+# SECONDARY containment. The primary is `containment.nft`.
+#
+# Read that file first - it explains why this one is no longer load-bearing, and
+# retire this script (and its timer) once verify-containment.sh has passed with a
+# guest running and the nft table in place.
+#
+# Three things here are now known to be wrong, and are left alone on purpose
+# because the nft table covers all of them and rewriting a safety script that is
+# being retired is how the next incident starts:
+#
+#   * The premise below is FALSE. Rooter's `cleanup_rooter` keeps every line not
+#     containing the literal "CAPE-rooter" (utils/rooter.py:164), and these rules
+#     carry no comment - they survive a rooter cycle untouched. What rooter
+#     actually does is re-INSERT an ACCEPT at FORWARD position 1, ABOVE these
+#     DROPs. Position was the exposure, not presence, and re-asserting on a timer
+#     never addressed it.
+#   * The timer leaves a 65.3-second worst case (OnUnitActiveSec=60 +
+#     AccuracySec=5, measured start-to-start at exactly 65.000s).
+#   * `drop_all` deletes each DROP BEFORE re-inserting it, so the rules are
+#     absent for 34-55ms (FORWARD) and 145-233ms (INPUT) on every tick. The
+#     mitigation is also a recurring hole.
+#
+# And the rules below name an interface PAIR, which left virbr0 -> docker0 open
+# permanently: a detonating sample could reach the Cyclowareness API container on
+# 172.17.0.2:8000. No amount of re-asserting closes a rule that was never written.
+#
+# Original header follows.
+#
 # Keep the detonation guest off the internet and off the host, idempotently.
 #
-# Re-assertable, not one-shot: CAPE's rooter runs `iptables-save | filter |
-# iptables-restore` across the WHOLE ruleset on stop and sets ip_forward=1 on
-# start, so hand-applied rules do not survive a rooter cycle; a reboot loses them
-# too. A systemd timer re-applies this every minute, bounding the window.
+# Re-assertable, not one-shot: CAPE's rooter sets ip_forward=1 on start, and a
+# reboot loses hand-applied rules. A systemd timer re-applies this every minute.
 #
 # Scope is FORWARD plus INPUT-on-virbr0 only. SSH arrives on INPUT via enp41s0
 # and is matched by nothing here - which is what makes this safe to run
