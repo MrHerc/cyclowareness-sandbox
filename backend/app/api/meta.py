@@ -123,6 +123,11 @@ def capabilities():
         "retention": retention.policy(),
         "integrations": integrations,
         "supported_extensions": SUPPORTED_EXTENSIONS,
+        # The real ceiling, because the UI was printing a hardcoded "Up to 32 MB"
+        # next to the file picker. An operator who raises MAX_SAMPLE_MB gets an
+        # interface that still refuses on the analyst's behalf, and one who
+        # LOWERS it gets a promise the server then breaks with a 413.
+        "max_sample_mb": settings.max_sample_mb,
         "metrics_enabled": metrics.enabled(),
     }
 

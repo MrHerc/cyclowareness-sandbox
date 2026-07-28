@@ -218,5 +218,42 @@ export interface Capabilities {
   dynamic_worker: boolean
   integrations: EngineDescriptor[]
   supported_extensions: string[]
+  /** The server's real ceiling. The submit page used to print a hardcoded 32. */
+  max_sample_mb: number
   metrics_enabled: boolean
+  /**
+   * The product's headline claim, and the answer to the DPA question. The API
+   * has always published both; nothing in the interface read them, so the one
+   * thing this deployment is sold on was invisible in the deployment itself.
+   */
+  sovereignty: SovereigntyT
+  retention: RetentionT
+}
+
+export interface SovereigntyDestination {
+  key: string
+  what_would_leave: string
+  allowed: boolean
+  is_deliberate_exception: boolean
+}
+
+export interface SovereigntyT {
+  enabled: boolean
+  url_fetch_allowed: boolean
+  statement: string
+  /** Every outbound destination the switch governs, and whether it is open. */
+  destinations: SovereigntyDestination[]
+  /**
+   * How many outbound calls were actually refused. This is the number that
+   * turns "no data leaves" from a claim into something an auditor can check.
+   */
+  outbound_refusals: number
+}
+
+export interface RetentionT {
+  enabled: boolean
+  statement: string
+  sample_retention_days: number
+  report_retention_days: number
+  sweep_interval_hours: number
 }

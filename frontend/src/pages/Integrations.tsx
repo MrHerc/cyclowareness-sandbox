@@ -1,5 +1,5 @@
 import { type CSSProperties } from 'react'
-import { CheckCircle2, Circle, Cpu } from 'lucide-react'
+import { CheckCircle2, Circle, Cpu, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { LoadState, PageHeader, Panel, Chip, Metric, StaleNotice } from '../components/ui'
 import { api } from '../lib/api'
 import { usePoll } from '../lib/usePoll'
@@ -76,6 +76,54 @@ export function Integrations() {
           tone={configured >= 4 ? 'success' : 'warning'}
         />
       </div>
+
+      {/* THE CLAIM THIS PRODUCT IS SOLD ON.
+          `/api/capabilities` has always published `sovereignty` and `retention`
+          — the sovereignty posture with its refusal count, and the answer to the
+          question every DPA asks — and nothing in the interface read either of
+          them. The one thing a sovereign deployment exists to prove was
+          invisible inside the deployment. */}
+      <Panel
+        title="Data sovereignty"
+        subtitle="Where analysis data may go, and what has been refused"
+      >
+        <div className="flex items-start gap-3">
+          {caps.sovereignty?.enabled ? (
+            <ShieldCheck size={18} className="mt-0.5 shrink-0 text-success" aria-hidden />
+          ) : (
+            <ShieldAlert size={18} className="mt-0.5 shrink-0 text-warning" aria-hidden />
+          )}
+          <div className="min-w-0">
+            <p className="text-body text-c1">
+              {caps.sovereignty?.statement ?? 'Sovereignty posture not reported by this build.'}
+            </p>
+            {caps.sovereignty && (
+              <p className="text-sm mt-1 text-c2">
+                {/* The count is what makes it checkable rather than asserted. */}
+                {caps.sovereignty.outbound_refusals} outbound call
+                {caps.sovereignty.outbound_refusals === 1 ? '' : 's'} refused ·{' '}
+                {caps.sovereignty.destinations?.filter((d) => !d.allowed).length ?? 0} of{' '}
+                {caps.sovereignty.destinations?.length ?? 0} destinations closed
+              </p>
+            )}
+          </div>
+        </div>
+        {caps.sovereignty?.destinations?.length ? (
+          <div className="divide-hair mt-4">
+            {caps.sovereignty.destinations.map((d) => (
+              <div key={d.key} className="flex items-start justify-between gap-3 py-2">
+                <p className="min-w-0 text-sm text-c2">{d.what_would_leave}</p>
+                <Chip tone={d.allowed ? (d.is_deliberate_exception ? 'info' : 'warning') : 'success'}>
+                  {d.allowed ? (d.is_deliberate_exception ? 'Allowed by design' : 'Open') : 'Blocked'}
+                </Chip>
+              </div>
+            ))}
+          </div>
+        ) : null}
+        {caps.retention && (
+          <p className="text-sm mt-4 border-t border-hair pt-3 text-c2">{caps.retention.statement}</p>
+        )}
+      </Panel>
 
       <Panel title="Dynamic engines" subtitle="Detonation and behaviour — run off-host on an isolated worker">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

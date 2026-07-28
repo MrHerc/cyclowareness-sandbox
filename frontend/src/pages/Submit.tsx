@@ -21,7 +21,11 @@ export function Submit() {
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const maxMb = 32
+  // The server's real ceiling, not a number typed in here. Hardcoding 32 meant
+  // an operator who raised MAX_SAMPLE_MB got an interface that still refused on
+  // the analyst's behalf — and one who lowered it got a promise the server then
+  // broke with a 413. Falls back to the shipped default while capabilities load.
+  const maxMb = caps?.max_sample_mb ?? 32
 
   function onDrop(e: DragEvent) {
     e.preventDefault()

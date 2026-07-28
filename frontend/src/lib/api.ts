@@ -48,6 +48,37 @@ function authHeader(): Record<string, string> {
   return s ? { Authorization: `Bearer ${s.token}` } : {}
 }
 
+/**
+ * The API's `detail` in a sentence a person can act on.
+ *
+ * Three shapes come back: a string for an HTTPException, an ARRAY of pydantic
+ * validation errors for a 422, and occasionally neither. The array was passed
+ * to `JSON.stringify` and rendered verbatim, so a mistyped field produced
+ * `[{"type":"missing","loc":["body","password"],"msg":"Field required",...}]`
+ * in the failure callout — technically the truth, and useless to the analyst
+ * looking at it.
+ */
+function readDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const lines = detail
+      .map((item) => {
+        if (typeof item === 'string') return item
+        if (!item || typeof item !== 'object') return ''
+        const entry = item as { loc?: unknown[]; msg?: string }
+        // Drop the "body"/"query" prefix — it names the transport, not the field.
+        const field = (entry.loc ?? [])
+          .filter((p) => typeof p === 'string' && p !== 'body' && p !== 'query')
+          .join('.')
+        const message = entry.msg ?? 'is not valid'
+        return field ? `${field}: ${message}` : message
+      })
+      .filter(Boolean)
+    if (lines.length) return lines.join('; ')
+  }
+  return ''
+}
+
 async function handle(res: Response, path: string): Promise<Response> {
   if (res.status === 502 || res.status === 503 || res.status === 504) {
     throw new ApiError(res.status, API_UNREACHABLE)
@@ -61,7 +92,7 @@ async function handle(res: Response, path: string): Promise<Response> {
     let detail = res.statusText
     try {
       const data = await res.json()
-      detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail)
+      detail = readDetail(data.detail) || res.statusText
     } catch {
       /* keep statusText */
     }

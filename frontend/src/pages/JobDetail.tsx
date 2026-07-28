@@ -10,6 +10,8 @@ import {
   Lock,
   RefreshCw,
   Share2,
+  ShieldCheck,
+  Siren,
 } from 'lucide-react'
 import {
   Button,
@@ -165,6 +167,18 @@ export function JobDetail() {
             <Button size="sm" busy={busy === 'pdf'} onClick={() => action('pdf', () => api.download(`/api/jobs/${id}/export.pdf`, `sandbox-${filename}.pdf`))}>
               <Download size={14} aria-hidden /> PDF
             </Button>
+            {/* Both of these existed, worked, and could not be reached from the
+                product. `export.signed` is the Ed25519-attested evidence copy —
+                the whole reason attestation.py is in the repo — and
+                `export.incident` is the NIS2/DORA notification record. A
+                capability nobody can find is a capability the deployment does
+                not have. */}
+            <Button size="sm" busy={busy === 'signed'} onClick={() => action('signed', () => api.download(`/api/jobs/${id}/export.signed`, `sandbox-${filename}.signed.json`))} title="Ed25519-signed evidence copy a recipient can verify without trusting us">
+              <ShieldCheck size={14} aria-hidden /> Signed
+            </Button>
+            <Button size="sm" busy={busy === 'incident'} onClick={() => action('incident', () => api.download(`/api/jobs/${id}/export.incident`, `sandbox-${filename}.incident.json`))} title="Regulatory incident record (NIS2 Article 23 / DORA Article 19)">
+              <Siren size={14} aria-hidden /> Incident
+            </Button>
             <Button size="sm" busy={busy === 're'} onClick={() => action('re', () => api.post(`/api/jobs/${id}/reanalyze`))}>
               <RefreshCw size={14} aria-hidden /> Re-analyse
             </Button>
@@ -231,6 +245,19 @@ export function JobDetail() {
       {job.status === 'failed' && (
         <Callout tone="danger" title="Analysis failed">
           {job.error || 'The job did not complete. Re-analyse to try again.'}
+        </Callout>
+      )}
+
+      {/* A COMPLETED job can still carry an error, and 48 on this deployment do.
+          `error` was rendered only when status === 'failed', so a sample the
+          detonation sandbox REFUSED — "CAPE refused the sample: Linux binaries
+          analysis isn't enabled" — read as a finished analysis, and 46 of them
+          read `low`. The tier card says "Not run", which is the same words it
+          uses when no worker is attached at all. The gap in the evidence has to
+          be visible next to the verdict, not one panel further down. */}
+      {job.status !== 'failed' && job.error && (
+        <Callout tone="warning" title="This analysis is incomplete">
+          {job.error} The verdict below rests on the tiers that did run.
         </Callout>
       )}
 
