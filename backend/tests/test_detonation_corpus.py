@@ -1,263 +1,265 @@
-"""Does the dynamic tier tell malware apart from software? Measured, on real runs.
+"""Does the product tell malware apart from software? Measured, on real runs.
 
-`data/detonation_corpus.json` is eleven real CAPEv2 detonations from our own
-host: eight malware (WannaCry, Locky, AgentTesla, Emotet, Zeus, njRAT, and two
-samples pulled from MalwareBazaar the day they were seen) and three signed,
-current releases downloaded from their vendors — the 7-Zip, Notepad++ and PuTTY
-installers. VirusTotal's ratio that day is recorded alongside as an independent
-opinion.
+`data/detonation_corpus.json` is **93 real detonations** on our own CAPEv2 host:
+88 malware from MalwareBazaar and theZoo across 30 family labels, and 5 signed,
+current releases downloaded from their vendors. Every signal in it is what the
+analyzers actually produced — the dynamic half read back from stored job output,
+the static half recomputed with the shipped analyzers — never synthesised.
 
-This file exists because the first honest measurement of the dynamic tier was
-bad enough to invalidate it. Before the fixes these tests lock in:
+It replaces an eleven-sample fixture, and the replacement was not a matter of
+size alone. Two things about the old one were wrong:
 
-    7-Zip installer   CIR 8.3  "Win32.Ransom.HardwareIdProfiling"   malicious
-    WannaCry          CIR 8.3  "Win32.Ransom.HardwareIdProfiling"   malicious
+**It did not replay the pipeline.** It fed the dynamic tier's signals alone and
+recomputed the score with `ioc_total=0`, so it reproduced verdicts the product
+never reached: 57 of 88 where the product gets 72. A fixture that does not
+replay the pipeline cannot regression-test it. This one stores every analyzer
+the job ran and the score the full pipeline computed.
 
-A signed archiver was rated identically to ransomware, given a `destruction`
-capability, and named after a random signal. Meanwhile real Locky scored 0.0,
-because its C2 was dead so it never encrypted anything.
+**Eleven samples said "correct" when they meant "lucky".** Three signed
+installers were enough for the benign side, and the thresholds tuned against
+them produced a regression where *every* signed installer came out malicious.
+Even after that was fixed, the "1 of 5 false positives" figure was measured on a
+single re-detonation: on the corpus run the same 7-Zip binary came out
+**malicious** and on a rerun the next morning **suspicious**, identical bytes.
+Detonation is not deterministic — an unrelated Windows service doing something
+during the run becomes evidence — so a corpus of five cannot measure anything.
 
-Three things caused it, and each is now guarded here:
+WHAT THIS FILE ASSERTS, and why in that shape:
 
-* a sandbox categorises a signature by the threat class it helps *detect*, not
-  by what it proves — `mountpoint_manager_access` is filed under `ransomware`
-  because ransomware enumerates volumes, and so does every installer;
-* "we detected something" fired on any capability at all, including discovery,
-  which every program performs;
-* identification (a named family, an extracted config, a YARA hit in process
-  memory) was thrown away, and it is the one signal that separated the corpus
-  cleanly — 8/8 malware, 0/3 benign, where the sandbox's own aggregate score did
-  not separate them at all (7-Zip scored 9.0, higher than Locky's 8.0).
+* the benign side, **exactly**. A sandbox that flags signed software is worse
+  than no sandbox, so those are hard per-sample invariants.
+* the malware side, as a **floor** on the aggregate. Individual samples move
+  between runs for reasons that are not about our code, and pinning each one
+  would make the suite fail for the wrong reason and train people to re-baseline
+  it. A drop below the floor is a real regression.
 
-Eleven samples is a small corpus and these thresholds are tuned against it, so
-treat a failure as "look at the evidence again", not "adjust the number".
+REGENERATING: `infra/detonation-host/regenerate-corpus.py` on the detonation
+host. Do not hand-edit the measured numbers to make a run pass.
 """
 from __future__ import annotations
 
 import json
-import re
 from pathlib import Path
 
 import pytest
 
-from app.engine import capabilities, impact, scoring, verdict
+from app.engine import capabilities, impact, verdict
 from app.engine.contracts import IOCs, AnalyzerResult, Signal
 
 CORPUS = Path(__file__).parent / "data" / "detonation_corpus.json"
-_CAPE_SEVERITY = {0: "info", 1: "low", 2: "medium", 3: "high"}
+DOC = json.loads(CORPUS.read_text(encoding="utf-8"))
+SAMPLES = DOC["samples"]
+MALWARE = [s for s in SAMPLES if s["kind"] == "malware"]
+BENIGN = [s for s in SAMPLES if s["kind"] == "benign"]
+
+#: The floor. Measured, not chosen: it is what the engine scores on this corpus
+#: at the commit that generated it, and it may only ever be raised.
+#:
+#: It is a floor and not an equality because detonation is not reproducible.
+#: Raising it after an improvement is correct. Lowering it to make a run pass is
+#: how the false-positive regression got in — if a change costs detections, that
+#: is a fact to weigh, not a number to edit.
+MIN_MALWARE_DETECTED = 72
+
+#: Benign impact ratings, as measured. A ratchet: none may get worse.
+#:
+#: WinMerge at 7.5 is an OPEN DEFECT, recorded rather than hidden. A signed diff
+#: tool should not be rated high-impact, and the capability model still credits
+#: it with enough ordinary behaviour (persistence, network, discovery) to get
+#: there. It is no longer *malicious*, which was the urgent half.
+MAX_BENIGN_CIR = {
+    "7z-installer.exe": 6.9,
+    "npp-installer.exe": 0.0,
+    "putty.exe": 0.0,
+    "python.exe": 6.9,
+    "winmerge.exe": 7.5,
+}
 
 
-def _slug(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", (name or "").lower()).strip("_")
-
-
-def _signals(sample: dict) -> list[Signal]:
-    out = [
-        Signal(
-            id=f"capev2.{_slug(s['name'])}",
-            title=s["name"],
-            severity=_CAPE_SEVERITY.get(min(int(s.get("severity") or 1), 3), "low"),
-            detail="",
-            evidence={"categories": s.get("categories") or []},
+def _results(sample: dict) -> list[AnalyzerResult]:
+    """Exactly what the pipeline hands `classify` — every analyzer, not one."""
+    return [
+        AnalyzerResult(
+            analyzer=name,
+            ran=analyzer["ran"],
+            signals=[
+                Signal(
+                    id=s["id"], title=s["id"], severity=s["severity"], detail="",
+                    evidence=s.get("evidence") or {},
+                )
+                for s in analyzer["signals"]
+            ],
+            facts={},
+            iocs=IOCs(),
         )
-        for s in sample["signatures"]
+        for name, analyzer in sample["analyzers"].items()
     ]
-    for family in sample.get("families") or []:
-        out.append(Signal(
-            id=f"capev2.detection.{_slug(family)}",
-            title=f"Identified as {family}", severity="critical", detail="",
-            evidence={"family": family, "categories": ["identification"]},
-        ))
-    for cfg in sample.get("configs") or []:
-        out.append(Signal(
-            id=f"capev2.config.{_slug(cfg)}",
-            title=f"{cfg} configuration extracted", severity="critical", detail="",
-            evidence={"family": cfg, "categories": ["identification"]},
-        ))
-    return out
 
 
 def _assess(sample: dict) -> dict:
-    signals = _signals(sample)
-    results = [AnalyzerResult(
-        analyzer="dynamic.capev2", ran=True, signals=signals, facts={}, iocs=IOCs()
-    )]
-    risk = scoring.assess(results, ioc_total=0)
+    results = _results(sample)
+    signals = [s for r in results if r.ran for s in r.signals]
     return {
         "caps": capabilities.detect(signals),
         "impact": impact.assess("pe", signals, None).to_dict(),
         "verdict": verdict.classify(
-            "pe", "application/x-dosexec", results, None, risk.final_score
+            "pe", "application/x-dosexec", results, None, sample["final_score"]
         ).to_dict(),
-        "risk": risk.final_score,
     }
-
-
-CORPUS_DATA = json.loads(CORPUS.read_text(encoding="utf-8"))["samples"]
-MALWARE = [s for s in CORPUS_DATA if s["kind"] == "malware"]
-BENIGN = [s for s in CORPUS_DATA if s["kind"] == "benign"]
 
 
 def _ids(samples):
     return [s["name"] for s in samples]
 
 
-def test_the_corpus_is_what_it_claims_to_be() -> None:
-    assert len(MALWARE) == 8 and len(BENIGN) == 3
-    # If VirusTotal disagreed with our labelling, the corpus itself is wrong.
-    for s in MALWARE:
-        hit, total = (int(x) for x in s["virustotal"].split("/"))
-        assert hit >= 20, f"{s['name']} is labelled malware but VT says {s['virustotal']}"
-    for s in BENIGN:
-        hit, _ = (int(x) for x in s["virustotal"].split("/"))
-        assert hit <= 1, f"{s['name']} is labelled benign but VT says {s['virustotal']}"
+# --- the corpus is what it claims to be --------------------------------------
 
 
-# --- the headline claim ------------------------------------------------------
+def test_the_corpus_is_real_and_wide() -> None:
+    assert len(MALWARE) == 88 and len(BENIGN) == 5
+    assert len({s["family_label"] for s in MALWARE if s["family_label"]}) >= 25
+    for sample in SAMPLES:
+        assert sample["analyzers"], f"{sample['name']} has no analyzer output"
+        assert sample["analyzers"].get("dynamic.capev2", {}).get("ran"), (
+            f"{sample['name']} is in a detonation corpus without a detonation"
+        )
+        assert sample.get("static_refreshed") is True, (
+            f"{sample['name']} carries static signals from an older analyzer"
+        )
 
 
-#: Malware this corpus does NOT reach a `malicious` verdict on, and why.
-#:
-#: An honest list beats a passing test. Locky detonated with a long-dead C2: it
-#: encrypted nothing, demonstrated no accusing capability and scored 39. It used
-#: to be called malicious because CAPE's `procmem_yara` signature fired and we
-#: read that as identification — but that signature only means "a YARA rule
-#: matched somewhere", and the rule that matched Locky
-#: (`INDICATOR_SUSPICIOUS_GENRansomware`) is not the rule that matched a signed
-#: release of WinMerge (`embedded_macho`, three 4-byte magics anywhere in a
-#: dump). The verdict could not tell them apart, so it called both malicious.
-#:
-#: CAPE never named Locky — its `detections` field is empty — so nothing in the
-#: evidence says "this IS Locky". `suspicious` is what we can defend. Getting it
-#: back means better identification, not a looser rule.
-KNOWN_MISSES = {
-    "Locky": "suspicious",
-}
+def test_the_recorded_measurement_matches_the_engine() -> None:
+    """The header must not drift from what the code actually does."""
+    got = sum(1 for s in MALWARE if _assess(s)["verdict"]["verdict"] == "malicious")
+    assert got == DOC["_measured"]["malware_malicious"], (
+        f"the corpus header claims {DOC['_measured']['malware_malicious']}/88 "
+        f"and the engine produces {got}/88 — regenerate it or explain the change"
+    )
 
 
-@pytest.mark.parametrize("sample", MALWARE, ids=_ids(MALWARE))
-def test_every_malware_sample_is_called_malicious(sample) -> None:
-    got = _assess(sample)["verdict"]["verdict"]
-    expected = KNOWN_MISSES.get(sample["name"], "malicious")
-    assert got == expected, f"{sample['name']} -> {got}, expected {expected}"
+# --- the benign side, exactly ------------------------------------------------
 
 
 @pytest.mark.parametrize("sample", BENIGN, ids=_ids(BENIGN))
-def test_no_signed_installer_is_called_malicious(sample) -> None:
+def test_no_signed_release_is_called_malicious(sample) -> None:
     """The failure that makes a sandbox unusable: flagging ordinary software."""
-    got = _assess(sample)["verdict"]["verdict"]
-    assert got != "malicious", f"{sample['name']} (VT {sample['virustotal']}) -> {got}"
-
-
-# --- and the reasons hold up -------------------------------------------------
+    got = _assess(sample)["verdict"]
+    assert got["verdict"] != "malicious", f"{sample['name']} -> {got}"
 
 
 @pytest.mark.parametrize("sample", BENIGN, ids=_ids(BENIGN))
-def test_no_installer_is_accused_of_a_high_consequence_capability(sample) -> None:
+def test_no_signed_release_is_accused_of_a_high_consequence_capability(sample) -> None:
     """Destruction, credential theft, exploitation and injection are accusations."""
     accused = _assess(sample)["caps"] & capabilities.HIGH_CONSEQUENCE
     assert not accused, f"{sample['name']} accused of {sorted(accused)}"
 
 
 @pytest.mark.parametrize("sample", BENIGN, ids=_ids(BENIGN))
-def test_installers_are_not_rated_as_severe_as_ransomware(sample) -> None:
-    assert _assess(sample)["impact"]["base_score"] < 7.0
+def test_no_engine_fires_on_a_signed_release(sample) -> None:
+    """Zero of seven. Anything else is a detection we would have to defend."""
+    engines = _assess(sample)["verdict"]["engines"]
+    fired = [e["engine"] for e in engines if e["detected"]]
+    assert not fired, f"{sample['name']} detected by {fired}"
 
 
-def test_ransomware_is_rated_severe_on_availability() -> None:
-    wannacry = next(s for s in MALWARE if "WannaCry" in s["name"])
-    data = _assess(wannacry)["impact"]
-    assert data["base_score"] >= 7.0
-    assert "/A:H" in data["vector"]
-    assert "destruction" in _assess(wannacry)["caps"]
+@pytest.mark.parametrize("sample", BENIGN, ids=_ids(BENIGN))
+def test_benign_impact_ratings_do_not_get_worse(sample) -> None:
+    ceiling = MAX_BENIGN_CIR[sample["name"]]
+    got = _assess(sample)["impact"]["base_score"]
+    assert got <= ceiling, f"{sample['name']} rose from {ceiling} to {got}"
+
+
+# --- the malware side, as a floor --------------------------------------------
+
+
+def test_the_detection_rate_does_not_regress() -> None:
+    caught = [s["name"] for s in MALWARE if _assess(s)["verdict"]["verdict"] == "malicious"]
+    assert len(caught) >= MIN_MALWARE_DETECTED, (
+        f"{len(caught)}/{len(MALWARE)} detected, floor is {MIN_MALWARE_DETECTED}. "
+        "Read the evidence for what changed before touching a threshold."
+    )
+
+
+def test_nothing_malicious_is_called_clean() -> None:
+    """Missing a sample is a coverage gap; calling it clean is a wrong answer."""
+    clean = [s["name"] for s in MALWARE if _assess(s)["verdict"]["verdict"] == "clean"]
+    assert not clean, f"malware rated clean: {clean}"
+
+
+# --- and the reasons hold up -------------------------------------------------
+
+
+def test_identification_never_fires_on_a_signed_release() -> None:
+    """It fires when the sandbox NAMED the family — an identity claim.
+
+    It used to fire on any high-severity signal the sandbox filed under the
+    category "malware", i.e. "a YARA rule matched somewhere in the analysis".
+    Measured over eleven samples that looked perfect; measured over this corpus
+    it called a signed WinMerge release malicious on `embedded_macho`, a rule
+    that fires on three 4-byte magics appearing anywhere in a dump.
+    """
+    def identified(sample):
+        return any(
+            e["engine"] == "CS-SandboxID" and e["detected"]
+            for e in _assess(sample)["verdict"]["engines"]
+        )
+
+    assert not any(identified(s) for s in BENIGN)
+    assert sum(1 for s in MALWARE if identified(s)) >= 30
 
 
 def test_a_named_family_becomes_the_threat_name() -> None:
     """Not a random signal: a real WannaCry run was `Ransom.HardwareIdProfiling`."""
-    for name, expected in (("WannaCry", "WanaCry"), ("AgentTesla", "AgentTesla"),
-                           ("njRAT", "Njrat"), ("Formbook", "Formbook")):
-        sample = next(s for s in MALWARE if name in s["name"])
-        assert expected in _assess(sample)["verdict"]["threat_name"]
+    named = [
+        s for s in MALWARE
+        if any(
+            sig.get("evidence", {}).get("family")
+            for a in s["analyzers"].values() for sig in a["signals"]
+        )
+    ]
+    assert named, "no sample in the corpus carries a family identification"
+    for sample in named:
+        family = next(
+            sig["evidence"]["family"]
+            for a in sample["analyzers"].values() for sig in a["signals"]
+            if sig.get("evidence", {}).get("family")
+        )
+        token = "".join(c for c in family if c.isalnum())[:20]
+        got = _assess(sample)["verdict"]["threat_name"]
+        assert token.lower() in got.lower(), f"{sample['name']}: {family} -> {got}"
 
 
-def test_a_signed_diff_tool_is_not_a_wiper() -> None:
-    """WinMerge, reduced to the two signals that made it `malicious`.
+def test_demonstrated_destruction_is_rated_on_availability() -> None:
+    """Where the evidence shows it, the rating must say so — and only there.
 
-    Both are real, taken from its detonation (CAPE task 148, job 119), and
-    neither was produced by WinMerge:
-
-    * `suspicious_iocontrol_codes`, high, categories `bootkit,rootkit,wiper`.
-      Its two calls came from pid 5832, `mousocoreworker.exe` — the Windows
-      Update Session Orchestrator, a child of svchost — while the sample ran as
-      pid 5168 under explorer. CAPE attributes signatures to the analysis, not
-      to a process, so Windows updating itself became evidence. One such signal
-      used to grant `destruction`, which fired two of the three engines.
-    * `procmem_yara`, high, category `malware`, which used to count as
-      identification and force `malicious` outright whatever the score. The rule
-      was `embedded_macho`, and it matched `7z.dll` — a file WinMerge's installer
-      writes, because WinMerge bundles 7-Zip. The matching bytes are 7-Zip's own
-      table of archive-format magic numbers, the ones it needs in order to
-      RECOGNISE a Mach-O file. A parser was flagged for containing the constants
-      that make it a parser.
-
-    Neither is a finding. Together they made a signed, open-source utility read
-    identically to ransomware.
+    Two samples in this corpus demonstrate a destruction capability (DCRat and
+    Stealc, both A:H at 8.3). Exactly two, and no benign sample: `destruction` is
+    the accusation this product has been wrongest about, so both halves matter.
     """
-    winmerge = {
-        "kind": "benign", "name": "WinMerge", "virustotal": "1/70",
-        "families": [], "configs": [],
-        "signatures": [
-            {"name": "suspicious_iocontrol_codes", "severity": 3,
-             "categories": ["bootkit", "rootkit", "wiper"]},
-            {"name": "procmem_yara", "severity": 3, "categories": ["malware"]},
-            {"name": "mountpoint_manager_access", "severity": 3,
-             "categories": ["ransomware", "wiper", "discovery"]},
-            {"name": "hardware_id_profiling", "severity": 3,
-             "categories": ["evasion", "recon", "anti-sandbox"]},
-        ],
-    }
-    result = _assess(winmerge)
-    assert result["verdict"]["verdict"] != "malicious", result["verdict"]
-    assert not (result["caps"] & capabilities.HIGH_CONSEQUENCE), sorted(result["caps"])
-    assert not any(
-        e["engine"] == "CS-SandboxID" and e["detected"]
-        for e in result["verdict"]["engines"]
-    ), "a YARA rule matching is not an identification"
+    destructive = [s for s in SAMPLES if "destruction" in _assess(s)["caps"]]
+    assert destructive, "no sample demonstrates destruction; the corpus lost its teeth"
+    assert not [s for s in destructive if s["kind"] == "benign"], (
+        f"benign accused of destruction: {[s['name'] for s in destructive if s['kind'] == 'benign']}"
+    )
+    for sample in destructive:
+        rating = _assess(sample)["impact"]
+        assert "/A:H" in rating["vector"], f"{sample['name']}: {rating['vector']}"
+        assert rating["base_score"] >= 7.0, f"{sample['name']}: {rating['base_score']}"
 
 
-def test_a_sample_that_never_ran_demonstrates_nothing() -> None:
-    """Locky's C2 was dead, so it encrypted nothing: no capability, CIR 0.0.
+def test_a_sample_that_barely_ran_is_not_rated_severe() -> None:
+    """The corpus's WannaCry produced six dynamic signals and is rated CIR 0.0.
 
-    Behaviour alone therefore misses it entirely, and nothing identified it — so
-    the honest answer is `suspicious`. This test exists to keep that visible: if
-    a future change makes Locky `malicious` again, the question to ask is *what
-    new evidence* did that, not whether the number moved the right way.
+    It is real WannaCry and it did almost nothing — packed, or it did not find
+    what it needed. Rating it on its family name rather than on its behaviour
+    would be the product inventing evidence, which is the failure mode every
+    other test here guards from the opposite direction. A full WannaCry
+    detonation IS rated severe; that is `test_wannacry_evidence.py`, against the
+    68-signature run.
     """
-    locky = next(s for s in MALWARE if "Locky" in s["name"])
-    result = _assess(locky)
-    assert not (result["caps"] & capabilities.HIGH_CONSEQUENCE)
-    assert result["impact"]["base_score"] == 0.0
-    assert result["verdict"]["verdict"] == "suspicious"
-
-
-def test_identification_never_fires_on_ordinary_software() -> None:
-    """It fires when the sandbox NAMED the family — an identity claim.
-
-    It used to fire on any high-severity signal the sandbox filed under the
-    category "malware", which in practice meant "a YARA rule matched somewhere in
-    the analysis". Measured over this corpus that looked perfect (8/8 malware,
-    0/3 benign); measured over a wider one it called a signed WinMerge release
-    malicious on `embedded_macho`. A rule matching is an observation about
-    content, not an identification, and it no longer decides a verdict.
-
-    So this asserts the half that must never break — no benign sample is ever
-    identified — and reports the malware half rather than fixing it, because a
-    sandbox that cannot name a family is a coverage fact, not a bug in the rule.
-    """
-    def identified(sample):
-        engines = _assess(sample)["verdict"]["engines"]
-        return any(e["engine"] == "CS-SandboxID" and e["detected"] for e in engines)
-
-    assert not any(identified(s) for s in BENIGN)
-    named = [s["name"] for s in MALWARE if identified(s)]
-    assert len(named) == 5, f"expected 5 named families, got {named}"
+    wannacry = [s for s in MALWARE if "wannacry" in (s["family_label"] or "").lower()]
+    assert wannacry, "the corpus lost its ransomware sample"
+    thin = [s for s in wannacry if len(s["analyzers"]["dynamic.capev2"]["signals"]) < 10]
+    assert thin, "expected a WannaCry run that barely executed"
+    for sample in thin:
+        assert _assess(sample)["impact"]["base_score"] == 0.0
