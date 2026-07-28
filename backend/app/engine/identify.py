@@ -258,6 +258,13 @@ def identify(path: str, original_name: str) -> Identity:
         # imaginable — was rated malicious at 81.1 as
         # `Script.Downloader.ExtensionMismatch`.
         ".crt", ".cer", ".pem", ".key", ".pub", ".csr", ".p7b", ".asc", ".sig",
+        # Man pages are roff source, i.e. text. `rclone.1` was MALICIOUS at 77.3
+        # as `Script.Downloader.ExtensionMismatch`, and `upx.1` at 69.2 — the
+        # manuals of the tools, shipped inside the tools' own archives.
+        ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9", ".man", ".roff",
+        # Unix packaging and desktop metadata, all plain text.
+        ".desktop", ".service", ".def", ".po", ".pot", ".diff", ".patch",
+        ".properties", ".tsv", ".less", ".kt", ".swift", ".cs", ".hpp",
     )
     same_text_family = family == "script" and (
         claimed in _SCRIPT_EXTENSIONS or claimed in _TEXTUAL_EXTENSIONS

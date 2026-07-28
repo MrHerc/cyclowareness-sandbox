@@ -413,13 +413,35 @@ def classify(
     # Formbook" - not a behavioural guess, and it does not get weaker because the
     # sample failed to do much: a loader whose C2 is dead does almost nothing and
     # is still what it is.
+    # A document that DESCRIBES attack behaviour is never clean, and never worse
+    # than suspicious.
+    #
+    # The script analyzer downgrades its capability claims for files the OS does
+    # not execute — a README explaining `curl … | bash` is text about a program,
+    # not a program — which is what stopped rclone's README.txt being MALICIOUS
+    # at CIR 8.8. But the other end needs saying too: the same downgrade made a
+    # working PowerShell dropper renamed `instructions.txt` come out CLEAN at
+    # 12.8, and "clean" is a wrong answer for a file full of working attack code.
+    #
+    # So: the findings are notes rather than capabilities, and the verdict is
+    # capped at suspicious rather than floored at clean. Neither end pretends.
+    #
+    # TWO, for the same reason two conclusive signals are needed to accuse a
+    # sample of destruction. Almost every README mentions `curl` once, and a
+    # product where every README is "suspicious" has taught its analysts to
+    # ignore the word. A document that describes remote payload retrieval AND
+    # dynamic execution AND persistence is not documentation that happens to
+    # mention a tool — it is a set of instructions.
+    prose_findings = {s.id for s in all_signals if s.id.startswith("document.mentions_")}
+    describes_an_attack = len(prose_findings) >= 2
+
     if identification:
         verdict = "malicious"
     elif caps and final_score >= 60:
         verdict = "malicious"
     elif caps and final_score >= 30 and detected >= 2:
         verdict = "malicious"
-    elif final_score >= 30 or (detected >= 1 and caps):
+    elif final_score >= 30 or (detected >= 1 and caps) or describes_an_attack:
         verdict = "suspicious"
     else:
         verdict = "clean"

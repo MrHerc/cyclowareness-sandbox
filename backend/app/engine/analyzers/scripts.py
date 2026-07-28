@@ -649,6 +649,90 @@ def _layer_signals(layers: list[dict[str, Any]]) -> list[Signal]:
     return out
 
 
+# --- prose -------------------------------------------------------------------
+
+#: Extensions whose content is READ, never executed. Documentation, notes,
+#: manuals, config, source in languages nothing here runs.
+#:
+#: The indicators this analyzer looks for do not change meaning between a script
+#: and a document — but what they PROVE does. In a `.ps1`, `Invoke-Expression`
+#: is the program: it will run. In a README it is a sentence about a program.
+#: The engine's own rule is that a capability is something the sample can DO,
+#: not something it mentions, and this analyzer was breaking it on every file.
+#:
+#: Measured on the corpus: of 59 prose files (all documentation extracted from
+#: benign archives, ZERO malware), 24 were rated suspicious or malicious.
+#: rclone's README.txt, README.html and its `rclone.1` man page were MALICIOUS at
+#: CIR 8.8 — for explaining how to install rclone with curl.
+PROSE_EXTENSIONS = frozenset({
+    ".txt", ".md", ".rst", ".log", ".csv", ".tsv",
+    ".html", ".htm", ".xhtml",
+    ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties",
+    ".css", ".scss", ".less",
+    ".c", ".h", ".cpp", ".hpp", ".cs", ".go", ".rs", ".java", ".kt", ".swift",
+    ".sql", ".tex", ".po", ".pot", ".diff", ".patch", ".desktop", ".service", ".def",
+    # man pages: roff sections 1-9, plus the compressed forms
+    ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9", ".man", ".roff",
+})
+
+#: Signal ids this analyzer emits that assert a capability, mapped to the id it
+#: uses instead when the file is prose. The observation is kept — an analyst
+#: should still see that a document contains a download-and-execute pattern,
+#: because that is how a malicious "instructions" file works — but it no longer
+#: claims the file can perform it.
+_PROSE_REWRITE = {
+    "script.download_and_execute": "document.mentions_remote_payload",
+    "script.dynamic_execution": "document.mentions_dynamic_execution",
+    "script.persistence": "document.mentions_persistence",
+    "script.credential_access": "document.mentions_credential_access",
+    "script.defense_evasion": "document.mentions_defense_evasion",
+    "script.amsi_or_etw_tamper": "document.mentions_defence_tampering",
+    "script.execution_policy_bypass": "document.mentions_policy_bypass",
+    "script.encoded_command": "document.mentions_encoded_command",
+    "script.hidden_window": "document.mentions_hidden_window",
+}
+
+
+def _is_prose(sample: Sample) -> bool:
+    """Will the operating system execute this file, or only display it?
+
+    Keyed on the CLAIMED extension, which is what decides whether anything runs
+    it. A `.txt` full of PowerShell is inert until someone renames it — and the
+    moment they do, it is submitted as `.ps1` and analysed as one.
+    """
+    return sample.claimed_extension in PROSE_EXTENSIONS
+
+
+def _as_prose_findings(signals: list[Signal]) -> list[Signal]:
+    """Downgrade capability claims to observations, keeping the evidence."""
+    out: list[Signal] = []
+    for signal in signals:
+        replacement = _PROSE_REWRITE.get(signal.id)
+        if replacement is None:
+            out.append(signal)
+            continue
+        out.append(
+            Signal(
+                id=replacement,
+                title=f"Document text describes: {signal.title[0].lower()}{signal.title[1:]}",
+                # Never above low. This is a fact about wording, and the file is
+                # not executable — a document cannot be the most severe thing in
+                # a report on the strength of what it says.
+                severity="low",
+                detail=(
+                    f"{signal.detail} This file's extension is not executed by the "
+                    "operating system, so the pattern is text describing the "
+                    "behaviour rather than code that performs it. Reported because "
+                    "instructions can still be the malicious part of a delivery, "
+                    "and suppressed to a note because reading is not running."
+                ),
+                evidence={**(signal.evidence or {}), "prose": True,
+                          "original_signal": signal.id},
+            )
+        )
+    return out
+
+
 # --- entry point --------------------------------------------------------------
 
 
@@ -700,6 +784,9 @@ def analyze(sample: Sample) -> AnalyzerResult:
         iocs = iocs.merge(_extract_iocs(layer["text"]))
 
     signals = _merge_hits(hits) + _layer_signals(layers)
+    prose = _is_prose(sample)
+    if prose:
+        signals = _as_prose_findings(signals)
 
     lines = text.splitlines()
     facts: dict[str, Any] = {
@@ -712,6 +799,10 @@ def analyze(sample: Sample) -> AnalyzerResult:
         "entropy": round(_entropy(text), 3),
         "claimed_extension": sample.claimed_extension,
         "extension_mismatch": sample.extension_mismatch,
+        # Stated in the report, not just applied silently: a reader comparing two
+        # files with the same content and different names deserves to see why one
+        # carries findings and the other carries notes.
+        "prose": prose,
         "decoded_layers": [
             {k: v for k, v in layer.items() if k != "text"} | {"snippet": _clip(layer["text"], 400)}
             for layer in layers
