@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from .. import __version__, audit
 from ..auth import Identity, require_admin
 from ..db import get_db
+from ..schemas import MAX_OFFSET
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
@@ -31,7 +32,7 @@ def list_events(
     # Bounded at the edge rather than clamped in the handler: a negative limit
     # reads as "unbounded" to SQLite, which would serialise the whole trail.
     limit: int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_admin),
 ):
@@ -86,7 +87,7 @@ def export(
     object_type: str | None = None,
     object_id: str | None = None,
     limit: int = Query(default=1000, ge=1, le=10000),
-    offset: int = Query(default=0, ge=0),
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_admin),
 ):

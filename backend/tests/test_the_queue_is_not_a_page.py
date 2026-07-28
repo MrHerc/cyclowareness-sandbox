@@ -27,6 +27,9 @@ them honest.
 """
 from __future__ import annotations
 
+import pytest
+
+from app.schemas import MAX_OFFSET
 from tests.test_api import _poll_until_done, _submit
 
 CLEAN = b"# just a note\nnothing to see\n"
@@ -204,3 +207,41 @@ def test_stats_did_not_shadow_a_job_route(client, auth) -> None:
     _poll_until_done(client, auth, public_id)
     assert client.get("/api/jobs/stats", headers=auth).status_code == 200
     assert client.post(f"/api/jobs/{public_id}/reanalyze", headers=auth).status_code == 200
+
+
+# --- an offset is a number that reaches the database -------------------------
+
+
+#: One past int64. Postgres OFFSET is a bigint, so this is the first value it
+#: cannot hold — and every offset in this codebase was declared `ge=0` with no
+#: ceiling, so it went straight through.
+TOO_BIG = 9223372036854775808
+
+PAGED = [
+    "/api/jobs?limit=1&offset={n}",
+    "/api/audit?limit=1&offset={n}",
+    "/api/audit/export?offset={n}",
+]
+
+
+@pytest.mark.parametrize("path", PAGED)
+def test_an_offset_past_int64_is_refused_not_a_500(client, auth, path) -> None:
+    """Reproduced on the live deployment before the bound existed: a single
+    authenticated GET, no body, and `GET /api/jobs`, `GET /api/audit` and
+    `GET /api/audit/export` each answered **500 Internal Server Error** in
+    text/plain — the one error shape no client on this API handles."""
+    for value in (TOO_BIG, TOO_BIG * 2, 10**40):
+        response = client.get(path.format(n=value), headers=auth)
+        assert response.status_code in (401, 403, 422), (
+            f"{path.format(n=value)} -> {response.status_code} {response.text[:120]}"
+        )
+        if response.status_code == 422:
+            assert response.headers["content-type"].startswith("application/json")
+
+
+def test_a_workable_offset_is_still_accepted(client, auth) -> None:
+    """The other half: the bound must be far past anything real. A billion rows
+    of quarantined samples would be petabytes on disk."""
+    response = client.get(f"/api/jobs?limit=1&offset={MAX_OFFSET}", headers=auth)
+    assert response.status_code == 200, response.text
+    assert response.json()["items"] == []

@@ -57,6 +57,21 @@ class JobSummary(BaseModel):
         )
 
 
+#: The largest `offset` any paged endpoint accepts.
+#:
+#: Every offset in this codebase was declared `ge=0` with no ceiling, so the
+#: value went to the database unbounded. Postgres OFFSET is a bigint, and
+#: `?offset=9223372036854775808` — one past int64 — reached it and came back as
+#: a **500 in text/plain** from `GET /api/jobs`, `GET /api/audit` and
+#: `GET /api/audit/export`, on a single authenticated GET with no body.
+#:
+#: A billion is not a guess at a real table size; it is a number far past any
+#: deployment this product can physically hold (the quarantine alone would be
+#: petabytes) that still leaves the arithmetic nowhere near the type's edge.
+#: Callers never need to guess anyway: every paged response carries its total.
+MAX_OFFSET = 1_000_000_000
+
+
 class JobPage(BaseModel):
     """One page of the queue, and how much of it there is.
 

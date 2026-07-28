@@ -30,6 +30,7 @@ from ..engine.models import Feedback, JobSource, JobStatus, SandboxJob
 from ..engine.storage import EmptySample, SampleTooLarge, store_stream
 from ..runner import submit_analysis
 from ..schemas import (
+    MAX_OFFSET,
     FamilyCount,
     FeedbackRequest,
     JobDetail,
@@ -242,7 +243,11 @@ def list_jobs(
     # does not declare, so `?offset=200` was accepted and silently dropped and
     # every request returned the same newest page — 71 of the deployment's 269
     # jobs were unreachable through this endpoint at any limit.
-    offset: int = Query(default=0, ge=0),
+    #
+    # Bounded above as well as below: an unbounded offset reaches Postgres,
+    # whose OFFSET is a bigint, and one past int64 came back as a 500. See
+    # MAX_OFFSET.
+    offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
