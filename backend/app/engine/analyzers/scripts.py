@@ -673,6 +673,11 @@ PROSE_EXTENSIONS = frozenset({
     ".sql", ".tex", ".po", ".pot", ".diff", ".patch", ".desktop", ".service", ".def",
     # man pages: roff sections 1-9, plus the compressed forms
     ".1", ".2", ".3", ".4", ".5", ".6", ".7", ".8", ".9", ".man", ".roff",
+    # PEM-armoured material: certificates, keys, requests, signatures. Base64
+    # between BEGIN/END markers with commentary around it. `curl-ca-bundle.crt`
+    # came out MALICIOUS 67.2 because its header cites the URL the bundle is
+    # extracted from, which the analyzer read as fetching a payload.
+    ".crt", ".cer", ".pem", ".key", ".pub", ".csr", ".p7b", ".asc", ".sig",
 })
 
 #: Signal ids this analyzer emits that assert a capability, mapped to the id it

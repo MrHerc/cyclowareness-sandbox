@@ -162,3 +162,33 @@ def test_the_prose_list_contains_no_executable_extension() -> None:
     }
     overlap = scripts.PROSE_EXTENSIONS & executable
     assert not overlap, f"executable extensions treated as prose: {sorted(overlap)}"
+
+
+# --- 4. PEM-armoured material is data too ------------------------------------
+
+#: The header of curl's CA bundle, near enough. It cites the URL the bundle is
+#: extracted from and the tool that consumes it; the body is base64 between
+#: BEGIN/END markers, which the analyzer decodes and calls obfuscation.
+CA_BUNDLE = (
+    b"##\n## Bundle of CA Root Certificates\n##\n"
+    b"## Find updated versions here: https://curl.se/docs/caextract.html\n"
+    b"## Fetch and install with: curl -O https://curl.se/ca/cacert.pem | sh\n"
+    b"##\n-----BEGIN CERTIFICATE-----\n"
+    + b"MIIDdTCCAl2gAwIBAgILBAAAAAABFUtaw5QwDQYJKoZIhvcNAQEFBQAwVzELMAkG\n" * 40
+    + b"-----END CERTIFICATE-----\n"
+)
+
+
+def test_a_certificate_bundle_is_not_a_downloader(tmp_path) -> None:
+    """`curl-ca-bundle.crt`, shipped inside curl's own release zip, came out
+    `Script.Downloader.DownloadAndExecute`. Nothing executes a `.crt`."""
+    got, risk, result = _assess(tmp_path, "curl-ca-bundle.crt", CA_BUNDLE)
+    ids = {s.id for s in result.signals}
+    assert "script.download_and_execute" not in ids, ids
+    assert got.verdict == "clean", (got.to_dict(), risk.final_score)
+
+
+def test_the_same_bytes_named_ps1_are_still_read_as_code(tmp_path) -> None:
+    """The guard that keeps the test above from being vacuous."""
+    _got, _risk, result = _assess(tmp_path, "cacert.ps1", CA_BUNDLE)
+    assert "script.download_and_execute" in {s.id for s in result.signals}
