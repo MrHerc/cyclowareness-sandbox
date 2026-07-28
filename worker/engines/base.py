@@ -65,12 +65,19 @@ class Report:
     ``ran=False`` with an ``unavailable_reason`` is a first-class outcome: it is
     how the worker says "I could not detonate this" without pretending the
     sample was clean. The backend records that distinction and shows it.
+
+    ``refused=True`` narrows that to the case where the sandbox *looked at this
+    sample* and declined it, as opposed to being absent, busy or broken. The
+    difference decides whether trying again is worth anything: a timeout may
+    succeed on the next pass, a refusal will be refused identically forever.
     """
 
     engine: str
     worker: str
     ran: bool = True
     unavailable_reason: str | None = None
+    #: The sandbox declined this sample, and will decline it again.
+    refused: bool = False
     signals: list[dict[str, Any]] = field(default_factory=list)
     facts: dict[str, Any] = field(default_factory=dict)
     iocs: dict[str, list[str]] = field(default_factory=empty_iocs)
@@ -80,6 +87,19 @@ class Report:
     @classmethod
     def unavailable(cls, engine: str, worker: str, reason: str) -> "Report":
         return cls(engine=engine, worker=worker, ran=False, unavailable_reason=reason)
+
+    @classmethod
+    def refused_sample(cls, engine: str, worker: str, reason: str) -> "Report":
+        """The sandbox rejected this sample outright — do not offer it again.
+
+        Eight corpus samples were refused by CAPE and re-offered on every poll
+        forever, because nothing distinguished "declined" from "not right now".
+        Each looked like a completed, low-risk analysis; they were live Mirai and
+        Gafgyt binaries that had never executed.
+        """
+        return cls(
+            engine=engine, worker=worker, ran=False, unavailable_reason=reason, refused=True
+        )
 
     def add_signal(self, *args: Any, **kwargs: Any) -> None:
         self.signals.append(signal(*args, **kwargs))
@@ -102,6 +122,7 @@ class Report:
             "worker": self.worker,
             "ran": bool(self.ran),
             "unavailable_reason": self.unavailable_reason,
+            "refused": bool(self.refused),
             "signals": list(self.signals or []),
             "facts": dict(self.facts or {}),
             "iocs": iocs,

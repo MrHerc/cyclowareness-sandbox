@@ -164,6 +164,10 @@ class DynamicReportIn(BaseModel):
     worker: str = "worker"
     ran: bool = True
     unavailable_reason: str | None = None
+    #: The sandbox declined this sample, rather than being unavailable. Terminal:
+    #: the job is not offered for detonation again. Defaults False, so a worker
+    #: that predates the field keeps the old retrying behaviour.
+    refused: bool = False
     signals: list[SignalIn] = Field(default_factory=list)
     facts: dict[str, Any] = Field(default_factory=dict)
     iocs: IOCsIn = Field(default_factory=IOCsIn)

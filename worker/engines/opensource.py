@@ -220,11 +220,26 @@ class CapeV2Engine(_HttpSandboxEngine):
 
         ``error`` is ``[]`` on success for create and ``False`` for reads, so it
         is truthiness — not presence — that signals a failure.
+
+        ``error_value`` is generic on the submission path: every refusal reads
+        "Error adding task to database", whatever the reason. The reason itself
+        is in the sibling ``errors`` array, and dropping it cost a night. Eight
+        corpus samples were refused and the only record anywhere said "Error
+        adding task to database" — CAPE does not log this path either
+        (``web_utils.py:916`` is a bare return). The real answer, present in the
+        response all along, was "Linux binaries analysis isn't enabled".
         """
         if not isinstance(payload, dict):
             return payload, None
         if payload.get("error"):
-            return None, str(payload.get("error_value") or payload.get("error"))
+            message = str(payload.get("error_value") or payload.get("error"))
+            for entry in payload.get("errors") or []:
+                # [{"<filename>": {"error": "<the actual reason>"}}]
+                for value in (entry or {}).values() if isinstance(entry, dict) else ():
+                    reason = value.get("error") if isinstance(value, dict) else value
+                    if reason and str(reason) not in message:
+                        message = f"{message}: {reason}"
+            return None, message
         return payload.get("data", payload), None
 
     def run(self, sample_path: str, sha256: str, family: str) -> Report:
@@ -246,10 +261,15 @@ class CapeV2Engine(_HttpSandboxEngine):
             resp.raise_for_status()
             data, err = self._unwrap(resp.json())
             if err:
-                return Report.unavailable(self.name, self.config.worker_name, f"CAPE refused the sample: {err}")
+                # The sandbox looked at this sample and said no. Retrying sends
+                # the identical bytes under the identical name and gets the
+                # identical answer, so this is terminal, not "not right now".
+                return Report.refused_sample(
+                    self.name, self.config.worker_name, f"CAPE refused the sample: {err}"
+                )
             task_ids = (data or {}).get("task_ids") or []
             if not task_ids:
-                return Report.unavailable(
+                return Report.refused_sample(
                     self.name, self.config.worker_name, f"CAPE returned no task id: {data!r}"
                 )
             task_id = task_ids[0]
