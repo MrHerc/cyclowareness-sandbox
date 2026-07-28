@@ -23,6 +23,7 @@ from .. import audit, metrics, sovereignty
 from ..auth import Identity, require_analyst
 from ..config import Settings, get_settings
 from ..db import get_db
+from ..remote import client_ip
 from ..engine import attestation, pipeline
 from ..engine import incident as incident_mod
 from ..engine import report as report_mod
@@ -73,7 +74,7 @@ def _trace(
         tenant=identity.tenant,
         object_type="sample" if public_id else "",
         object_id=public_id,
-        source_ip=request.client.host if request.client else None,
+        source_ip=client_ip(request),
         detail=detail,
     )
 

@@ -58,6 +58,18 @@ class Settings(BaseSettings):
     #: ``default_tenant``, which is what a single-tenant deployment wants.
     analyst_tenant: str = Field(default="")
 
+    # --- deployment topology ------------------------------------------------
+    #: Whether `X-Forwarded-For` / `X-Real-IP` may be believed.
+    #:
+    #: Off by default, and the default is the safe one: a forwarding header is
+    #: written by whoever is upstream, and upstream includes the caller unless a
+    #: proxy you control overwrites it. Turn it on only when this process is
+    #: reachable ONLY through such a proxy. It decides two things — the address
+    #: written into the chain of custody, and the identity the rate limiter
+    #: charges — so believing a forged one lets a caller both mislabel their own
+    #: audit trail and mint themselves a fresh rate-limit budget per request.
+    trust_proxy_headers: bool = Field(default=False)
+
     # --- ingest limits ------------------------------------------------------
     max_sample_mb: int = Field(default=32)
 

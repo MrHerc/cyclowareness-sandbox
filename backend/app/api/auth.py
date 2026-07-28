@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from .. import audit
 from ..auth import issue_token, verify_login
 from ..config import Settings, get_settings
+from ..remote import client_ip
 from ..schemas import LoginRequest, LoginResponse
 
 logger = logging.getLogger("sandbox.auth")
@@ -24,7 +25,7 @@ def login(
     # attacker-controlled on a failure, so it is truncated like any other
     # untrusted string. audit.record() redacts the password field regardless.
     attempted = payload.username[:64]
-    source_ip = request.client.host if request.client else None
+    source_ip = client_ip(request)
 
     if not verify_login(payload.username, payload.password, settings):
         # One message for both wrong-user and wrong-password: which of the two

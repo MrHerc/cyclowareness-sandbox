@@ -225,6 +225,45 @@ _CAPABILITY_PREFIXES = (
 )
 
 
+#: Shannon entropy over bytes cannot exceed 8. Anything outside [0, 8] is not an
+#: entropy measurement, it is a number that arrived in a `facts` dict.
+_MAX_ENTROPY = 8.0
+
+
+def _as_entropy(value: Any) -> float:
+    """A facts value read as entropy, or 0.0 if it is not one.
+
+    `facts` is free-form and one of its writers is an off-host worker, so this
+    reads attacker-adjacent input. Two values crashed it: a bare `float(value)`
+    on an integer too large for a float raises **OverflowError** — measured, a
+    worker report with `max_section_entropy` set to a 400-digit integer took the
+    ingest to a 500, and because the job stayed `completed` the queue offered it
+    to the worker again on every poll, forever — and a non-finite float sailed
+    through every comparison downstream until it reached the score.
+
+    Clamping rather than raising is deliberate here: a nonsense entropy is a
+    nonsense feature, not a reason to lose a detonation that cost a guest and
+    four minutes. `assess` still refuses to return a non-finite score, so a
+    genuinely corrupt pipeline is still loud.
+
+    Anything that is not a finite measurement contributes NOTHING — `inf` and
+    `NaN` both read as 0.0 rather than as the maximum. The direction matters:
+    `max_entropy` is a feature that pushes the score UP, so mapping garbage to
+    8.0 would let whatever wrote that dict inflate a verdict by sending a value
+    that is not a number. A missing measurement is not evidence.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    try:
+        number = float(value)
+    except (OverflowError, ValueError):
+        # An integer too large to be a float. Not a measurement either.
+        return 0.0
+    if not math.isfinite(number):
+        return 0.0
+    return max(0.0, min(_MAX_ENTROPY, number))
+
+
 def extract_features(results: Iterable[AnalyzerResult], signals: list[Signal], ioc_total: int) -> Features:
     results = list(results)
     ids = [s.id for s in signals]
@@ -235,12 +274,10 @@ def extract_features(results: Iterable[AnalyzerResult], signals: list[Signal], i
     for result in results:
         facts = result.facts or {}
         for key in ("max_section_entropy", "entropy", "overall_entropy"):
-            value = facts.get(key)
-            if isinstance(value, (int, float)):
-                entropy = max(entropy, float(value))
+            entropy = max(entropy, _as_entropy(facts.get(key)))
         for section in facts.get("sections", []) or []:
-            if isinstance(section, dict) and isinstance(section.get("entropy"), (int, float)):
-                entropy = max(entropy, float(section["entropy"]))
+            if isinstance(section, dict):
+                entropy = max(entropy, _as_entropy(section.get("entropy")))
 
     capabilities = sum(1 for i in ids if any(i.startswith(p) for p in _CAPABILITY_PREFIXES))
     layers = sum(1 for i in ids if i == "script.decoded_layer")

@@ -14,12 +14,18 @@ number of times it fired.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Response
+import logging
+
+from fastapi import APIRouter, Response, status
+from sqlalchemy import text
 
 from .. import metrics, retention, sovereignty
 from ..config import get_settings
+from ..db import session_scope
 from ..engine import native
 from ..engine import scoring
+
+logger = logging.getLogger("sandbox.meta")
 
 router = APIRouter(tags=["meta"])
 
@@ -31,14 +37,38 @@ SUPPORTED_EXTENSIONS = [
 ]
 
 
-@router.get("/api/health")
-def health():
+@router.api_route("/api/health", methods=["GET", "HEAD"])
+def health(response: Response):
+    """Is this process actually able to serve?
+
+    It used to return a dict of constants, which cannot fail — so the Docker
+    HEALTHCHECK and render.yaml's `healthCheckPath` both reported healthy for a
+    process that could not reach its database and answered 500 to every real
+    request. A health check that cannot fail is a health check that is not
+    checking anything.
+
+    One trivial round-trip is enough to tell "the process is up" from "the
+    process is up and can serve". Nothing about the data is disclosed, so this
+    stays unauthenticated — an orchestrator has to be able to call it.
+
+    HEAD as well as GET: many uptime probes and load balancers send HEAD, and
+    FastAPI does not add it to a GET route, so they were getting 405.
+    """
     settings = get_settings()
+    database = "ok"
+    try:
+        with session_scope() as session:
+            session.execute(text("SELECT 1"))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("health: database unreachable: %s", exc)
+        database = "unreachable"
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
-        "status": "ok",
+        "status": "ok" if database == "ok" else "degraded",
         "service": "cyclowareness-sandbox",
         "env": settings.app_env,
         "ai_provider": settings.ai_provider,
+        "database": database,
     }
 
 

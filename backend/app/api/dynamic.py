@@ -27,6 +27,8 @@ from sqlalchemy.orm import Session
 from .. import audit, metrics
 from ..config import Settings, get_settings
 from ..db import get_db
+from ..remote import client_ip
+from ..safejson import json_safe
 from ..engine import scoring
 from ..engine.contracts import IOCs, AnalyzerResult, Signal
 from ..engine.models import JobStatus, SandboxJob
@@ -210,7 +212,7 @@ def dynamic_sample(
         tenant=job.tenant_id,
         object_type="sample",
         object_id=job.public_id,
-        source_ip=request.client.host if request.client else None,
+        source_ip=client_ip(request),
         detail={"sha256": job.sha256, "size_bytes": job.size_bytes},
     )
     return FileResponse(
@@ -316,17 +318,37 @@ def ingest_report(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # EVERY free-form value the worker sent, made storable.
+    #
+    # `facts`, a signal's `evidence` and the timeline are `dict[str, Any]`, so
+    # whatever the worker put there is what gets written to the row. `json.loads`
+    # accepts `NaN` and `Infinity` — they are what `json.dumps` emits by default
+    # — and Starlette refuses to serialise them on the way out. So one `NaN` in
+    # `facts` was accepted with a 200 and then made `export.json` and
+    # `export.signed` return 500 for that job permanently: the signed evidence
+    # copy, unreachable, because of a number in a dict.
+    #
+    # This is the widest input the product takes from another machine, and it is
+    # sanitised at the seam rather than at each of the places that later read it.
     dyn_signals = [
-        Signal(id=s.id, title=s.title, severity=s.severity, detail=s.detail, evidence=s.evidence)
+        Signal(
+            id=s.id,
+            title=s.title,
+            severity=s.severity,
+            detail=s.detail,
+            evidence=json_safe(s.evidence),
+        )
         for s in report.signals
     ]
+    dyn_facts = json_safe(report.facts)
+    dyn_timeline = json_safe(report.timeline)
     dyn_iocs = IOCs(**report.iocs.model_dump())
     dyn_result = AnalyzerResult(
         analyzer=f"dynamic.{report.engine}",
         ran=report.ran,
         unavailable_reason=report.unavailable_reason,
         signals=dyn_signals,
-        facts={**report.facts, "engine": report.engine, "worker": report.worker},
+        facts={**dyn_facts, "engine": report.engine, "worker": report.worker},
         iocs=dyn_iocs,
         duration_ms=report.duration_ms,
     )
@@ -366,7 +388,7 @@ def ingest_report(
         # detonation that observed nothing.
         "unavailable_reason": report.unavailable_reason,
         "refused": bool(report.refused),
-        "timeline": report.timeline,
+        "timeline": dyn_timeline,
         "signals": [s.to_dict() for s in dyn_signals],
         "facts": dyn_result.facts,
         "duration_ms": report.duration_ms,

@@ -160,21 +160,21 @@ def test_two_keys_sharing_a_prefix_get_separate_budgets() -> None:
     bucket, and keys are issued with prefixes exactly like `ck_live_`. Two
     tenants would then share a 20-per-minute allowance, so either could exhaust
     the other's simply by using the product."""
-    from app.ratelimit import _identity
+    from app.ratelimit import _identities
 
     class _Req:
         def __init__(self, key):
             self.headers = {"x-api-key": key}
             self.client = None
 
-    acme = _identity(_Req("ck_live_acme_0000000000"))
-    globex = _identity(_Req("ck_live_globex_111111"))
+    acme = _identities(_Req("ck_live_acme_0000000000"))
+    globex = _identities(_Req("ck_live_globex_111111"))
     assert acme != globex, "two tenants' keys collided into one rate-limit bucket"
 
 
 def test_the_rate_limit_identity_does_not_contain_the_credential() -> None:
     """It is logged and stored; a bearer credential must not be in either."""
-    from app.ratelimit import _identity
+    from app.ratelimit import _identities
 
     class _Req:
         def __init__(self, key):
@@ -182,5 +182,6 @@ def test_the_rate_limit_identity_does_not_contain_the_credential() -> None:
             self.client = None
 
     secret = "ck_live_supersecret_value"
-    assert secret not in _identity(_Req(secret))
-    assert secret[:8] not in _identity(_Req(secret))
+    joined = " ".join(_identities(_Req(secret)))
+    assert secret not in joined
+    assert secret[:8] not in joined

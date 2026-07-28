@@ -39,6 +39,59 @@ cannot write there. It used to start healthy and answer uploads with a bare
 | `SANDBOX_QUARANTINE` | in-container path | Quarantine root. Mount for persistence, and `chown` it to 10001. |
 | `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
 | `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
+| `TRUST_PROXY_HEADERS` | `false` | See below. Turn on **only** behind a proxy you control. |
+
+### Behind a reverse proxy
+
+Set `TRUST_PROXY_HEADERS=true` when — and only when — this process is reachable
+*exclusively* through a proxy you control that overwrites or appends
+`X-Forwarded-For`. It decides two things:
+
+- the address written into the **chain of custody** (without it, every audit row
+  records the proxy: measured, `172.17.0.1` on all 275 rows of one deployment);
+- one of the identities the **rate limiter** charges.
+
+Left off behind a proxy, every caller shares one address bucket — a limit that is
+too strict. Turned on while the process is *directly* reachable, a caller can
+forge the header, which lets them both mislabel their own audit trail and mint a
+fresh rate-limit budget for every request. Off is the safe default; the failure
+it causes is over-counting, and the failure the other way is no counting at all.
+
+The value taken is the **last** entry of `X-Forwarded-For`, because conventional
+proxies append the peer they saw (nginx's `proxy_add_x_forwarded_for`). A client
+that forges `X-Forwarded-For: 1.2.3.4` therefore produces `1.2.3.4, <real
+client>`, and the last entry is still what the proxy actually observed.
+
+### Health checks
+
+`GET /api/health` (also `HEAD`) performs one database round-trip and answers
+**503** with `{"status": "degraded", "database": "unreachable"}` when it fails.
+It is the Docker `HEALTHCHECK` and render.yaml's `healthCheckPath`, and it used
+to return constants — so a process that could not reach its database reported
+healthy to both while answering 500 to every real request.
+
+### Rate limits
+
+In-process, sliding window, no external store. `X-RateLimit-Limit`,
+`X-RateLimit-Remaining` and `X-RateLimit-Scope: process` on every response; a
+`429` carries `Retry-After`.
+
+| Path | Limit |
+|---|---|
+| `POST /api/analyze*` | 20 / 60s |
+| `POST /api/auth/login` | 10 / 300s |
+| `/api/jobs*` | 60 / 60s |
+| everything else | 240 / 60s |
+
+Each request is charged to **every** identity it carries — its address, and its
+API key or session token if it has one — and refused when any of them is out. A
+caller who supplies a credential therefore cannot escape the address budget by
+rotating it, which is how the login limit was previously worth nothing.
+
+Exempt: `GET /api/health`, `GET /metrics`, and `/api/dynamic/*` **only** when the
+request carries the configured `X-Worker-Token`. `X-RateLimit-Scope: process`
+means one instance is one budget: several replicas behind a load balancer each
+permit the full rate, and a deployment that does that needs a shared store.
 
 ## Cloud (Render, from GitHub)
 

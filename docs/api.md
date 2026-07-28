@@ -174,7 +174,23 @@ curl http://localhost:8000/api/jobs/<id>/export.stix -H "X-API-Key: demo-key"
 ## Meta
 
 ### `GET /api/health`
-Auth: none. `{ "status": "ok", "service", "env", "ai_provider" }`.
+Auth: none. `GET` and `HEAD`. Performs one database round-trip.
+
+`200` → `{ "status": "ok", "service", "env", "ai_provider", "database": "ok" }`
+`503` → `{ "status": "degraded", …, "database": "unreachable" }`
+
+The Docker `HEALTHCHECK` and render.yaml's `healthCheckPath` both call it, so it
+has to be able to fail: returning constants meant a process that could not reach
+its database reported healthy while answering 500 to every real request.
+
+### Rate limiting
+
+Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
+`X-RateLimit-Scope: process`. A `429` carries `Retry-After` and the usual
+`{"detail": str}`. Limits: 20/60s on `POST /api/analyze*`, 10/300s on
+`POST /api/auth/login`, 60/60s on `/api/jobs*`, 240/60s elsewhere. Exempt:
+`GET /api/health`, `GET /metrics`, and `/api/dynamic/*` with a valid worker
+token. See DEPLOY.md for how a request's identity is decided.
 
 ### `GET /api/capabilities`
 Auth: none. What this deployment can honestly do: YARA rules loaded, static

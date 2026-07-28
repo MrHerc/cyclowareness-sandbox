@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from .. import audit, retention
 from ..auth import Identity, require_admin
 from ..db import get_db
+from ..remote import client_ip
 from ..engine import scoring
 from ..schemas import WeightsUpdate
 
@@ -95,7 +96,7 @@ def _audit_weights(
         tenant=identity.tenant,
         object_type="scoring_weights",
         object_id="global",
-        source_ip=request.client.host if request.client else None,
+        source_ip=client_ip(request),
         outcome=audit.AuditOutcome.SUCCESS if ok else audit.AuditOutcome.FAILURE,
         detail={
             "rule_before": before.get("rule"),

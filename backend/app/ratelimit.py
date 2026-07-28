@@ -21,6 +21,7 @@ operator to discover it.
 from __future__ import annotations
 
 import hashlib
+import secrets
 import threading
 import time
 from collections.abc import Callable
@@ -28,6 +29,9 @@ from dataclasses import dataclass, field
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
+
+from .config import get_settings
+from .remote import client_ip
 
 
 @dataclass(frozen=True)
@@ -50,9 +54,26 @@ RULES: tuple[tuple[str, Rule], ...] = (
 )
 DEFAULT_RULE = Rule(240, 60, "read")
 
-#: The worker polls continuously by design and authenticates with a token only it
-#: holds; throttling it would throttle the product's own pipeline.
-EXEMPT_PREFIXES = ("/api/dynamic/", "/api/health", "/metrics")
+#: Paths that are never metered, matched EXACTLY. As a `startswith` test this
+#: also exempted `/api/healthXXXX` and `/metricsXXXX` — any invented path with
+#: the right first characters, from any unauthenticated caller, unmetered.
+EXEMPT_PATHS = frozenset({"/api/health", "/metrics"})
+
+#: The worker polls continuously by design, so metering it would meter the
+#: product's own pipeline. It is exempt only when it PROVES it is the worker:
+#: the same prefix without a valid token is just an unauthenticated caller, and
+#: exempting those made `/api/dynamic/anything` a free request generator.
+_WORKER_PREFIX = "/api/dynamic/"
+
+
+def _is_exempt(request: Request, path: str) -> bool:
+    if path in EXEMPT_PATHS:
+        return True
+    if not path.startswith(_WORKER_PREFIX):
+        return False
+    configured = get_settings().dynamic_worker_token
+    presented = request.headers.get("x-worker-token", "")
+    return bool(configured) and secrets.compare_digest(presented, configured)
 
 
 def _rule_for(path: str) -> Rule:
@@ -62,31 +83,46 @@ def _rule_for(path: str) -> Rule:
     return DEFAULT_RULE
 
 
-def _identity(request: Request) -> str:
-    """Who to charge. An API key is a stronger identity than an address.
+def _identities(request: Request) -> list[str]:
+    """Every bucket this request is charged to. ALL of them must have room.
 
-    The credential is HASHED, not truncated. A prefix was used so a full key
-    would not reach the logs or the limiter's state — the right instinct, the
-    wrong mechanism: `key:{api_key[:8]}` puts every credential sharing an
-    eight-character prefix in ONE bucket, and keys are issued with prefixes
-    exactly like `ck_live_`. Two tenants on the same deployment would then share
-    a single 20-requests-per-minute allowance, so either could exhaust the
-    other's simply by using the product.
+    It used to return ONE identity, preferring a credential over an address —
+    and the credential came from a header the caller writes and nothing had
+    validated. On `POST /api/auth/login`, which is unauthenticated by
+    definition, a different random `X-API-Key` per request bought a fresh bucket
+    per request: the ten-per-five-minutes authentication rule this module's own
+    docstring says exists to stop a password list did nothing whatsoever, to any
+    caller who added one header.
 
-    A truncated SHA-256 leaks nothing, cannot collide by construction the way a
-    shared prefix does, and is the same length for every caller.
+    Charging the address AS WELL closes it, and closes it without weakening the
+    thing the credential bucket was right about — two tenants sharing one
+    deployment must not be able to exhaust each other's allowance. A caller with
+    a credential now has two budgets and is stopped by whichever runs out first,
+    so rotating the credential no longer buys anything: the address bucket is
+    the one they cannot choose.
+
+    The address is only as good as `TRUST_PROXY_HEADERS` makes it — see
+    `remote.client_ip`. Behind an untrusted proxy every caller shares one
+    address bucket, which over-counts. That is the correct direction to be wrong
+    in: a shared bucket is a limit that is too strict, and the alternative is a
+    limit the caller sets themselves.
+
+    Credentials are HASHED, never truncated. A prefix was tried — the right
+    instinct, the wrong mechanism: `key:{api_key[:8]}` puts every credential
+    sharing an eight-character prefix in ONE bucket, and keys are issued with
+    prefixes exactly like `ck_live_`.
     """
+    out = ["ip:" + (client_ip(request) or "unknown")]
     api_key = request.headers.get("x-api-key")
     if api_key:
-        return "key:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16]
+        out.append("key:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16])
     auth = request.headers.get("authorization")
     if auth:
         # Session tokens end in their HMAC, so a suffix does not collide the way
         # a key prefix does — but hash it too, for the same reason: this string
         # is stored and logged, and it is part of a bearer credential.
-        return "auth:" + hashlib.sha256(auth.encode("utf-8")).hexdigest()[:16]
-    client = request.client
-    return f"ip:{client.host if client else 'unknown'}"
+        out.append("auth:" + hashlib.sha256(auth.encode("utf-8")).hexdigest()[:16])
+    return out
 
 
 @dataclass
@@ -113,20 +149,36 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._last_sweep = clock()
 
-    def check(self, identity: str, rule: Rule) -> tuple[bool, int, int]:
-        """Returns (allowed, remaining, retry_after_seconds)."""
+    def check(self, identities: str | list[str], rule: Rule) -> tuple[bool, int, int]:
+        """Returns (allowed, remaining, retry_after_seconds).
+
+        Every identity is checked BEFORE any is charged. Checking and charging
+        one at a time would spend the address budget on a request the credential
+        budget then refuses, so a caller who tripped one limit would burn the
+        other one down too while being told no.
+        """
+        if isinstance(identities, str):
+            identities = [identities]
         now = self._clock()
-        key = (identity, rule.name)
+        cutoff = now - rule.window
         with self._lock:
             self._sweep(now)
-            bucket = self._buckets.setdefault(key, _Bucket())
-            cutoff = now - rule.window
-            bucket.hits = [t for t in bucket.hits if t > cutoff]
-            if len(bucket.hits) >= rule.limit:
-                retry = int(bucket.hits[0] - cutoff) + 1
+            buckets = []
+            for identity in identities:
+                bucket = self._buckets.setdefault((identity, rule.name), _Bucket())
+                bucket.hits = [t for t in bucket.hits if t > cutoff]
+                buckets.append(bucket)
+
+            full = [b for b in buckets if len(b.hits) >= rule.limit]
+            if full:
+                #: The soonest any of the exhausted buckets frees a slot.
+                retry = min(int(b.hits[0] - cutoff) + 1 for b in full)
                 return False, 0, max(1, retry)
-            bucket.hits.append(now)
-            return True, rule.limit - len(bucket.hits), 0
+
+            for bucket in buckets:
+                bucket.hits.append(now)
+            # The tightest of them, because that is the one that will stop them.
+            return True, min(rule.limit - len(b.hits) for b in buckets), 0
 
     def reset(self) -> None:
         """Forget every caller. For tests, which are not an attacker.
@@ -160,11 +212,11 @@ limiter = RateLimiter()
 
 async def rate_limit_middleware(request: Request, call_next):
     path = request.url.path
-    if request.method == "OPTIONS" or path.startswith(EXEMPT_PREFIXES):
+    if request.method == "OPTIONS" or _is_exempt(request, path):
         return await call_next(request)
 
     rule = _rule_for(path)
-    allowed, remaining, retry_after = limiter.check(_identity(request), rule)
+    allowed, remaining, retry_after = limiter.check(_identities(request), rule)
     if not allowed:
         return JSONResponse(
             status_code=429,

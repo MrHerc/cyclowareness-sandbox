@@ -14,7 +14,7 @@ import time
 
 import pytest
 
-from app.ratelimit import DEFAULT_RULE, RULES, RateLimiter, Rule, _identity, _rule_for
+from app.ratelimit import DEFAULT_RULE, RULES, RateLimiter, Rule, _identities, _rule_for
 
 
 def test_a_caller_within_the_limit_is_never_blocked() -> None:
@@ -132,17 +132,26 @@ def test_submission_is_stricter_than_reading() -> None:
 
 
 def test_an_api_key_identifies_a_caller_better_than_an_address() -> None:
-    """Two clients behind one NAT must not share a budget when they hold keys."""
+    """Two clients behind one NAT must not share a budget when they hold keys.
+
+    The key bucket is still there and still distinguishes them — it is no longer
+    the ONLY bucket, because a caller who picks their own identity picks their
+    own budget. See test_rate_limit_identity.py.
+    """
 
     class _Req:
         def __init__(self, headers, host="10.0.0.1"):
             self.headers = headers
             self.client = type("c", (), {"host": host})()
 
-    a = _identity(_Req({"x-api-key": "ck_aaaaaaaaaaaaaaaa"}))
-    b = _identity(_Req({"x-api-key": "ck_bbbbbbbbbbbbbbbb"}))
+    a = _identities(_Req({"x-api-key": "ck_aaaaaaaaaaaaaaaa"}))
+    b = _identities(_Req({"x-api-key": "ck_bbbbbbbbbbbbbbbb"}))
     assert a != b
-    assert _identity(_Req({})) == "ip:10.0.0.1"
+    assert [i for i in a if i.startswith("key:")] != [i for i in b if i.startswith("key:")]
+    assert _identities(_Req({})) == ["ip:10.0.0.1"]
+    # The address is charged whether or not a credential is present, so it can
+    # never be escaped by supplying one.
+    assert "ip:10.0.0.1" in a
 
 
 def test_the_identity_never_carries_a_whole_credential() -> None:
@@ -152,7 +161,7 @@ def test_the_identity_never_carries_a_whole_credential() -> None:
         headers = {"x-api-key": "ck_supersecretvalue_do_not_log_me"}
         client = type("c", (), {"host": "10.0.0.1"})()
 
-    assert "supersecretvalue" not in _identity(_Req())
+    assert "supersecretvalue" not in " ".join(_identities(_Req()))
 
 
 # --- end to end through the app ----------------------------------------------
