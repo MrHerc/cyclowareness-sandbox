@@ -42,8 +42,26 @@ import time
 
 from .base import Engine, Report
 
-# Families whose samples are native Linux executables/scripts we can run.
-_SUPPORTED = {"elf", "script"}
+#: Families this engine may claim. ELF only — deliberately not `script`.
+#:
+#: The agent picks the FIRST available engine that supports a family, and this
+#: engine is first in priority. So claiming `script` means that the moment
+#: firejail is installed, every PowerShell, VBScript and JScript sample stops
+#: going to the Windows sandbox and is executed on a Linux host instead, where it
+#: cannot run. It would not error: the jail would report a process that did
+#: nothing, and a Windows script downloader would come back with no signals at
+#: all while a perfectly good Windows guest sat idle.
+#:
+#: That is this project's oldest failure mode — evidence quietly getting thinner
+#: with nothing failing — and it was one `apt install firejail` away. The corpus
+#: has five Windows script samples (two .vbs, three .js) that detonate correctly
+#: on CAPE today.
+#:
+#: A genuine POSIX shell script has no engine either way: CAPE refuses it
+#: (`File.LINUX_TYPES` covers "POSIX shell script" and "Bourne-Again"), and
+#: routing it here would need the submitted suffix, which `supports` does not
+#: receive. Worth doing; not worth pretending is done.
+_SUPPORTED = {"elf"}
 
 # --- strace line grammar -----------------------------------------------------
 # Typical line (with -f):  "1234  openat(AT_FDCWD, \"/etc/passwd\", O_RDONLY) = 3"
