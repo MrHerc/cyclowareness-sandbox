@@ -224,6 +224,31 @@ def _carries_executables(sample: Sample) -> bool:
     return (sample.claimed_extension or "").lower() in _CONTAINER_EXTENSIONS
 
 
+def _out_of_scope(meta: dict[str, Any], sample: Sample) -> str | None:
+    """The family this rule declared it is NOT about, if that is this sample.
+
+    A rule may write ``not_for = "pe elf"`` in its own meta. Nothing else
+    changes: a rule that declares nothing still runs on everything, because an
+    embedded-PE or LOLBin rule firing on a "text" file IS the contradiction this
+    analyzer exists to surface.
+
+    What it is not is a VBA macro rule firing on a Go binary. `AutoClose` is a
+    symbol in Go's `encoding/xml`, and `Shell` is a substring of `shellComplete`
+    — 47 KB apart in syncthing.exe, which has no VBA project and cannot have
+    one. Same for rclone.exe. That is not a contradiction worth surfacing; it is
+    a rule being asked a question about a format it does not apply to.
+
+    Keyed on `family`, which identify.py derives from CONTENT, so it is not
+    something a submitter can set by renaming a file.
+    """
+    declared = str(meta.get("not_for", "") or "").strip().lower()
+    if not declared:
+        return None
+    excluded = {p for p in declared.replace(",", " ").split() if p}
+    family = (sample.family or "").lower()
+    return family if family in excluded else None
+
+
 def analyze(sample: Sample) -> AnalyzerResult:
     """Scan the sample against every compiled rule file and map matches to Signals.
 
@@ -303,6 +328,18 @@ def analyze(sample: Sample) -> AnalyzerResult:
                 # document, the same mime as a `.doc`, and a `.doc` carrying a
                 # PE genuinely is a dropper.
                 severity = "low"
+            out_of_scope = _out_of_scope(meta, sample)
+            note = ""
+            if out_of_scope is not None:
+                # Kept and shown, exactly like an ambient signature: the analyst
+                # sees every match the engine made. It just may not accuse.
+                severity = "info"
+                note = (
+                    f" The rule declares it does not apply to a '{out_of_scope}' "
+                    "sample, so this match is reported but does not count as "
+                    "evidence."
+                )
+                evidence["out_of_scope_for"] = out_of_scope
             signals.append(
                 Signal(
                     id=signal_id,
@@ -311,6 +348,7 @@ def analyze(sample: Sample) -> AnalyzerResult:
                     detail=(
                         f"Rule '{rule_name}' (from {file_name}) matched this sample."
                         + (f" {description}" if description else "")
+                        + note
                     ),
                     evidence=evidence,
                 )

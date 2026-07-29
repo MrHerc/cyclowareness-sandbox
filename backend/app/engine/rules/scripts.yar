@@ -34,10 +34,33 @@ rule PowerShell_Download_Cradle
         $dl3 = "Net.WebClient" nocase ascii wide
         $dl4 = "Invoke-WebRequest" nocase ascii wide
         $dl5 = "Invoke-RestMethod" nocase ascii wide
-        $ex1 = "IEX" ascii wide
+        /*
+         * `IEX` as a bare three-byte string is not a token. In the three .NET
+         * samples this rule used to hit, `DownloadString` was an entry in the
+         * metadata string heap between `MeasureString` and `DrawString`, and the
+         * "IEX" was 38 KB away inside obfuscated identifier soup. Word-bounded,
+         * it means the PowerShell alias again.
+         */
+        $ex1 = /\bIEX\b/ ascii wide
         $ex2 = "Invoke-Expression" nocase ascii wide
+    /*
+     * A cradle is ONE EXPRESSION: `IEX (New-Object Net.WebClient).DownloadString(...)`.
+     * "a download word anywhere and an execute word anywhere" accused rclone.exe,
+     * where `DownloadFile` is an Azure blob SDK symbol and `Invoke-Expression`
+     * is rclone's own shell-completion help text — 8.28 MEGABYTES apart.
+     */
     condition:
-        any of ($dl*) and any of ($ex*)
+        for any i in (1..#ex1) : (
+            for any of ($dl*) : (
+                (@ > @ex1[i] and @ - @ex1[i] < 400) or (@ < @ex1[i] and @ex1[i] - @ < 400)
+            )
+        )
+        or
+        for any i in (1..#ex2) : (
+            for any of ($dl*) : (
+                (@ > @ex2[i] and @ - @ex2[i] < 400) or (@ < @ex2[i] and @ex2[i] - @ < 400)
+            )
+        )
 }
 
 rule PowerShell_Stealth_Flags
@@ -122,7 +145,15 @@ rule Reverse_Shell_OneLiner
         reference = "MITRE ATT&CK T1059.004; T1219 Remote Access"
     strings:
         $bash    = "/dev/tcp/" ascii
-        $nce     = /nc(\.traditional)?\s+(-[a-z]*e|-e)\b/ nocase ascii
+        /*
+         * `\b` in front of `nc` is load-bearing. Without it the pattern matched
+         * "bisy-NC- -case" inside rclone's README, its .txt and its man page:
+         * the `nc` is the tail of `bisync`, and `-case` satisfies `-[a-z]*e`.
+         * All three were `Reverse_Shell_OneLiner` at HIGH, which is what made
+         * rclone.zip `malicious`. The rule catches 0 of the 88 fixture malware
+         * and accused 3 files of rclone's own documentation.
+         */
+        $nce     = /\bnc(\.traditional)?\s+-[a-z]*e\b/ nocase ascii
         $pysock  = "socket.socket" ascii
         $pydup   = "os.dup2" ascii
         $mkfifo  = "mkfifo" ascii

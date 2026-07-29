@@ -4,6 +4,17 @@
  * malicious, so the graded rules here require an auto-execution trigger paired
  * with a process-spawn or download primitive. The plain "has a VBA project"
  * rule is deliberately low severity: it is context, not a verdict.
+ *
+ * Every rule here carries `not_for = "pe elf"`. A compiled program has no VBA
+ * project and cannot have one, so these questions are meaningless about it — and
+ * asked anyway they answer wrongly: `AutoClose` is a symbol in Go's
+ * `encoding/xml`, `Shell` is a substring of `shellComplete`, and syncthing.exe
+ * and rclone.exe were `VBA_AutoExec_And_Shell` at HIGH on those two strings
+ * 47 KB apart. Measured across the 88-sample detonation fixture, this rule
+ * catches 0 of them, and it accused 2 Go binaries.
+ *
+ * The exclusion is a DEMOTION, not a filter: the match is still reported, at
+ * `info`, with the reason. See `yara_engine._out_of_scope`.
  */
 
 rule VBA_AutoExec_And_Shell
@@ -13,6 +24,7 @@ rule VBA_AutoExec_And_Shell
         description = "VBA macro that auto-runs on open and shells out to a process"
         severity = "high"
         reference = "MITRE ATT&CK T1204.002; T1059.005 Visual Basic"
+        not_for = "pe elf"
     strings:
         $a1 = "AutoOpen" nocase ascii wide
         $a2 = "Document_Open" nocase ascii wide
@@ -34,6 +46,7 @@ rule VBA_Download_And_Execute
         description = "VBA macro that fetches a remote payload and runs it"
         severity = "high"
         reference = "MITRE ATT&CK T1105 Ingress Tool Transfer; T1204.002"
+        not_for = "pe elf"
     strings:
         $net1 = "URLDownloadToFile" nocase ascii wide
         $net2 = "MSXML2.XMLHTTP" nocase ascii wide
@@ -54,6 +67,7 @@ rule Office_OLE_Contains_VBA_Project
         description = "Legacy OLE2 Office document carries an embedded VBA project"
         severity = "low"
         reference = "MITRE ATT&CK T1059.005; olevba"
+        not_for = "pe elf"
     strings:
         $vba1 = "VBAProject" ascii wide
         $vba2 = "_VBA_PROJECT" ascii wide
@@ -69,6 +83,7 @@ rule VBA_Suspicious_AutoExec_Keywords
         description = "VBA auto-exec trigger alongside evasion / persistence keywords"
         severity = "medium"
         reference = "MITRE ATT&CK T1204.002; T1547 Autostart"
+        not_for = "pe elf"
     strings:
         $a1 = "AutoOpen" nocase ascii wide
         $a2 = "Document_Open" nocase ascii wide
