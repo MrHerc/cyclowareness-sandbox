@@ -49,6 +49,17 @@ ARCHIVE_MIMES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    # A disk image is distribution media: what matters is the files a victim
+    # sees once it is mounted. The diskimage analyzer already NAMED them, but
+    # nothing opened them — so an ISO got a verdict about its contents with
+    # nothing having read a byte of them, and "there is an executable inside"
+    # was both the whole accusation and the whole examination.
+    #
+    # It matters in the other direction too, and more: an ISO is a standard way
+    # to smuggle malware past mark-of-the-web. Promoting the members means the
+    # container inherits its worst member's verdict, which is the answer to both
+    # halves.
+    "application/x-iso9660-image",
 }
 
 
@@ -248,6 +259,81 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
                 member.skipped_reason = f"could not be read: {exc}"[:200]
             except Exception as exc:  # noqa: BLE001 — one bad member is not a failed job
                 member.skipped_reason = f"could not be read: {type(exc).__name__}"
+
+    return result
+
+
+# --- ISO 9660 -----------------------------------------------------------------
+
+
+#: How much of the image is read to walk it. The directory structures live near
+#: the front; a bigger image is not a reason to hold a gigabyte in memory, and
+#: whatever is past this is reported as unexamined rather than pretended upon.
+MAX_ISO_BYTES = 256 * 1024 * 1024
+
+
+def _read_iso(path: str) -> ArchiveResult:
+    """Extract the files a victim would see after mounting the image.
+
+    The directory walk is `analyzers.diskimage._walk_iso` — the same hand-written
+    ECMA-119 parser the analyzer already uses, rather than a second one that
+    could disagree with it. Nothing is mounted, mapped or run: a directory
+    record names a block and a length, and this reads those bytes.
+    """
+    from .analyzers import diskimage
+
+    result = ArchiveResult(kind="iso")
+    with open(path, "rb") as fh:
+        data = fh.read(MAX_ISO_BYTES + 1)
+    if len(data) > MAX_ISO_BYTES:
+        result.truncated = True
+        data = data[:MAX_ISO_BYTES]
+
+    block_size = diskimage._u16le(data, diskimage._PVD_OFFSET + diskimage._PVD_BLOCK_SIZE_OFFSET)
+    if block_size not in diskimage._VALID_BLOCK_SIZES:
+        block_size = diskimage.DEFAULT_BLOCK_SIZE
+    root = diskimage._PVD_OFFSET + diskimage._PVD_ROOT_RECORD_OFFSET
+    entries = diskimage._walk_iso(
+        data, diskimage._u32le(data, root + 2), diskimage._u32le(data, root + 10), block_size
+    )
+
+    if len(entries) > MAX_MEMBERS:
+        result.truncated = True
+        entries = entries[:MAX_MEMBERS]
+
+    budget = MAX_TOTAL_EXPANSION
+    for entry in entries:
+        member = Member(
+            name=entry["name"],
+            size=int(entry["size"]),
+            compressed_size=int(entry["size"]),   # ISO 9660 does not compress.
+            encrypted=False,
+            is_dir=bool(entry["is_dir"]),
+        )
+        result.members.append(member)
+        if member.is_dir:
+            continue
+        if member.size > MAX_MEMBER_BYTES:
+            member.skipped_reason = "larger than the per-member limit"
+            continue
+        if member.size > budget:
+            member.skipped_reason = "total expansion budget exhausted"
+            result.truncated = True
+            continue
+        start = int(entry.get("lba", 0)) * block_size
+        end = start + member.size
+        # A directory record can claim a block and a length that are not in the
+        # file. The sample chose both numbers, so neither is trusted.
+        if start < 0 or member.size < 0 or end > len(data):
+            member.skipped_reason = "declared extent lies outside the image"
+            result.truncated = True
+            continue
+        try:
+            payload = data[start:end]
+            budget -= len(payload)
+            member.stored = store_bytes(payload)
+        except Exception as exc:  # noqa: BLE001 — one bad member is not a failed job
+            member.skipped_reason = f"could not be read: {type(exc).__name__}"
 
     return result
 
@@ -476,7 +562,9 @@ def unpack(path: str, mime: str, password: str | None = None) -> ArchiveResult:
     Raises :class:`PasswordRequired` when the container is encrypted and no
     password was given — the caller parks the job rather than guessing.
     """
-    if mime == "application/x-7z-compressed":
+    if mime == "application/x-iso9660-image":
+        result = _read_iso(path)
+    elif mime == "application/x-7z-compressed":
         result = _read_7z(path, password)
     elif mime == "application/x-rar-compressed":
         result = _read_rar(path, password)

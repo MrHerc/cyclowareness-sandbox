@@ -84,6 +84,15 @@ EVIDENCE_GROUPS: dict[str, str] = {
     "capev2.packer_unknown_pe_section_name": "packed",
     "capev2.pe_section_vsize_rsize_anomaly": "packed",
     "capev2.pe_deep_entrypoint": "packed",
+    # Does this container carry a program? THREE analyzers answer, on the same
+    # bytes, and each one banded separately — so one fact contributed three
+    # times. An ISO holding a signed copy of PuTTY came out `malicious` at 56.6
+    # on nothing else: `generic.embedded_executable`,
+    # `diskimage.embedded_executable` and `yara.embedded_pe_in_nonpe`, all high,
+    # all saying "there is an executable inside".
+    "generic.embedded_executable": "carries-a-program",
+    "diskimage.embedded_executable": "carries-a-program",
+    "yara.embedded_pe_in_nonpe": "carries-a-program",
 }
 
 

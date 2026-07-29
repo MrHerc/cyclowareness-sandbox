@@ -265,6 +265,11 @@ def _walk_iso(data: bytes, lba: int, size: int, block_size: int) -> list[dict[st
                     "size": int(data_len),
                     "is_dir": is_dir,
                     "sniff": sniff,
+                    # Where the bytes actually are. Carried so the archive layer
+                    # can EXTRACT the member rather than only name it: an ISO
+                    # that was described but never opened got a verdict about
+                    # its contents without anything having read them.
+                    "lba": int(content_lba),
                 }
             )
             if is_dir and child_lba != lba and rec_start != 0:

@@ -141,15 +141,48 @@ def test_an_analyzer_that_found_something_else_too_is_not_collapsed() -> None:
     )
 
 
+#: Every group in EVIDENCE_GROUPS, and the words a member of it must contain.
+#:
+#: A group means "these detectors are correlated BY CONSTRUCTION" — a property
+#: of the detectors, knowable in advance. Naming the vocabulary is what stops the
+#: map turning into a place where an inconvenient signal is quietly filed away
+#: under a group it has nothing to do with.
+GROUP_VOCABULARY = {
+    "packed": ("packer", "packed", "entropy", "section", "entrypoint"),
+    # Three analyzers, one question: is there a program inside this container?
+    "carries-a-program": ("embedded_executable", "embedded_pe"),
+}
+
+
 @pytest.mark.parametrize("signal_id", sorted(scoring.EVIDENCE_GROUPS))
-def test_every_grouped_signal_is_about_packing(signal_id: str) -> None:
+def test_every_grouped_signal_belongs_to_its_group(signal_id: str) -> None:
     """A guard on the guard: this map suppresses evidence, so it must not grow
     into a place where inconvenient signals are quietly filed away."""
-    assert scoring.EVIDENCE_GROUPS[signal_id] == "packed"
-    assert any(
-        token in signal_id
-        for token in ("packer", "packed", "entropy", "section", "entrypoint")
-    ), f"{signal_id} is in the packing group but does not look like a packing signal"
+    group = scoring.EVIDENCE_GROUPS[signal_id]
+    assert group in GROUP_VOCABULARY, (
+        f"{signal_id} is in a group '{group}' this guard has never been told about"
+    )
+    assert any(token in signal_id for token in GROUP_VOCABULARY[group]), (
+        f"{signal_id} is filed under '{group}' but does not look like one"
+    )
+
+
+def test_one_container_fact_is_counted_once() -> None:
+    """An ISO holding a signed copy of PuTTY came out `malicious` at 56.6 with
+    nothing else against it: three analyzers each said "there is an executable
+    inside", each banded separately, so one fact scored three times."""
+    from app.engine.contracts import Signal
+
+    trio = [
+        Signal(id=i, title=i, severity="high", detail="", evidence={})
+        for i in ("generic.embedded_executable", "diskimage.embedded_executable",
+                  "yara.embedded_pe_in_nonpe")
+    ]
+    collapsed = scoring._collapse_correlated(trio)
+    assert len(collapsed) == 1, [s.id for s in collapsed]
+    three, _detail = scoring.rule_score(trio)
+    one, _detail = scoring.rule_score(trio[:1])
+    assert three == one, f"three names for one fact scored {three} against {one}"
 
 
 # --- rate limiter identity ---------------------------------------------------

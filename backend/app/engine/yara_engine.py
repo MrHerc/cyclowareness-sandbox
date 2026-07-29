@@ -213,6 +213,10 @@ _CONTAINER_RULES = frozenset({"yara.embedded_pe_in_nonpe", "yara.embedded_execut
 #: `generic._EMBED_EXEMPT_EXTENSIONS`, plus the app-package containers.
 _CONTAINER_EXTENSIONS = frozenset({
     ".msi", ".msp", ".msm", ".msix", ".msixbundle", ".appx", ".appxbundle",
+    # Disk images are distribution media. An ISO is how operating systems,
+    # installers and Linux distributions are shipped; every one of them carries
+    # programs, because that is the entire point of the format.
+    ".iso", ".img", ".dmg", ".vhd", ".vhdx", ".vmdk", ".udf",
 })
 
 

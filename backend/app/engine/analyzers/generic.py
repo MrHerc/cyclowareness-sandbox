@@ -537,7 +537,14 @@ _EMBED_EXEMPT_MIMES = {
 #:
 #: A malicious MSI is still parsed by the office analyzer, still scanned by YARA,
 #: and still detonated.
-_EMBED_EXEMPT_EXTENSIONS = {".msi", ".msp", ".msm"}
+#: Formats whose PURPOSE is to carry programs. Finding one inside is not a
+#: finding — it is the format working. Keyed on the extension, never the mime:
+#: an MSI is an OLE document, the same mime as a `.doc`, and a `.doc` carrying a
+#: PE genuinely is a dropper.
+_EMBED_EXEMPT_EXTENSIONS = {
+    ".msi", ".msp", ".msm", ".msix", ".msixbundle", ".appx", ".appxbundle",
+    ".iso", ".img", ".dmg", ".vhd", ".vhdx", ".vmdk", ".udf",
+}
 
 
 def _pe_at(data: bytes, offset: int) -> bool:
