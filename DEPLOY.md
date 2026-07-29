@@ -13,6 +13,23 @@ docker compose up --build      # http://localhost:8000
 and Grafana. For just the app: `docker build -t cyclowareness-sandbox . &&
 docker run --rm -p 8000:8000 cyclowareness-sandbox`.
 
+Verified from a clean clone on 2026-07-29: build, run, log in with
+`analyst` / `analyst`, submit nine files of different shapes, and read every one
+back through all five exports — no configuration of any kind.
+
+### Working on the interface
+
+The image serves the compiled SPA, so a change to `frontend/` needs a rebuild to
+appear. For a live-reloading loop instead, run the API on :8000 and Vite in front
+of it:
+
+```bash
+npm --prefix frontend run dev      # :5173, proxies /api to :8000
+```
+
+`vite.config.ts` reads `PORT` and `VITE_API_TARGET`, so a second checkout can run
+its own pair without colliding.
+
 ### Where samples live
 
 `SANDBOX_QUARANTINE` sets the quarantine root — the directory holding submitted
