@@ -201,7 +201,20 @@ export interface EngineDescriptor {
   vendor?: string
   kind: string
   tier: string
+  /** Credentials are present. NOT the same as "will run" — see below. */
   configured: boolean
+  /** Whether using this engine would send the sample or its hash off the host. */
+  sends_data_off_host: boolean
+  /**
+   * Configured, and the sovereignty choke point will refuse it anyway.
+   *
+   * The API has always computed this, with a comment saying exactly why: "a
+   * sovereign deployment that kept a VT key must show the key AND the refusal,
+   * so nobody reads a green row as proof the lookup happened." The type omitted
+   * it, so the card read `configured` alone and printed a green "Enabled" tick
+   * on engines that are refused on every single call.
+   */
+  blocked_by_sovereign_mode: boolean
   requires?: string
   notes?: string
   docs_url?: string

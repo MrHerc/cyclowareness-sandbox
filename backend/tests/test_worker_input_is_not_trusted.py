@@ -128,3 +128,47 @@ def test_the_entropy_feature_clamps_instead_of_raising() -> None:
     assert _as_entropy("7.2") == 0.0
     assert _as_entropy(None) == 0.0
     assert _as_entropy(True) == 0.0
+
+
+# --- and the timeline cannot blank the report page ---------------------------
+
+
+@pytest.mark.parametrize("kind", [
+    {"nested": "object"},
+    ["a", "list"],
+    12345,
+    None,
+    True,
+])
+def test_a_non_string_timeline_kind_cannot_reach_the_ui(client, auth, kind) -> None:
+    """`BehaviorGraph` renders `{kind}` straight into JSX. An object there is
+    "Objects are not valid as a React child", which unmounts the whole tree —
+    the report page goes permanently blank, and so does every page the router
+    renders after it, from a 200 the API accepted without complaint."""
+    public_id = _detonated(client, auth, timeline=[{"t_ms": 10, "kind": kind, "detail": "x"}])
+    timeline = client.get(f"/api/result/{public_id}", headers=auth).json()["dynamic"]["timeline"]
+    assert timeline, "the entry was dropped entirely"
+    entry = timeline[0]
+    assert isinstance(entry["kind"], str) and entry["kind"], entry
+    assert isinstance(entry["detail"], str)
+    assert isinstance(entry["t_ms"], int)
+
+
+def test_a_nonsense_timestamp_does_not_break_the_axis(client, auth) -> None:
+    public_id = _detonated(client, auth, timeline=[
+        {"t_ms": "not a number", "kind": "process", "detail": "d"},
+        {"t_ms": -50, "kind": "network", "detail": "d"},
+        {"t_ms": 10**30, "kind": "file", "detail": "d"},
+    ])
+    timeline = client.get(f"/api/result/{public_id}", headers=auth).json()["dynamic"]["timeline"]
+    assert all(isinstance(e["t_ms"], int) and e["t_ms"] >= 0 for e in timeline), timeline
+
+
+def test_a_flood_of_events_is_bounded(client, auth) -> None:
+    """A hundred thousand events is an SVG with a hundred thousand circles in
+    it: a blank tab and a pinned CPU on the analyst's laptop."""
+    public_id = _detonated(client, auth, timeline=[
+        {"t_ms": n, "kind": "process", "detail": "d"} for n in range(5000)
+    ])
+    timeline = client.get(f"/api/result/{public_id}", headers=auth).json()["dynamic"]["timeline"]
+    assert 0 < len(timeline) <= 2000, len(timeline)

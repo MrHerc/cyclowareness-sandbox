@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from fastapi.responses import FileResponse
@@ -249,6 +250,58 @@ def _result_from_stored(name: str, payload: dict) -> AnalyzerResult:
     )
 
 
+#: A detonation produces tens to hundreds of interesting events. A worker that
+#: sends a hundred thousand produces an SVG with a hundred thousand circles in
+#: it, which is a blank tab and a pinned CPU on the analyst's laptop.
+_MAX_TIMELINE = 2000
+#: Long enough for a command line, short enough that a hostile worker cannot use
+#: the timeline as storage.
+_MAX_TIMELINE_TEXT = 500
+
+
+def _as_text(value: Any) -> str:
+    """Whatever the worker sent, as something React can render."""
+    if isinstance(value, str):
+        return value[:_MAX_TIMELINE_TEXT]
+    if value is None:
+        return ""
+    return repr(value)[:_MAX_TIMELINE_TEXT]
+
+
+def _timeline(raw: Any) -> list[dict[str, Any]]:
+    """The behaviour timeline, in the shape the graph actually draws.
+
+    `DynamicReportIn.timeline` is `list[dict[str, Any]]`, so the worker decides
+    what is in each entry — and `BehaviorGraph` renders `{kind}` straight into
+    JSX. A non-string there is "Objects are not valid as a React child", which
+    unmounts the whole tree: the report page for that job goes **permanently
+    blank**, and so does every page the router renders after it, from a 200
+    response the API accepted without complaint.
+
+    Making the seam produce a known shape is the fix rather than making the one
+    component defensive, because the same data reaches the PDF, the JSON export
+    and the signed evidence, and each of those would need its own guard.
+    """
+    out: list[dict[str, Any]] = []
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            t_ms = int(float(item.get("t_ms", 0)))
+        except (TypeError, ValueError, OverflowError):
+            t_ms = 0
+        out.append({
+            "t_ms": max(0, t_ms),
+            # "event" rather than "" — the graph groups into one lane per kind,
+            # and an empty lane label is a row of dots against nothing.
+            "kind": _as_text(item.get("kind")).strip() or "event",
+            "detail": _as_text(item.get("detail")),
+        })
+        if len(out) >= _MAX_TIMELINE:
+            break
+    return out
+
+
 def _static_results(job: SandboxJob) -> list[AnalyzerResult]:
     """The job's static findings, re-run against the CURRENT engine if it can be.
 
@@ -341,7 +394,7 @@ def ingest_report(
         for s in report.signals
     ]
     dyn_facts = json_safe(report.facts)
-    dyn_timeline = json_safe(report.timeline)
+    dyn_timeline = _timeline(report.timeline)
     dyn_iocs = IOCs(**report.iocs.model_dump())
     dyn_result = AnalyzerResult(
         analyzer=f"dynamic.{report.engine}",

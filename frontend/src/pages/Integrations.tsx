@@ -12,7 +12,7 @@ const KIND_LABEL: Record<string, string> = {
   'threat-intel': 'Threat intelligence',
 }
 
-function EngineCard({ e, i = 0 }: { e: EngineDescriptor; i?: number }) {
+function EngineCard({ e, i = 0, sovereign }: { e: EngineDescriptor; i?: number; sovereign: boolean }) {
   return (
     <div className="rise-in lift rounded-control border border-hair bg-panel p-4" style={{ '--i': i } as CSSProperties}>
       <div className="flex items-start justify-between gap-2">
@@ -20,7 +20,16 @@ function EngineCard({ e, i = 0 }: { e: EngineDescriptor; i?: number }) {
           <p className="text-body font-medium text-c1">{e.name}</p>
           {e.vendor && <p className="text-xs text-c3">{e.vendor}</p>}
         </div>
-        {e.configured ? (
+        {/* `configured` means credentials are present, which is not the same as
+            "will run". A sovereign deployment that kept a VirusTotal key must
+            show the key AND the refusal, or a green tick reads as proof the
+            lookup happened. The API has always said which; this card used to
+            read only the first half. */}
+        {e.configured && e.blocked_by_sovereign_mode ? (
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
+            <ShieldAlert size={14} aria-hidden /> Refused
+          </span>
+        ) : e.configured ? (
           <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
             <CheckCircle2 size={14} aria-hidden /> Enabled
           </span>
@@ -35,7 +44,22 @@ function EngineCard({ e, i = 0 }: { e: EngineDescriptor; i?: number }) {
         <Chip tone={e.tier === 'dynamic' ? 'brand' : 'info'}>{e.tier}</Chip>
       </div>
       {e.notes && <p className="text-sm mt-2 text-c2">{e.notes}</p>}
-      {e.requires && !e.configured && <p className="text-xs mt-2 text-c3">Enable: {e.requires}</p>}
+      {e.configured && e.blocked_by_sovereign_mode ? (
+        <p className="text-xs mt-2 text-warning">
+          Credentials are present, but sovereign mode refuses this call — nothing is sent.
+        </p>
+      ) : (
+        /* Only tell an operator to set an env var when setting it would work.
+           On a sovereign deployment this instruction was unfollowable advice. */
+        e.requires &&
+        !e.configured && (
+          <p className="text-xs mt-2 text-c3">
+            {e.sends_data_off_host && sovereign
+              ? `Would send data off-host; sovereign mode must be relaxed first. Then: ${e.requires}`
+              : `Enable: ${e.requires}`}
+          </p>
+        )
+      )}
     </div>
   )
 }
@@ -52,7 +76,11 @@ export function Integrations() {
     )
   }
 
-  const configured = caps.integrations.filter((e) => e.configured).length
+  // "Enabled" has to mean "will actually run". Counting `configured` alone put
+  // engines that sovereign mode refuses on every call into the green tile.
+  const running = caps.integrations.filter((e) => e.configured && !e.blocked_by_sovereign_mode)
+  const refused = caps.integrations.filter((e) => e.configured && e.blocked_by_sovereign_mode)
+  const configured = running.length
   const dynamic = caps.integrations.filter((e) => e.tier === 'dynamic')
   const staticIntel = caps.integrations.filter((e) => e.tier === 'static')
 
@@ -70,10 +98,11 @@ export function Integrations() {
         <Metric label="YARA rules" value={caps.yara.loaded} size="sm" />
         <Metric label="Engines" value={caps.integrations.length} size="sm" />
         <Metric
-          label="Enabled now"
+          label="Running now"
           value={configured}
           size="sm"
           tone={configured >= 4 ? 'success' : 'warning'}
+          caption={refused.length ? `${refused.length} configured but refused` : undefined}
         />
       </div>
 
@@ -128,7 +157,7 @@ export function Integrations() {
       <Panel title="Dynamic engines" subtitle="Detonation and behaviour — run off-host on an isolated worker">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {dynamic.map((e, i) => (
-            <EngineCard key={e.key} e={e} i={i} />
+            <EngineCard key={e.key} e={e} i={i} sovereign={!!caps.sovereignty?.enabled} />
           ))}
         </div>
       </Panel>
@@ -136,7 +165,7 @@ export function Integrations() {
       <Panel title="Static and intelligence engines" subtitle="Safe to run in-process — no sample is executed">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {staticIntel.map((e, i) => (
-            <EngineCard key={e.key} e={e} i={i} />
+            <EngineCard key={e.key} e={e} i={i} sovereign={!!caps.sovereignty?.enabled} />
           ))}
         </div>
       </Panel>
