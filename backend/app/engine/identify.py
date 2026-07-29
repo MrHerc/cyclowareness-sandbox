@@ -158,6 +158,50 @@ _ZIP_EXTENSIONS = (
 
 
 #: Extensions the operating system will RUN if a user double-clicks them.
+#: Extensions that promise a specific BINARY layout — a magic number, a header,
+#: a container. If one of these holds plain text, the name and the bytes really
+#: do disagree, and that is worth saying.
+#:
+#: The inverse of `_TEXTUAL_EXTENSIONS`, and bounded where that one is not:
+#: formats with a real magic number are a closed set that barely changes, while
+#: "extensions that hold text" grows every time someone ships a new config
+#: format. Deliberately excludes `.pub` (an SSH public key is text) and every
+#: source, config, markup and documentation extension.
+_BINARY_FORMAT_EXTENSIONS = frozenset({
+    # executables, libraries, objects
+    ".exe", ".dll", ".sys", ".scr", ".com", ".cpl", ".drv", ".ocx", ".pyd",
+    ".so", ".dylib", ".o", ".obj", ".lib", ".elf", ".app", ".class", ".pyc",
+    ".wasm", ".lnk",
+    # installers and packages
+    ".msi", ".msp", ".msm", ".cab", ".deb", ".rpm", ".pkg", ".dmg",
+    ".msix", ".msixbundle", ".appx", ".appxbundle", ".nupkg", ".whl", ".egg",
+    # documents with a container
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".rtf",
+    ".odt", ".ods", ".odp", ".odg", ".one", ".vsd", ".epub",
+    # archives and disk images
+    ".zip", ".rar", ".7z", ".gz", ".bz2", ".xz", ".zst", ".tar", ".lz",
+    ".jar", ".war", ".ear", ".apk", ".aab", ".ipa",
+    ".iso", ".img", ".vhd", ".vhdx", ".vmdk", ".udf",
+    # media
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tif", ".tiff", ".ico",
+    ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".ogg", ".webm",
+    # fonts and databases
+    ".ttf", ".otf", ".woff", ".woff2", ".db", ".sqlite", ".mdb", ".pdb",
+})
+
+#: Mimes that are text, whichever subtype libmagic settles on. `message/rfc822`
+#: is in here because that is what a git log looks like to libmagic.
+_INERT_TEXT_MIMES = frozenset({
+    "application/xml", "application/json", "application/javascript",
+    "application/x-empty", "inode/x-empty", "message/rfc822",
+    "application/x-ndjson", "application/toml", "application/yaml",
+})
+
+
+def _is_inert_text(mime: str) -> bool:
+    return mime.startswith("text/") or mime in _INERT_TEXT_MIMES
+
+
 EXECUTABLE_EXTENSIONS = frozenset({
     ".exe", ".scr", ".com", ".pif", ".cpl", ".dll", ".sys", ".drv", ".ocx",
     ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf",
@@ -343,6 +387,26 @@ def identify(path: str, original_name: str) -> Identity:
         and mime != "application/octet-stream"
         and not same_text_family
     )
+
+    # A name and a body only disagree when the BODY IS MORE DANGEROUS THAN THE
+    # NAME PROMISES. That is what this signal is for — the comment above says so
+    # — but `_TEXTUAL_EXTENSIONS` tries to reach it by naming every extension in
+    # the world that holds text, which is not a finite list. It was extended for
+    # `.css`, then for PEM material, then for man pages, then for `.desktop`,
+    # and still called three ordinary files disguised, at HIGH, the engine's
+    # strongest deception signal:
+    #
+    #     git-log.txt        libmagic reads `commit <sha> / Author: / Date:`
+    #                        as RFC 2822 email headers
+    #     rg.bash            "the bytes are ascii text" — a .bash file is
+    #     syncthing.plist    "the bytes are XML Document" — a .plist is
+    #
+    # So ask the bounded question instead. Text under a name that does not
+    # promise a binary container is not a disguise, whichever subtype libmagic
+    # picks for it. `invoice.pdf` holding a PowerShell script still is one,
+    # because `.pdf` promises a container and does not have it.
+    if mismatch and _is_inert_text(mime) and claimed not in _BINARY_FORMAT_EXTENSIONS:
+        mismatch = False
 
     # A known script extension carries its specific content-type, so downstream
     # (platform naming, reporting) sees e.g. text/x-powershell rather than the
