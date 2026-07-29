@@ -244,10 +244,19 @@ export interface SovereigntyT {
   /** Every outbound destination the switch governs, and whether it is open. */
   destinations: SovereigntyDestination[]
   /**
-   * How many outbound calls were actually refused. This is the number that
-   * turns "no data leaves" from a claim into something an auditor can check.
+   * What was actually refused. This is what turns "no data leaves" from a
+   * claim into something an auditor can check.
+   *
+   * An OBJECT, not a count — typing it as a number here is what blanked the
+   * whole Integrations page: React refuses to render an object as a child, the
+   * error unmounted the app, and TypeScript never objected because the type was
+   * an assertion about the API rather than something read from it.
    */
-  outbound_refusals: number
+  outbound_refusals: {
+    total: number
+    by_destination: Record<string, number>
+    recent: { destination?: string; reason?: string; at?: string }[]
+  }
 }
 
 export interface RetentionT {

@@ -100,8 +100,8 @@ export function Integrations() {
             {caps.sovereignty && (
               <p className="text-sm mt-1 text-c2">
                 {/* The count is what makes it checkable rather than asserted. */}
-                {caps.sovereignty.outbound_refusals} outbound call
-                {caps.sovereignty.outbound_refusals === 1 ? '' : 's'} refused ·{' '}
+                {caps.sovereignty.outbound_refusals?.total ?? 0} outbound call
+                {caps.sovereignty.outbound_refusals?.total === 1 ? '' : 's'} refused ·{' '}
                 {caps.sovereignty.destinations?.filter((d) => !d.allowed).length ?? 0} of{' '}
                 {caps.sovereignty.destinations?.length ?? 0} destinations closed
               </p>
