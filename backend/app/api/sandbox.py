@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import datetime, timezone
 import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import case, func, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.orm import Session
 
 from .. import audit, metrics, sovereignty
@@ -290,6 +291,24 @@ def list_jobs(
     # whose OFFSET is a bigint, and one past int64 came back as a 500. See
     # MAX_OFFSET.
     offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
+    # THE CURSOR, AND WHY IT EXISTS.
+    #
+    # OFFSET counts rows from the top, so it is only correct while the top does
+    # not move. This table's whole purpose is that it moves: submissions arrive
+    # continuously, retention deletes rows on a schedule, and the Queue page
+    # polls every three seconds. Reproduced — seed ten jobs, read page one, let
+    # ONE submission arrive, read page two: the last row of page one is the
+    # first row of page two. Delete one instead and a row is served on no page
+    # at all, so an analyst can page straight past a sample.
+    #
+    # A cursor names the last row seen instead of counting, so rows arriving
+    # above it cannot shift it. `(created_at, id)` is already the sort key and
+    # already a total order, which is what makes this exact rather than
+    # approximate.
+    #
+    # `offset` stays and still works: it is in docs/api.md, and a caller who
+    # wants page seven directly should not have to walk to it.
+    cursor: str | None = Query(default=None, max_length=64, pattern=r"^[0-9]+(\.[0-9]+)?:[0-9]+$"),
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
@@ -298,19 +317,65 @@ def list_jobs(
     total = db.execute(
         select(func.count()).select_from(SandboxJob).where(*conditions)
     ).scalar_one()
+
+    query = select(SandboxJob).where(*conditions)
+    if cursor:
+        seen_at, seen_id = _decode_cursor(cursor)
+        # Strictly after the last row seen, in the sort's own order. A tuple
+        # comparison would be neater; SQLite does not have one, so it is spelled
+        # out — and spelled out it is also obvious that the tie-break is what
+        # makes rows written in the same second unambiguous.
+        query = query.where(
+            or_(
+                SandboxJob.created_at < seen_at,
+                and_(SandboxJob.created_at == seen_at, SandboxJob.id < seen_id),
+            )
+        )
+    elif offset:
+        query = query.offset(offset)
+
+    # One more row than asked for, and then discarded. "The page was full" and
+    # "there is another page" are not the same thing, and guessing costs the
+    # client a whole extra round trip on every walk that ends exactly on a
+    # boundary — which is every walk with a fixed page size.
     rows = db.execute(
-        select(SandboxJob)
-        .where(*conditions)
-        .order_by(SandboxJob.created_at.desc(), SandboxJob.id.desc())
-        .limit(limit)
-        .offset(offset)
+        query.order_by(SandboxJob.created_at.desc(), SandboxJob.id.desc()).limit(limit + 1)
     ).scalars().all()
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
     return JobPage(
         items=[JobSummary.of(j) for j in rows],
         total=total,
         limit=limit,
         offset=offset,
+        # The cursor for the NEXT page, or None at the end. The client never
+        # builds one, so the encoding is ours to change.
+        next_cursor=_encode_cursor(rows[-1]) if (has_more and rows) else None,
     )
+
+
+def _encode_cursor(job: SandboxJob) -> str:
+    """`<created_at epoch>:<id>` — the sort key of the last row on this page."""
+    created = job.created_at
+    stamp = created.replace(tzinfo=timezone.utc).timestamp() if created else 0.0
+    return f"{stamp:.6f}:{job.id}"
+
+
+def _decode_cursor(cursor: str) -> tuple[datetime, int]:
+    """Parse a cursor this endpoint issued.
+
+    The shape is pinned by the route's `pattern`, so this cannot be reached with
+    anything else — but it still refuses rather than raising, because a client
+    holding yesterday's cursor after a format change deserves a 422 and not a
+    500.
+    """
+    stamp, _sep, raw_id = cursor.partition(":")
+    try:
+        seen_at = datetime.fromtimestamp(float(stamp), tz=timezone.utc).replace(tzinfo=None)
+        return seen_at, int(raw_id)
+    except (ValueError, OverflowError, OSError) as exc:
+        raise HTTPException(status_code=422, detail="Malformed page cursor") from exc
 
 
 #: A verdict the engine actually issued, as opposed to the absence of one. The

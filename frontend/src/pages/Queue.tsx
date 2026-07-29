@@ -32,14 +32,24 @@ const PAGE = 50
 
 export function Queue() {
   const navigate = useNavigate()
-  const [offset, setOffset] = useState(0)
-  // `offset` is in the deps array, so changing page discards responses aimed at
-  // the previous one instead of letting a slow reply from page 1 land on page 2.
+  // A stack of cursors, one per page walked. The API hands back the cursor for
+  // the NEXT page; keeping the ones already used is what makes "Newer" work
+  // without asking the server to count backwards.
+  //
+  // Cursors rather than offsets because this page POLLS EVERY THREE SECONDS
+  // against a queue whose whole purpose is that things arrive in it. OFFSET
+  // counts rows from the top, so one submission landing between two clicks
+  // showed the last row of page one again at the top of page two — and a
+  // retention sweep in the same window hid a row on no page at all.
+  const [trail, setTrail] = useState<(string | null)[]>([null])
+  const cursor = trail[trail.length - 1]
   const { data, error, stale, refresh } = usePoll<JobPage>(
-    () => api.get(`/api/jobs?limit=${PAGE}&offset=${offset}`),
+    () => api.get(`/api/jobs?limit=${PAGE}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`),
     3000,
-    [offset],
+    [cursor],
   )
+  const pageIndex = trail.length - 1
+  const offset = pageIndex * PAGE
   const jobs = data?.items ?? []
   const total = data?.total ?? 0
   const shownFrom = total === 0 ? 0 : offset + 1
@@ -50,7 +60,7 @@ export function Queue() {
   // it — and branching on `jobs.length` alone put "Nothing analysed yet" over a
   // table of 271 samples with no control left on screen to get back, because
   // the pager lived inside the other branch.
-  const pagedPastTheEnd = total > 0 && jobs.length === 0 && offset > 0
+  const pagedPastTheEnd = total > 0 && jobs.length === 0 && pageIndex > 0
 
   /**
    * Whole-row click, without the row *being* the control.
@@ -87,7 +97,7 @@ export function Queue() {
               Nothing on this page — the queue holds {total} sample{total === 1 ? '' : 's'}.
             </Empty>
             <div className="flex justify-center">
-              <Button size="sm" onClick={() => setOffset(0)}>
+              <Button size="sm" onClick={() => setTrail([null])}>
                 Back to the newest
               </Button>
             </div>
@@ -167,16 +177,16 @@ export function Queue() {
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={offset === 0}
-                    onClick={() => setOffset(Math.max(0, offset - PAGE))}
+                    disabled={pageIndex === 0}
+                    onClick={() => setTrail((t) => t.slice(0, -1))}
                   >
                     Newer
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={shownTo >= total}
-                    onClick={() => setOffset(offset + PAGE)}
+                    disabled={!data?.next_cursor}
+                    onClick={() => setTrail((t) => [...t, data?.next_cursor ?? null])}
                   >
                     Older
                   </Button>

@@ -205,6 +205,21 @@ def _match_evidence(match: Any) -> dict[str, Any]:
     return ev
 
 
+#: Rules whose whole finding is "this file contains an executable". True of
+#: every installer package by construction.
+_CONTAINER_RULES = frozenset({"yara.embedded_pe_in_nonpe", "yara.embedded_executable"})
+
+#: The formats that carry programs as their purpose. Same list as
+#: `generic._EMBED_EXEMPT_EXTENSIONS`, plus the app-package containers.
+_CONTAINER_EXTENSIONS = frozenset({
+    ".msi", ".msp", ".msm", ".msix", ".msixbundle", ".appx", ".appxbundle",
+})
+
+
+def _carries_executables(sample: Sample) -> bool:
+    return (sample.claimed_extension or "").lower() in _CONTAINER_EXTENSIONS
+
+
 def analyze(sample: Sample) -> AnalyzerResult:
     """Scan the sample against every compiled rule file and map matches to Signals.
 
@@ -272,9 +287,21 @@ def analyze(sample: Sample) -> AnalyzerResult:
             evidence["rule_file"] = file_name
             if reference:
                 evidence["reference"] = reference
+            signal_id = f"yara.{rule_name.lower()}"
+            if signal_id in _CONTAINER_RULES and _carries_executables(sample):
+                # An installer package carries executables — that is what it is
+                # for. `generic.embedded_executable` was exempted for exactly
+                # this in a297d63; the YARA rule that finds the same bytes was
+                # not, so the GitHub CLI's and PuTTY's official MSIs were still
+                # `Office.Downloader.EmbeddedPeInNonpe` at high severity.
+                #
+                # Keyed on the EXTENSION, not the mime: an MSI is an OLE
+                # document, the same mime as a `.doc`, and a `.doc` carrying a
+                # PE genuinely is a dropper.
+                severity = "low"
             signals.append(
                 Signal(
-                    id=f"yara.{rule_name.lower()}",
+                    id=signal_id,
                     title=description or f"YARA rule {rule_name} matched",
                     severity=severity,
                     detail=(

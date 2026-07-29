@@ -78,11 +78,24 @@ curl http://localhost:8000/api/result/<public_id> -H "X-API-Key: demo-key"
 
 ### `GET /api/jobs`
 Auth: required. Query: `status` (optional filter), `limit` (default 50, max 200),
-`offset` (default 0). Returns one page:
+`cursor` (preferred) or `offset` (default 0). Returns one page:
 
 ```json
-{ "items": [ /* JobSummary */ ], "total": 269, "limit": 50, "offset": 0 }
+{ "items": [ /* JobSummary */ ], "total": 269, "limit": 50, "offset": 0,
+  "next_cursor": "1769683623.481000:412" }
 ```
+
+**Page by `cursor`, not by `offset`.** Pass `next_cursor` back as `?cursor=` to
+get the following page; `null` means there is no next page. OFFSET counts rows
+from the top, so it is only correct while the top does not move — and this table
+receives submissions continuously and has rows deleted by retention. Reproduced:
+read page one, let one submission arrive, read page two by offset, and the last
+row of page one is the first row of page two; delete one instead and a row is
+served on no page at all. A cursor names the last row seen, so rows arriving
+above it cannot shift the page.
+
+`offset` still works and is still bounded, for a caller that wants page seven
+directly.
 
 Top-level jobs only; archive members nest under their parent, and summaries omit
 the heavy analysis payload. `total` is the count after filtering and tenant

@@ -188,16 +188,37 @@ def _family_token(signals: list) -> str:
             token = "".join(p for p in str(fam) if p.isalnum())
             if token:
                 return token[:20]
-    top = max(signals, key=lambda s: SEVERITY_ORDER.get(s.severity, 0))
+    # Named from the worst signal that is allowed to DRIVE a verdict, not the
+    # worst one present. Otherwise the score and the label disagreed about the
+    # same file: 7-Zip's own installer scored as ordinary software and was still
+    # headlined `Win32.Riskware.HardwareIdProfiling`, after the score had
+    # already decided that reading a hardware id is what licensed software does.
+    from .scoring import effective_severity
+
+    ranked = sorted(signals, key=lambda s: -SEVERITY_ORDER.get(effective_severity(s), 0))
+    top = ranked[0]
     tail = top.id.split(".")[-1] if "." in top.id else top.id
     token = "".join(p.capitalize() for p in tail.replace("-", "_").split("_"))
     return (token or "Agent")[:20]
 
 
 def _worst(signals: list) -> str:
+    """The worst severity that may drive an engine's verdict.
+
+    Reads `scoring.effective_severity`, not `signal.severity`, so an ambient
+    sandbox signature cannot be the most severe thing in a report. Otherwise the
+    score said "clean" and the engine panel still headlined the file with
+    `hardware_id_profiling` at high — one number and one label disagreeing about
+    the same sample.
+    """
     if not signals:
         return "info"
-    return max(signals, key=lambda s: SEVERITY_ORDER.get(s.severity, 0)).severity
+    from .scoring import effective_severity
+
+    return max(
+        (effective_severity(s) for s in signals),
+        key=lambda sev: SEVERITY_ORDER.get(sev, 0),
+    )
 
 
 def _evidence_group(signal_id: str) -> str | None:

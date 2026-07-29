@@ -92,6 +92,12 @@ class JobPage(BaseModel):
     total: int
     limit: int
     offset: int
+    #: Pass back as `?cursor=` for the next page. `None` means this is the last.
+    #:
+    #: OFFSET counts rows from the top and is only correct while the top does
+    #: not move; this table's whole purpose is that it moves. A cursor names the
+    #: last row seen, so a submission arriving above it cannot shift the page.
+    next_cursor: str | None = None
 
 
 class FamilyCount(BaseModel):

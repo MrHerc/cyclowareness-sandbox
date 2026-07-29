@@ -123,7 +123,7 @@ def _zip_identity(path: str) -> tuple[str, str, tuple[str, ...]]:
         with zipfile.ZipFile(path) as zf:
             names = zf.namelist()[:MAX_ZIP_NAMES]
     except Exception:
-        return "application/zip", "ZIP archive", (".zip",)
+        return "application/zip", "ZIP archive", _ZIP_EXTENSIONS
 
     for marker, mime, magic, exts in _ZIP_MARKERS:
         prefix = marker.rsplit("/", 1)[0] + "/" if "/" in marker else marker
@@ -136,7 +136,25 @@ def _zip_identity(path: str) -> tuple[str, str, tuple[str, ...]]:
                 tail = name[len(prefix):]
                 if tail.startswith(stem):
                     return mime, magic, exts
-    return "application/zip", "ZIP archive", (".zip",)
+    return "application/zip", "ZIP archive", _ZIP_EXTENSIONS
+
+
+#: Every extension that is legitimately a ZIP container. A `.msixbundle` IS a
+#: zip — that is the format — so calling the extension a mismatch says the file
+#: is disguised when it is exactly what it claims to be. Measured: Microsoft's
+#: own Windows Terminal release was `Archive.Riskware.ExtensionMismatch` at
+#: high severity for shipping in its documented format.
+_ZIP_EXTENSIONS = (
+    ".zip",
+    # Windows app packages
+    ".msix", ".msixbundle", ".appx", ".appxbundle",
+    # Java / Android
+    ".jar", ".war", ".ear", ".apk", ".aab",
+    # OpenDocument and friends
+    ".odt", ".ods", ".odp", ".odg",
+    # everyday containers that are zip underneath
+    ".epub", ".whl", ".egg", ".nupkg", ".crx", ".xpi", ".vsix", ".ipa",
+)
 
 
 def _family_for(mime: str, claimed: str) -> str:

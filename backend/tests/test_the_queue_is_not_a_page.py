@@ -301,3 +301,65 @@ def test_the_stats_response_cannot_contradict_itself(client, auth) -> None:
     assert sum(f["count"] for f in s["families"]) == s["total"]
     assert len(s["top_risk"]) <= min(5, s["needs_attention"])
     assert isinstance(s["average_score"], float) and s["average_score"] == s["average_score"]
+
+
+# --- and a page that does not move under the reader --------------------------
+
+
+def test_a_submission_mid_walk_does_not_repeat_a_row(client, auth) -> None:
+    """OFFSET counts rows from the top, so it is only correct while the top does
+    not move — and this table's whole purpose is that it moves. Reproduced: read
+    page one, let ONE submission arrive, read page two, and the last row of page
+    one is the first row of page two. The Queue polls every three seconds
+    against a deployment whose job is continuous ingestion."""
+    _seed(client, auth, 10)
+    first = client.get("/api/jobs?limit=5", headers=auth).json()
+    assert first["next_cursor"], first
+
+    _poll_until_done(client, auth, _submit(client, auth, "arrived-mid-walk.txt", CLEAN))
+
+    second = client.get(
+        f"/api/jobs?limit=5&cursor={first['next_cursor']}", headers=auth
+    ).json()
+    overlap = {j["public_id"] for j in first["items"]} & {j["public_id"] for j in second["items"]}
+    assert not overlap, f"a row was served on both pages: {overlap}"
+
+
+def test_the_cursor_walks_the_whole_table(client, auth) -> None:
+    seeded = set(_seed(client, auth, 8))
+    walked: list[str] = []
+    cursor = None
+    for _ in range(200):
+        url = "/api/jobs?limit=7" + (f"&cursor={cursor}" if cursor else "")
+        page = client.get(url, headers=auth).json()
+        walked.extend(j["public_id"] for j in page["items"])
+        cursor = page["next_cursor"]
+        if not cursor:
+            break
+    assert len(walked) == len(set(walked)), "a job appeared twice while paging by cursor"
+    assert seeded <= set(walked)
+    assert len(walked) == client.get("/api/jobs?limit=1", headers=auth).json()["total"]
+
+
+def test_the_last_page_says_it_is_the_last(client, auth) -> None:
+    _seed(client, auth, 3)
+    total = client.get("/api/jobs?limit=1", headers=auth).json()["total"]
+    page = client.get(f"/api/jobs?limit={min(200, total)}", headers=auth).json()
+    if len(page["items"]) < total:
+        pytest.skip("the table is larger than one maximum page")
+    assert page["next_cursor"] is None
+
+
+def test_a_forged_cursor_is_refused_not_a_500(client, auth) -> None:
+    for bad in ("nonsense", "abc:def", "-1:2", "1e400:1", "':1", "1:1;DROP"):
+        response = client.get(f"/api/jobs?limit=2&cursor={bad}", headers=auth)
+        assert response.status_code == 422, f"{bad} -> {response.status_code}"
+
+
+def test_offset_still_works_for_callers_that_use_it(client, auth) -> None:
+    """It is in docs/api.md, and a caller who wants page seven directly should
+    not have to walk to it."""
+    _seed(client, auth, 6)
+    a = client.get("/api/jobs?limit=2&offset=0", headers=auth).json()["items"]
+    b = client.get("/api/jobs?limit=2&offset=2", headers=auth).json()["items"]
+    assert not ({j["public_id"] for j in a} & {j["public_id"] for j in b})

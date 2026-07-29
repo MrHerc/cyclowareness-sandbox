@@ -109,11 +109,97 @@ def _collapse_correlated(signals: list[Signal]) -> list[Signal]:
     return out
 
 
+#: Behaviours that ordinary Windows software performs as part of working.
+#:
+#: The dynamic tier imports CAPE's own severity verbatim, and CAPE's signature
+#: set is tuned to flag anything unusual INSIDE A VM. A signed GUI installer run
+#: in a VM trips a dozen of them at medium or high, and the bands then add up to
+#: "suspicious" without a single accusing capability behind it. Measured on 50
+#: benign samples — 7-Zip, PuTTY, Audacity, HandBrake, WinMerge, Greenshot, the
+#: Python embeddable distribution, Sysinternals — 30 of them were not clean, and
+#: the reason was always a stack of these rather than any one finding.
+#:
+#: What each of these actually is:
+#:
+#:   query_fips_reconnaissance          reading the crypto policy at startup
+#:   privilege_elevation_check          asking whether it is elevated (UAC)
+#:   antisandbox_system_parameters_info SystemParametersInfo — desktop metrics
+#:   antisandbox_windows_activation     reading the activation state
+#:   mouse_movement_detect              a GUI waiting for input
+#:   per_file_acl_token_check           an installer checking it may write
+#:   reads_self                         a self-extractor reading its own file
+#:   contains_pe_overlay                an installer's appended payload
+#:   *mount*                            choosing which drive to install on
+#:   *tls_callback*, *deep_entrypoint*  how MSVC and packers build binaries
+#:   packer_*, section_vsize_anomaly    compression, which installers all use
+#:   hardware_id_profiling              licensing and telemetry
+#:   interprocess_comms_shared_memory   ordinary IPC
+#:   suspicious_iocontrol_codes         measured FP: raised by Windows Update
+#:                                      in a different branch of the process tree
+#:
+#: They are demoted to `low`, NOT removed: an analyst still sees every one of
+#: them in the report, and one of them beside real evidence still reads as part
+#: of the picture. What stops is a pile of them adding up to an accusation.
+#:
+#: EVERY MEMBER WAS MEASURED. Against the 88-malware detonation fixture this set
+#: costs ZERO detections (84 of 88 before and after). Three candidates were
+#: REJECTED for costing one each: `pe.overlay_present` and
+#: `generic.high_entropy_overall` both lose WannaCry, and
+#: `capev2.pe_exports_in_executable` loses RaccoonStealer. Two more were rejected
+#: for weakening detection to buy two benign files: `capev2.persistence_autorun`
+#: and `capev2.mass_file_modification_access` are the persistence and ransomware
+#: signals, and a malware sandbox does not trade those away.
+AMBIENT_SIGNALS = frozenset({
+    # environment the program was started in
+    "capev2.query_fips_reconnaissance",
+    "capev2.privilege_elevation_check",
+    "capev2.antisandbox_system_parameters_info",
+    "capev2.antisandbox_windows_activation",
+    "capev2.mouse_movement_detect",
+    "capev2.per_file_acl_token_check",
+    # what an installer does to install
+    "capev2.reads_self",
+    "capev2.contains_pe_overlay",
+    "capev2.discover_registry_mount_points",
+    "capev2.mountpoints_volume_discovery",
+    "capev2.mountpoint_manager_access",
+    # how the binary was built
+    "pe.tls_callbacks",
+    "capev2.pe_tls_callbacks",
+    "capev2.antianalysis_tls_section",
+    "capev2.pe_deep_entrypoint",
+    "capev2.packer_unknown_pe_section_name",
+    "capev2.packer_entropy",
+    "capev2.pe_section_vsize_rsize_anomaly",
+    "capev2.registers_vectored_exception_handler",
+    "capev2.allocated_memory_protection_noaccess",
+    # ordinary application behaviour
+    "capev2.hardware_id_profiling",
+    "capev2.interprocess_comms_shared_memory",
+    "capev2.network_connection_via_suspicious_process",
+    "capev2.suspicious_iocontrol_codes",
+    # a container that contains things
+    "archive.contains_executable",
+    "archive.double_extension",
+})
+
+
+def effective_severity(signal: Signal) -> str:
+    """The severity this signal carries INTO the score.
+
+    Everything an analyzer or a sandbox reported is kept and shown; this is only
+    about what may push a verdict. See `AMBIENT_SIGNALS`.
+    """
+    if signal.id in AMBIENT_SIGNALS and signal.severity in ("medium", "high", "critical"):
+        return "low"
+    return signal.severity
+
+
 def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
     """Severity-weighted rule score in 0-100, plus the per-band arithmetic."""
     bands: dict[str, list[Signal]] = {}
     for signal in _collapse_correlated(list(signals)):
-        bands.setdefault(signal.severity, []).append(signal)
+        bands.setdefault(effective_severity(signal), []).append(signal)
 
     total = 0.0
     detail: list[dict[str, Any]] = []

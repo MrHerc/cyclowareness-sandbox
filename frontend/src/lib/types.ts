@@ -87,6 +87,15 @@ export interface JobPage {
   total: number
   limit: number
   offset: number
+  /**
+   * Pass back as `?cursor=` for the next page; `null` means this is the last.
+   *
+   * OFFSET counts rows from the top and is only correct while the top does not
+   * move. This queue's whole purpose is that it moves — submissions arrive
+   * continuously and this page polls every three seconds — so paging by offset
+   * showed the last row of page one again at the top of page two.
+   */
+  next_cursor: string | null
 }
 
 export interface FamilyCount {
