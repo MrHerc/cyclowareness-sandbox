@@ -93,11 +93,25 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
         "apk.dynamic_code",
         "script.dynamic_execution",
     }),
-    # The sample carries another executable payload.
+    # The sample carries another executable payload SOMEWHERE IT SHOULD NOT.
+    #
+    # A PDF with an embedded file and a Word document with an embedded object
+    # are droppers: those formats are documents, and a program inside one is
+    # there to be run by someone who thought they were opening a document.
+    #
+    # A CONTAINER carrying a program is not. An ISO, a zip and an installer
+    # package exist to carry programs — that is the format working, and calling
+    # it "dropper" made an ISO of PuTTY `DiskImage.Dropper.EmbeddedExecutable`
+    # while both of its members analysed clean. Containers are UNPACKED now, so
+    # each member is judged on its own and the container inherits the worst of
+    # them; that inheritance is the evidence, and it is a far better one than
+    # the mere presence of a header.
+    #
+    # `generic.embedded_executable` stays: it fires on a file that is NOT a
+    # recognised container (the exempt list lives in `generic.py`), which is the
+    # document case above by another route.
     "dropper": frozenset({
         "generic.embedded_executable",
-        "diskimage.embedded_executable",
-        "archive.contains_executable",
         "pdf.embedded_file", "office.embedded_object",
     }),
     # The sample abuses elevation / device-administration controls.

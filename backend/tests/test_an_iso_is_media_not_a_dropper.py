@@ -110,3 +110,37 @@ def test_a_truncated_image_is_unexamined_not_clean(client, auth, tmp_path) -> No
     detail = _poll_until_done(client, auth, public_id)
     assert detail["status"] == "completed", detail.get("error")
     assert isinstance(detail["final_score"], float)
+
+
+@needs_iso_tool
+def test_a_container_is_not_a_dropper_for_being_a_container(client, auth, tmp_path) -> None:
+    """The last thread. Score and members agreed — both clean — while the
+    verdict still read `DiskImage.Dropper.EmbeddedExecutable`, because the
+    capability model credited "dropper" to any container carrying a program.
+
+    A PDF with an embedded file IS a dropper: that format is a document, and a
+    program inside one is there to be run by someone who thought they were
+    opening a document. An ISO is not a document.
+    """
+    public_id = _submit(client, auth, "release.iso", _iso(tmp_path, {
+        "README.TXT": README, "SETUP.EXE": BENIGN_PE,
+    }))
+    detail = _poll_until_done(client, auth, public_id)
+    assert "Dropper" not in detail["verdict"]["threat_name"], detail["verdict"]
+    worst = max((c["final_score"] for c in detail.get("children") or []), default=0.0)
+    assert detail["verdict"]["verdict"] == "clean" or detail["final_score"] <= worst + 0.05, (
+        "the container is worse than anything actually in it"
+    )
+
+
+def test_a_document_carrying_a_program_still_is_a_dropper() -> None:
+    """The other half, asserted directly so the exemption cannot widen into
+    'nothing is ever a dropper'."""
+    from app.engine import capabilities
+
+    dropper = capabilities.CAPABILITY_SIGNALS["dropper"]
+    assert "pdf.embedded_file" in dropper
+    assert "office.embedded_object" in dropper
+    assert "generic.embedded_executable" in dropper
+    assert "diskimage.embedded_executable" not in dropper
+    assert "archive.contains_executable" not in dropper
