@@ -144,3 +144,43 @@ def test_a_document_carrying_a_program_still_is_a_dropper() -> None:
     assert "generic.embedded_executable" in dropper
     assert "diskimage.embedded_executable" not in dropper
     assert "archive.contains_executable" not in dropper
+
+
+@needs_iso_tool
+def test_a_container_carries_the_verdict_of_its_worst_member(client, auth, tmp_path) -> None:
+    """The score floor already raised the container to its member's number, but
+    the VERDICT is decided from the container's own capabilities — and a
+    container has none, because carrying files is not a capability. So an ISO
+    holding a malicious dropper read `suspicious` at 62.9 while the member
+    inside it read `malicious` at the same 62.9: one row of a report
+    contradicting the row beneath it.
+
+    That is the direction that matters. An ISO gets a payload past
+    mark-of-the-web precisely because the wrapper looks harmless, and
+    "suspicious" is the word an analyst triages last.
+    """
+    public_id = _submit(client, auth, "invoice.iso", _iso(tmp_path, {
+        "README.TXT": README, "INVOICE.PS1": DROPPER,
+    }))
+    detail = _poll_until_done(client, auth, public_id)
+    members = detail.get("children") or []
+    worst = max(members, key=lambda c: c["final_score"])
+    assert worst["verdict"]["verdict"] == "malicious", worst["verdict"]
+    assert detail["verdict"]["verdict"] == "malicious", (
+        f"container {detail['verdict']['verdict']} vs member {worst['verdict']['verdict']}"
+    )
+    # And the escalation is stated, not silently applied.
+    assert detail["verdict"].get("raised_because"), detail["verdict"]
+    assert "INVOICE" in detail["verdict"]["raised_because"].upper()
+
+
+@needs_iso_tool
+def test_a_clean_container_is_not_raised(client, auth, tmp_path) -> None:
+    """The escalation only ever moves upward, and only when there is something
+    to move it."""
+    public_id = _submit(client, auth, "release.iso", _iso(tmp_path, {
+        "README.TXT": README, "SETUP.EXE": BENIGN_PE,
+    }))
+    detail = _poll_until_done(client, auth, public_id)
+    assert detail["verdict"]["verdict"] == "clean", detail["verdict"]
+    assert not detail["verdict"].get("raised_because")

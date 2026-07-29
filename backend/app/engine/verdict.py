@@ -14,7 +14,7 @@ a claim to recognise a specific named strain.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Iterable
 
 from .capabilities import HIGH_CONSEQUENCE
@@ -148,6 +148,8 @@ class VerdictResult:
     category: str = ""
     family: str = ""
     engines: list[dict[str, Any]] = field(default_factory=list)
+    #: Set when a container inherited a worse verdict from something inside it.
+    raised_because: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -160,7 +162,34 @@ class VerdictResult:
             "category": self.category,
             "family": self.family,
             "engines": self.engines,
+            **({"raised_because": self.raised_because} if self.raised_because else {}),
         }
+
+    def raised_to(self, verdict: str, *, because: str) -> "VerdictResult":
+        """The same assessment, escalated by something this sample contains.
+
+        A container is judged on its own signals, and a container has almost
+        none — carrying files is not a capability. The escalation therefore
+        comes from outside `classify`, from the pipeline, which is the only
+        place that knows about children. It is recorded rather than silently
+        applied: a reader has to be able to see that the word changed and why.
+        """
+        return replace(
+            self,
+            verdict=verdict,
+            category=_CATEGORY_FOR_VERDICT.get(verdict, self.category),
+            threat_name=".".join(
+                [self.platform or "Generic",
+                 _CATEGORY_FOR_VERDICT.get(verdict, self.category) or "Suspicious",
+                 self.family or "Gen"]
+            ),
+            raised_because=because[:300],
+        )
+
+
+#: The category half of the threat name, when the verdict was raised from a
+#: member rather than derived from this sample's own capabilities.
+_CATEGORY_FOR_VERDICT = {"malicious": "Malware", "suspicious": "Suspicious"}
 
 
 def _platform(family: str, mime: str) -> str:

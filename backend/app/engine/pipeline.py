@@ -424,6 +424,10 @@ def _has_blind_spot(job: SandboxJob) -> bool:
     return False
 
 
+#: Verdicts, worst last. Used to decide whether a container must inherit.
+_VERDICT_RANK = {"clean": 0, "suspicious": 1, "malicious": 2}
+
+
 def _inherited_severity(score: float) -> str:
     """Severity of "something in here is dangerous", banded like the score itself."""
     if score >= 80:
@@ -654,6 +658,31 @@ def run(
         verdict_res = verdict_mod.classify(
             sample.family, sample.mime, results, merged, assessment.final_score
         )
+
+        # A CONTAINER IS NOT SAFER THAN WHAT IS IN IT.
+        #
+        # The score floor above already raises the container to its worst
+        # member's number, but the VERDICT is decided from the container's own
+        # capabilities — and a container has none, because carrying files is not
+        # a capability. So an ISO holding a malicious dropper read `suspicious`
+        # at 62.9 while the member inside it read `malicious` at the same 62.9:
+        # one row of the same report contradicting the row beneath it.
+        #
+        # That is the direction that matters. An ISO is a standard way to get a
+        # payload past mark-of-the-web precisely because the wrapper looks
+        # harmless, and "suspicious" is exactly the word an analyst triages last.
+        worst_verdict = (worst.verdict or {}).get("verdict") if worst is not None else None
+        if worst_verdict in _VERDICT_RANK and _VERDICT_RANK.get(
+            verdict_res.verdict, 0
+        ) < _VERDICT_RANK[worst_verdict]:
+            verdict_res = verdict_res.raised_to(
+                worst_verdict,
+                because=(
+                    f"{worst.original_name or worst.sha256[:16]} inside this container was "
+                    f"assessed {worst_verdict}. A container carries the verdict of the worst "
+                    "thing found in it."
+                ),
+            )
 
         job.analysis = {r.analyzer: r.to_dict() for r in results}
         job.iocs = merged.to_dict()
