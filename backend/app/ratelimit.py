@@ -21,6 +21,7 @@ operator to discover it.
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import threading
 import time
@@ -32,6 +33,8 @@ from fastapi.responses import JSONResponse
 
 from .config import get_settings
 from .remote import client_ip
+
+logger = logging.getLogger("sandbox.ratelimit")
 
 
 @dataclass(frozen=True)
@@ -153,6 +156,17 @@ def _identities(request: Request) -> list[str]:
     return out
 
 
+#: Sweep as soon as the dict passes this, not only every 300 seconds. The scan
+#: runs under a lock in an async middleware, so its cost is a pause for every
+#: caller — and a time-only trigger makes that pause a function of how much
+#: traffic arrives rather than of anything this module decides.
+_SWEEP_AT = 20_000
+
+#: Hard ceiling. Roughly 250 bytes a bucket, so this is a few MB — small beside
+#: the 2 GB the service is pinned to, and small enough that the scan is quick.
+_MAX_BUCKETS = 50_000
+
+
 @dataclass
 class _Bucket:
     hits: list[float] = field(default_factory=list)
@@ -191,24 +205,44 @@ class RateLimiter:
         cutoff = now - rule.window
         with self._lock:
             self._sweep(now)
+
+            # LOOK UP, DO NOT CREATE.
+            #
+            # This used to `setdefault`, so every identity got a dict entry
+            # BEFORE the fullness test could refuse the request — and an
+            # attacker rotating `X-API-Key` and `Authorization` allocated two
+            # new buckets per request while being answered 429 by the limiter
+            # working exactly as designed. Measured on the real image: 260,000
+            # requests, all but 240 refused, took RSS from 99 MiB to 230 MiB at
+            # ~5,000 req/s from a single host.
+            #
+            # Reading first bounds it. The address bucket is the one identity a
+            # caller cannot rotate, so once THAT is full every later request is
+            # refused without allocating anything: the growth an attacker can
+            # force is one window's worth, not one per request.
             #: Each bucket carries its own ceiling: the address bucket is a
             #: backstop against credential rotation, not the product's limit.
-            buckets = []
+            found: list[tuple[str, _Bucket | None, int]] = []
             for identity in identities:
-                bucket = self._buckets.setdefault((identity, rule.name), _Bucket())
-                bucket.hits = [t for t in bucket.hits if t > cutoff]
-                buckets.append((bucket, rule.limit_for(identity)))
+                bucket = self._buckets.get((identity, rule.name))
+                if bucket is not None:
+                    bucket.hits = [t for t in bucket.hits if t > cutoff]
+                found.append((identity, bucket, rule.limit_for(identity)))
 
-            full = [b for b, ceiling in buckets if len(b.hits) >= ceiling]
+            full = [b for _i, b, ceiling in found if b is not None and len(b.hits) >= ceiling]
             if full:
                 #: The soonest any of the exhausted buckets frees a slot.
                 retry = min(int(b.hits[0] - cutoff) + 1 for b in full)
                 return False, 0, max(1, retry)
 
-            for bucket, _ceiling in buckets:
+            remaining = []
+            for identity, bucket, ceiling in found:
+                if bucket is None:
+                    bucket = self._buckets.setdefault((identity, rule.name), _Bucket())
                 bucket.hits.append(now)
+                remaining.append(ceiling - len(bucket.hits))
             # The tightest of them, because that is the one that will stop them.
-            return True, min(ceiling - len(b.hits) for b, ceiling in buckets), 0
+            return True, min(remaining), 0
 
     def reset(self) -> None:
         """Forget every caller. For tests, which are not an attacker.
@@ -228,13 +262,42 @@ class RateLimiter:
         Without this, every distinct client address that ever called is
         remembered forever — which on a public endpoint is an unbounded dict fed
         by strangers.
+
+        Two triggers, not one. The 300-second timer is the ordinary case. The
+        size trigger is what stops the interval BEING the exposure: this runs
+        under a lock inside an async middleware, so the scan blocks the whole
+        single-process appliance, and a five-minute interval means the dict —
+        and therefore the pause — is bounded by five minutes of traffic rather
+        than by anything the limiter controls. Sweeping when it grows past
+        `_SWEEP_AT` keeps both the memory and the pause proportionate.
+
+        `_MAX_BUCKETS` is the floor under the whole thing. If a sweep cannot get
+        under it — every bucket young enough to keep — the oldest are dropped
+        anyway. Forgetting the least recently seen caller lets them start a
+        fresh window, which is the mild failure; the alternative is an appliance
+        that runs out of memory, which is the total one.
         """
-        if now - self._last_sweep < 300:
+        oversized = len(self._buckets) > _SWEEP_AT
+        if not oversized and now - self._last_sweep < 300:
             return
         self._last_sweep = now
         stale = [k for k, b in self._buckets.items() if not b.hits or now - b.hits[-1] > 3600]
         for k in stale:
             self._buckets.pop(k, None)
+
+        excess = len(self._buckets) - _MAX_BUCKETS
+        if excess > 0:
+            oldest = sorted(
+                self._buckets.items(), key=lambda kv: kv[1].hits[-1] if kv[1].hits else 0.0
+            )
+            for k, _b in oldest[:excess]:
+                self._buckets.pop(k, None)
+            logger.warning(
+                "rate limiter over capacity: dropped %d least-recently-seen buckets "
+                "(cap %d). A caller whose bucket was dropped gets a fresh window.",
+                excess,
+                _MAX_BUCKETS,
+            )
 
 
 limiter = RateLimiter()
