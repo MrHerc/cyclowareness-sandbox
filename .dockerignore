@@ -11,6 +11,10 @@
 **/*.egg-info/
 .venv/
 venv/
+# Scratch virtualenvs an operator or a tool may leave in the checkout. Without
+# this a 23 MB stray venv was copied into the build context of every image.
+.wvenv/
+*.venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
