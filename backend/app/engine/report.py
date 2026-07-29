@@ -18,6 +18,7 @@ a crash.
 from __future__ import annotations
 
 import io
+import ipaddress
 from datetime import datetime, timezone
 from typing import Any
 
@@ -393,10 +394,61 @@ def _ioc_patterns(iocs: dict[str, list[str]]) -> list[tuple[str, str, str]]:
             if not isinstance(value, str) or not value.strip():
                 continue
             value = value.strip()[:STR_LIMIT]
+            if _is_own_infrastructure(value):
+                continue
             out.append((builder(value), kind, value))
             if len(out) >= MAX_STIX_INDICATORS:
                 return out
     return out
+
+
+def _is_own_infrastructure(value: str) -> bool:
+    """Is this address the sandbox itself rather than anything the sample chose?
+
+    A detonation guest talks to its own gateway, its sinkhole and its result
+    server before it talks to anything a malware author picked, so those
+    addresses come back in every report from every sample. Published as an
+    Indicator with `indicator_types=["malicious-activity"]`, they are an
+    accusation a TIP turns straight into a blocklist entry.
+
+    Measured on this deployment: `192.168.122.1` — the operator's own libvirt
+    bridge — was exported as a malicious indicator by 4 of the first 25
+    malicious samples checked. Acting on that bundle blocks the analyst's own
+    virtualisation host, and the value is not evidence about the sample in any
+    case: it is evidence about where the sample was detonated.
+
+    Suppressed for the whole RFC 1918 / loopback / link-local space rather than
+    for a list of this host's addresses, because the sandbox network is private
+    by construction and a public address is the only kind that can be an IOC
+    about someone else's infrastructure. Kept in `job.iocs` — an analyst reading
+    the report should still see what the sample contacted; what changes is that
+    this deployment no longer publishes it to the world as malicious.
+    """
+    host = value.strip()
+    # A bare address, or the host part of a URL — the only two shapes an
+    # address-like IOC arrives in here.
+    if "//" in host:
+        host = host.split("//", 1)[1]
+    host = host.split("/", 1)[0].split("@")[-1]
+    if host.startswith("["):
+        # `[fd00::1]:8080` — an IPv6 literal with a port. Taking everything up
+        # to the bracket is the only way to tell the port's colon from the
+        # address's; stripping brackets first leaves `fd00::1]:8080`.
+        host = host[1:].split("]", 1)[0]
+    elif host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_multicast
+        or address.is_unspecified
+    )
 
 
 def _observable(stix, kind: str, value: str):
