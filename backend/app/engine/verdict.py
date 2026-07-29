@@ -222,9 +222,10 @@ def _family_token(signals: list) -> str:
     # same file: 7-Zip's own installer scored as ordinary software and was still
     # headlined `Win32.Riskware.HardwareIdProfiling`, after the score had
     # already decided that reading a hardware id is what licensed software does.
-    from .scoring import effective_severity
+    from .scoring import effective_severity, uncorroborated
 
-    ranked = sorted(signals, key=lambda s: -SEVERITY_ORDER.get(effective_severity(s), 0))
+    alone = uncorroborated(signals)
+    ranked = sorted(signals, key=lambda s: -SEVERITY_ORDER.get(effective_severity(s, alone), 0))
     top = ranked[0]
     tail = top.id.split(".")[-1] if "." in top.id else top.id
     token = "".join(p.capitalize() for p in tail.replace("-", "_").split("_"))
@@ -242,10 +243,11 @@ def _worst(signals: list) -> str:
     """
     if not signals:
         return "info"
-    from .scoring import effective_severity
+    from .scoring import effective_severity, uncorroborated
 
+    alone = uncorroborated(signals)
     return max(
-        (effective_severity(s) for s in signals),
+        (effective_severity(s, alone) for s in signals),
         key=lambda sev: SEVERITY_ORDER.get(sev, 0),
     )
 
@@ -271,7 +273,19 @@ def classify(
 ) -> VerdictResult:
     results = list(results)
     all_signals = [s for r in results if r.ran for s in r.signals]
-    caps = detect_capabilities(all_signals, iocs)
+    # A capability standing on its own is not an accusation. Vue's runtime
+    # template compiler is literally `new Function(code)()`, which asserted
+    # `injection` and headlined the library `JS.Injector.DynamicExecution` — at
+    # a risk score of 6.6, the panel and the number disagreeing about the same
+    # file. See `scoring.CAPABILITY_NEEDS_CORROBORATION`: the demotion has to
+    # reach the capability engine too, or the score says clean and the engine
+    # row still detects.
+    from .scoring import uncorroborated
+
+    alone = uncorroborated(all_signals)
+    caps = detect_capabilities(
+        [s for s in all_signals if s.id not in alone] if alone else all_signals, iocs
+    )
 
     platform = _platform(family, mime)
     category = _category_for(caps, all_signals)

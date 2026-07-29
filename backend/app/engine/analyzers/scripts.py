@@ -109,6 +109,15 @@ class _Detector:
     severity: Severity
     #: (human label named in the signal detail, pattern)
     patterns: tuple[tuple[str, re.Pattern[str]], ...]
+    #: Extra patterns that only run when the sample IS the named language.
+    #:
+    #: `exec(` and `compile(` are Python builtins and were matched in every
+    #: file. In JavaScript `.exec(` is `RegExp.prototype.exec` — every script
+    #: that uses a regular expression has it — so jQuery was `malicious` at 48.8
+    #: on sixteen matches of `L.exec(t)`, and Vue at 40.5 partly on its own
+    #: template compiler being a function named `compile`. Neither has anything
+    #: to do with running code from a string.
+    python_only: tuple[tuple[str, re.Pattern[str]], ...] = ()
 
 
 def _p(*pairs: tuple[str, str]) -> tuple[tuple[str, re.Pattern[str]], ...]:
@@ -162,10 +171,15 @@ _DETECTORS: tuple[_Detector, ...] = (
             ("new Function()", r"\bnew\s+function\s*\(|\bfunction\s*\(\s*['\"]"),
             ("VBScript ExecuteGlobal", r"\bexecuteglobal\b"),
             ("VBScript Execute", r"\bexecute\s*\("),
-            ("python exec()", r"\bexec\s*\("),
-            ("python compile()", r"\bcompile\s*\(" ),
             ("[ScriptBlock]::Create", r"\[scriptblock\]\s*::\s*create"),
             ("WScript.Shell Run", r"wscript\.shell"),
+        ),
+        python_only=_p(
+            # `(?<![.\w])` so a METHOD call is not a builtin call. Without it
+            # `re.compile(...)` and JavaScript's `RegExp.prototype.exec` both
+            # counted as running code from a string.
+            ("python exec()", r"(?<![.\w])exec\s*\("),
+            ("python compile()", r"(?<![.\w])compile\s*\("),
         ),
     ),
     _Detector(
@@ -256,7 +270,17 @@ _DETECTORS: tuple[_Detector, ...] = (
 _RE_BACKTICK = re.compile(r"`")
 _RE_CARET = re.compile(r"\^")
 _RE_CHARCODE = re.compile(r"\[char\]\s*\d{1,3}|\bchrw?\s*\(\s*\d{1,3}\s*\)|fromcharcode", re.I)
-_RE_REVERSE = re.compile(r"\[array\]\s*::\s*reverse|\bstrreverse\s*\(|\.reverse\s*\(\s*\)|\[::-1\]", re.I)
+#: STRING reversal, which is a way to hide a literal. A bare `.reverse()` is
+#: `Array.prototype.reverse` — jQuery calls it to order DOM nodes, and that was
+#: counted as an obfuscation technique. The JavaScript idiom for reversing a
+#: STRING is `split('').reverse().join('')`, which is what this now matches.
+_RE_REVERSE = re.compile(
+    r"\[array\]\s*::\s*reverse"
+    r"|\bstrreverse\s*\("
+    r"|\[::-1\]"
+    r"|\bsplit\s*\(\s*(['\"])\1\s*\)\s*\.\s*reverse\s*\(\s*\)",
+    re.I,
+)
 _RE_CONCAT = re.compile(r"['\"]\s*\+\s*['\"]")
 _RE_FORMAT_SLOT = re.compile(r"\{\d{1,2}\}")
 _RE_FORMAT_OP = re.compile(r"\s-f\s|\.format\s*\(", re.I)
@@ -451,14 +475,21 @@ class _Hit:
     layer: str
 
 
-def _scan_text(text: str, layer: str) -> list[_Hit]:
+#: Extensions whose contents really are Python. A `.py` is Python; a decoded
+#: base64 layer inside one could be anything, so the layer inherits the
+#: submission's language rather than being guessed at.
+_PYTHON_EXTENSIONS = frozenset({".py", ".pyw", ".pyi"})
+
+
+def _scan_text(text: str, layer: str, *, is_python: bool = False) -> list[_Hit]:
     window = text[:MAX_SCAN_CHARS]
     hits: list[_Hit] = []
 
     for det in _DETECTORS:
         labels: list[str] = []
         snippet = ""
-        for label, pattern in det.patterns:
+        patterns = det.patterns + (det.python_only if is_python else ())
+        for label, pattern in patterns:
             found = pattern.search(window)
             if found:
                 labels.append(label)
@@ -481,8 +512,11 @@ def _scan_text(text: str, layer: str) -> list[_Hit]:
             )
         )
 
+    # A minifier produces one enormous line by design; that is the whole job.
+    # Every published library therefore trips this, so it is not evidence about
+    # a file that says what it is.
     longest = max((len(line) for line in window.splitlines()), default=len(window))
-    if longest >= LONG_LINE_CHARS:
+    if longest >= LONG_LINE_CHARS and not _is_published_library(window):
         hits.append(
             _Hit(
                 "script.long_one_liner",
@@ -496,12 +530,46 @@ def _scan_text(text: str, layer: str) -> list[_Hit]:
     return hits
 
 
+#: A distributed library announces itself. Every one of them ships a banner
+#: comment in the first few hundred characters carrying a name, a version and a
+#: licence:
+#:
+#:     /*! jQuery v3.7.1 | (c) OpenJS Foundation … | jquery.org/license */
+#:     /** vue v3.5.13 · (c) 2018-present Yuxi (Evan) You · @license MIT **/
+#:
+#: Obfuscated malware does the opposite by construction: its whole purpose is to
+#: be unreadable, and it does not put its name, its version and its licence at
+#: the top. This is not proof — a banner is three lines to forge — and it is not
+#: used as one. It only decides whether MINIFICATION counts as obfuscation.
+_RE_LIBRARY_BANNER = re.compile(
+    r"/\*[!*].{0,400}?(?:\bv\d+\.\d+|@license|\bcopyright\b|\(c\)\s*\d{4})",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _is_published_library(window: str) -> bool:
+    return bool(_RE_LIBRARY_BANNER.match(window.lstrip()[:600] or ""))
+
+
 def _obfuscation_techniques(window: str) -> list[str]:
     found: list[str] = []
     n = max(len(window), 1)
 
+    # MINIFICATION IS NOT OBFUSCATION.
+    #
+    # Both produce one enormous line of dense text with short identifiers, so
+    # entropy and line length cannot tell them apart — measured, jQuery 3.7.1
+    # sits at 5.26 bits/char against a 5.2 threshold, and came out `malicious`
+    # at 48.8 for being minified. What CAN tell them apart is that a published
+    # library says who it is at the top.
+    #
+    # Only these two are waived. Character-code reconstruction, backtick and
+    # caret escaping, and format-slot reordering are not things minifiers do,
+    # so they still count against a file however it announces itself.
+    published = _is_published_library(window)
+
     ent = _entropy(window)
-    if ent >= ENTROPY_THRESHOLD:
+    if ent >= ENTROPY_THRESHOLD and not published:
         found.append(f"high character entropy ({ent:.2f} bits/char)")
 
     backticks = len(_RE_BACKTICK.findall(window))
@@ -781,11 +849,19 @@ def analyze(sample: Sample) -> AnalyzerResult:
     except Exception:  # noqa: BLE001 — decoding is best-effort, never fatal
         layers = layers[:MAX_LAYERS]
 
-    hits = _scan_text(text, "raw source")
+    # Language-specific detectors run only on the language they are about. The
+    # Python builtins `exec()` and `compile()` were matched in every file, and
+    # in JavaScript `.exec(` is `RegExp.prototype.exec` — which every script
+    # using a regular expression has. jQuery came out `malicious` at 48.8 on
+    # sixteen matches of `L.exec(t)`; it does not evaluate anything.
+    is_python = (sample.claimed_extension or "").lower() in _PYTHON_EXTENSIONS or (
+        sample.mime == "text/x-python"
+    )
+    hits = _scan_text(text, "raw source", is_python=is_python)
     iocs = _extract_iocs(text)
     for index, layer in enumerate(layers, start=1):
         label = f"decoded layer {index} (depth {layer['depth']})"
-        hits.extend(_scan_text(layer["text"], label))
+        hits.extend(_scan_text(layer["text"], label, is_python=is_python))
         iocs = iocs.merge(_extract_iocs(layer["text"]))
 
     signals = _merge_hits(hits) + _layer_signals(layers)

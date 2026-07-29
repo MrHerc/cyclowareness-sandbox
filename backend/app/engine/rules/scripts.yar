@@ -66,15 +66,36 @@ rule JS_Obfuscation_Eval_Decode
         description = "JScript/JS runtime string assembly fed to eval (obfuscated dropper)"
         severity = "medium"
         reference = "MITRE ATT&CK T1059.007; T1140 Deobfuscate/Decode"
+    /*
+     * Two deliberate tightenings, both paid for by false positives:
+     *
+     * `eval` as a bare substring matched jQuery's own `_evalUrl`, and matched
+     * "retrieval" inside curl.exe. It must be a CALL, so the regex refuses a
+     * preceding word character, `.` or `$`.
+     *
+     * "somewhere in the file" is not a relationship. jQuery has one `eval` and
+     * a `String.fromCharCode` forty kilobytes away in its CSS escape handling;
+     * that is two ordinary things, not one obfuscated dropper. The decoder now
+     * has to sit within 300 bytes of the eval, in either direction, which is
+     * what `eval(atob(x))` and `var s=unescape(...); eval(s)` both look like.
+     *
+     * Every pattern accepts bracket notation as well as dot notation, because
+     * `String['fromCharCode'](` is what the obfuscators in this corpus actually
+     * emit and `String.fromCharCode(` is what a person writes.
+     */
     strings:
-        $eval = "eval" ascii wide
-        $d1   = "unescape" nocase ascii wide
-        $d2   = "String.fromCharCode" nocase ascii wide
-        $d3   = "fromCharCode" nocase ascii wide
-        $d4   = "atob(" nocase ascii wide
-        $d5   = "document.write" nocase ascii wide
+        $eval = /(^|[^\w.$])eval\s*\(|['"]eval['"]\s*\]\s*\(/ ascii wide
+        $d1   = /unescape['"\]\s]*\(/ nocase ascii wide
+        $d2   = /fromCharCode['"\]\s]*\(/ nocase ascii wide
+        $d3   = /atob['"\]\s]*\(/ nocase ascii wide
+        $d4   = /document\s*[.\[]\s*['"]?write['"\]\s]*\(/ nocase ascii wide
     condition:
-        $eval and any of ($d*)
+        for any i in (1..#eval) : (
+            for any of ($d*) : (
+                (@ > @eval[i] and @ - @eval[i] < 300) or
+                (@ < @eval[i] and @eval[i] - @ < 300)
+            )
+        )
 }
 
 rule WScript_Shell_Command_Execution

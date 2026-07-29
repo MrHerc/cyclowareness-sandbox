@@ -192,13 +192,52 @@ AMBIENT_SIGNALS = frozenset({
 })
 
 
-def effective_severity(signal: Signal) -> str:
+#: Signals that name a *capability* rather than an intent.
+#:
+#: Evaluating a string as code is what a template engine, a bundler, a REPL and
+#: a test runner all do — Vue's runtime compiler is literally
+#: `const render = new Function(code)()`. What a dropper cannot avoid is ALSO
+#: fetching, decoding or hiding the string it evaluates, and those are separate
+#: signals. So this counts in full whenever anything else in its family is
+#: raised, and counts as `low` when it is the only thing we have.
+#:
+#: Deliberately not a "this file says it is a published library" waiver: a
+#: banner comment is one line for an attacker to forge, whereas needing the
+#: payload from somewhere is structural.
+#:
+#: signal id -> the id prefix whose other raised signals corroborate it.
+CAPABILITY_NEEDS_CORROBORATION: dict[str, str] = {
+    "script.dynamic_execution": "script.",
+}
+
+
+def uncorroborated(signals: Iterable[Signal]) -> frozenset[str]:
+    """Ids from `CAPABILITY_NEEDS_CORROBORATION` that stand alone in `signals`."""
+    raised = list(signals)
+    alone: set[str] = set()
+    for signal_id, prefix in CAPABILITY_NEEDS_CORROBORATION.items():
+        if not any(s.id == signal_id for s in raised):
+            continue
+        if not any(
+            s.id != signal_id
+            and s.id.startswith(prefix)
+            and s.severity in ("medium", "high", "critical")
+            for s in raised
+        ):
+            alone.add(signal_id)
+    return frozenset(alone)
+
+
+def effective_severity(signal: Signal, alone: frozenset[str] = frozenset()) -> str:
     """The severity this signal carries INTO the score.
 
     Everything an analyzer or a sandbox reported is kept and shown; this is only
-    about what may push a verdict. See `AMBIENT_SIGNALS`.
+    about what may push a verdict. See `AMBIENT_SIGNALS` and
+    `CAPABILITY_NEEDS_CORROBORATION` — `alone` comes from `uncorroborated()`.
     """
-    if signal.id in AMBIENT_SIGNALS and signal.severity in ("medium", "high", "critical"):
+    if signal.severity not in ("medium", "high", "critical"):
+        return signal.severity
+    if signal.id in AMBIENT_SIGNALS or signal.id in alone:
         return "low"
     return signal.severity
 
@@ -206,8 +245,10 @@ def effective_severity(signal: Signal) -> str:
 def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
     """Severity-weighted rule score in 0-100, plus the per-band arithmetic."""
     bands: dict[str, list[Signal]] = {}
-    for signal in _collapse_correlated(list(signals)):
-        bands.setdefault(effective_severity(signal), []).append(signal)
+    kept = _collapse_correlated(list(signals))
+    alone = uncorroborated(kept)
+    for signal in kept:
+        bands.setdefault(effective_severity(signal, alone), []).append(signal)
 
     total = 0.0
     detail: list[dict[str, Any]] = []
