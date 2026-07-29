@@ -167,3 +167,48 @@ def test_the_worker_seam_is_exempt_only_with_the_token(client) -> None:
     assert not _is_exempt(_Req({}), "/api/dynamic/queue")
     assert not _is_exempt(_Req({"x-worker-token": "wrong"}), "/api/dynamic/queue")
     assert not _is_exempt(_Req({}), "/api/dynamic/anything-invented")
+
+
+# --- the address bucket is a backstop, not the product's limit ---------------
+
+
+def test_analysts_behind_one_proxy_do_not_throttle_each_other(client) -> None:
+    """With TRUST_PROXY_HEADERS off — the default, and the safe one — every
+    analyst in the organisation shares ONE address. The Queue page polls
+    /api/jobs every three seconds, so a single shared 60/60s ceiling meant the
+    third analyst to open that page started getting 429s for no reason anyone
+    could see. The credential bucket stays at 60; the address bucket is the
+    coarse backstop it was added to be."""
+    jobs = next(r for p, r in ratelimit.RULES if p == "/api/jobs")
+    assert jobs.limit_for("key:abc") == jobs.limit
+    assert jobs.limit_for("ip:172.17.0.1") > jobs.limit * 5, (
+        "the shared-address ceiling is tight enough to throttle a second analyst"
+    )
+
+    # Six analysts polling every three seconds for a minute.
+    per_analyst = 20
+    rule = ratelimit.Rule(jobs.limit, jobs.window, "sim", address_limit=jobs.address_limit)
+    refused = 0
+    for tick in range(per_analyst):
+        for analyst in range(6):
+            ok, _rem, _retry = ratelimit.limiter.check(
+                ["ip:172.17.0.1", f"auth:analyst{analyst}"], rule
+            )
+            refused += 0 if ok else 1
+    assert refused == 0, f"{refused} of {per_analyst * 6} legitimate polls were refused"
+
+
+def test_authentication_keeps_the_address_ceiling_tight(client) -> None:
+    """The one rule where the address bucket IS the limit: stopping a password
+    list from one address is the whole reason it exists."""
+    login = next(r for p, r in ratelimit.RULES if p == "/api/auth/login")
+    assert login.limit_for("ip:1.2.3.4") == login.limit, (
+        "a loose address ceiling on login would reopen the bypass this closes"
+    )
+
+
+def test_a_single_credential_is_still_held_to_its_own_limit(client) -> None:
+    """Loosening the address bucket must not loosen the product's limit."""
+    rule = ratelimit.Rule(3, 60, "one-caller", address_limit=1000)
+    ok = [ratelimit.limiter.check(["ip:9.9.9.9", "key:solo"], rule)[0] for _ in range(5)]
+    assert ok == [True, True, True, False, False], ok

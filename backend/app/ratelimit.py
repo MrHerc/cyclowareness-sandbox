@@ -36,11 +36,38 @@ from .remote import client_ip
 
 @dataclass(frozen=True)
 class Rule:
-    """`limit` requests per `window` seconds."""
+    """`limit` requests per `window` seconds, per credential.
+
+    `address_limit` is the ceiling for the SAME rule charged to the caller's
+    address instead. It is separate because the two buckets are doing different
+    jobs, and giving them one number breaks whichever job it does not suit.
+
+    The credential bucket is the product's limit: this is how much one API key
+    or one session may do. The address bucket exists only to stop a caller
+    minting a fresh credential bucket per request — so for most rules it is a
+    coarse backstop, deliberately several times looser.
+
+    That looseness is not laziness. Behind a reverse proxy with
+    `TRUST_PROXY_HEADERS` off (the default, and the safe one), EVERY analyst in
+    the organisation shares one address. The Queue page polls `/api/jobs` every
+    three seconds, so at the credential limit of 60/60s a third analyst opening
+    that page would have started getting 429s — a throttle nobody could explain
+    and nothing was doing wrong.
+
+    Authentication is the exception and keeps them equal: stopping a password
+    list from one address is the entire point, and an office sharing an address
+    also shares the ten-attempts-per-five-minutes it always had.
+    """
 
     limit: int
     window: int
     name: str
+    address_limit: int | None = None
+
+    def limit_for(self, identity: str) -> int:
+        if identity.startswith("ip:") and self.address_limit is not None:
+            return self.address_limit
+        return self.limit
 
 
 #: Submission is the expensive one: it runs every analyzer and writes to
@@ -48,11 +75,12 @@ class Rule:
 #: and gets a ceiling that a human clicking around will never notice but a script
 #: will.
 RULES: tuple[tuple[str, Rule], ...] = (
-    ("/api/analyze", Rule(20, 60, "submission")),
-    ("/api/auth/login", Rule(10, 300, "authentication")),
-    ("/api/jobs", Rule(60, 60, "job-actions")),
+    ("/api/analyze", Rule(20, 60, "submission", address_limit=100)),
+    # Equal on purpose — see Rule.
+    ("/api/auth/login", Rule(10, 300, "authentication", address_limit=10)),
+    ("/api/jobs", Rule(60, 60, "job-actions", address_limit=600)),
 )
-DEFAULT_RULE = Rule(240, 60, "read")
+DEFAULT_RULE = Rule(240, 60, "read", address_limit=2400)
 
 #: Paths that are never metered, matched EXACTLY. As a `startswith` test this
 #: also exempted `/api/healthXXXX` and `/metricsXXXX` — any invented path with
@@ -163,22 +191,24 @@ class RateLimiter:
         cutoff = now - rule.window
         with self._lock:
             self._sweep(now)
+            #: Each bucket carries its own ceiling: the address bucket is a
+            #: backstop against credential rotation, not the product's limit.
             buckets = []
             for identity in identities:
                 bucket = self._buckets.setdefault((identity, rule.name), _Bucket())
                 bucket.hits = [t for t in bucket.hits if t > cutoff]
-                buckets.append(bucket)
+                buckets.append((bucket, rule.limit_for(identity)))
 
-            full = [b for b in buckets if len(b.hits) >= rule.limit]
+            full = [b for b, ceiling in buckets if len(b.hits) >= ceiling]
             if full:
                 #: The soonest any of the exhausted buckets frees a slot.
                 retry = min(int(b.hits[0] - cutoff) + 1 for b in full)
                 return False, 0, max(1, retry)
 
-            for bucket in buckets:
+            for bucket, _ceiling in buckets:
                 bucket.hits.append(now)
             # The tightest of them, because that is the one that will stop them.
-            return True, min(rule.limit - len(b.hits) for b in buckets), 0
+            return True, min(ceiling - len(b.hits) for b, ceiling in buckets), 0
 
     def reset(self) -> None:
         """Forget every caller. For tests, which are not an attacker.

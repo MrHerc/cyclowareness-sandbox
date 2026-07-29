@@ -78,17 +78,25 @@ In-process, sliding window, no external store. `X-RateLimit-Limit`,
 `X-RateLimit-Remaining` and `X-RateLimit-Scope: process` on every response; a
 `429` carries `Retry-After`.
 
-| Path | Limit |
-|---|---|
-| `POST /api/analyze*` | 20 / 60s |
-| `POST /api/auth/login` | 10 / 300s |
-| `/api/jobs*` | 60 / 60s |
-| everything else | 240 / 60s |
+| Path | Per credential | Per address |
+|---|---|---|
+| `POST /api/analyze*` | 20 / 60s | 100 / 60s |
+| `POST /api/auth/login` | 10 / 300s | **10 / 300s** |
+| `/api/jobs*` | 60 / 60s | 600 / 60s |
+| everything else | 240 / 60s | 2400 / 60s |
 
 Each request is charged to **every** identity it carries — its address, and its
 API key or session token if it has one — and refused when any of them is out. A
 caller who supplies a credential therefore cannot escape the address budget by
 rotating it, which is how the login limit was previously worth nothing.
+
+The two columns differ because the two buckets do different jobs. The credential
+column is the product's limit. The address column is only a backstop against
+credential rotation, so it is several times looser — with `TRUST_PROXY_HEADERS`
+off every analyst shares one address, the Queue page polls every three seconds,
+and a single shared 60/60s ceiling would have started refusing the third analyst
+to open it. **Authentication is the exception and keeps them equal**: stopping a
+password list from one address is the entire reason the address bucket exists.
 
 Exempt: `GET /api/health`, `GET /metrics`, and `/api/dynamic/*` **only** when the
 request carries the configured `X-Worker-Token`. `X-RateLimit-Scope: process`
