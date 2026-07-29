@@ -53,11 +53,23 @@ ARCHIVE_MIMES = {
 
 
 class PasswordRequired(Exception):
-    """The archive is encrypted and no usable password was supplied."""
+    """The archive is encrypted and no usable password was supplied.
 
-    def __init__(self, kind: str):
-        super().__init__(f"{kind} archive is encrypted and needs a password")
+    ``attempted`` distinguishes the two ways to arrive here, because they need
+    different words on screen. Nothing supplied yet is a prompt; a password that
+    did not open the archive is an answer, and a UI that shows the same prompt
+    for both leaves the analyst unable to tell "wrong password" from "my click
+    did nothing".
+    """
+
+    def __init__(self, kind: str, *, attempted: bool = False):
+        super().__init__(
+            f"The password supplied did not open this {kind} archive."
+            if attempted
+            else f"{kind} archive is encrypted and needs a password"
+        )
         self.kind = kind
+        self.attempted = attempted
 
 
 @dataclass
@@ -232,7 +244,7 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
                 member.stored = store_bytes(data)
             except RuntimeError as exc:  # bad password / unsupported encryption
                 if "password" in str(exc).lower():
-                    raise PasswordRequired("ZIP") from exc
+                    raise PasswordRequired("ZIP", attempted=bool(password)) from exc
                 member.skipped_reason = f"could not be read: {exc}"[:200]
             except Exception as exc:  # noqa: BLE001 — one bad member is not a failed job
                 member.skipped_reason = f"could not be read: {type(exc).__name__}"
@@ -305,10 +317,21 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
                     continue
                 member.stored = store_bytes(data)
     except py7zr.exceptions.PasswordRequired as exc:
-        raise PasswordRequired("7z") from exc
+        raise PasswordRequired("7z", attempted=bool(password)) from exc
     except Exception as exc:
-        if "password" in str(exc).lower():
-            raise PasswordRequired("7z") from exc
+        # A WRONG password does not announce itself. py7zr hands the ciphertext
+        # to LZMA and LZMA says `LZMAError: Corrupt input data` — no mention of a
+        # password anywhere in it. So the message test alone sent a mistyped
+        # password down the generic-failure path, and the job COMPLETED with
+        # "container could not be inspected": the prompt disappeared, and the
+        # analyst was told the archive was broken rather than that they had
+        # fumbled the password.
+        #
+        # `needs_password` is not a guess — it was determined from the archive's
+        # own header before any password was tried. Encrypted, a password was
+        # supplied, and the data would not decompress: that is the password.
+        if "password" in str(exc).lower() or (needs_password and password):
+            raise PasswordRequired("7z", attempted=bool(password)) from exc
         raise
 
     return result
@@ -426,6 +449,12 @@ def _read_rar(path: str, password: str | None) -> ArchiveResult:
                     member.stored = store_bytes(data)
                 except Exception as exc:  # noqa: BLE001
                     member.skipped_reason = f"could not be read: {type(exc).__name__}"
+    except rarfile.BadRarFile as exc:
+        # Same shape as the 7z case: an encrypted RAR opened with the wrong
+        # password fails as corruption, not as an authentication error.
+        if result.encrypted and password:
+            raise PasswordRequired("RAR", attempted=True) from exc
+        raise
     except rarfile.NeedFirstVolume as exc:
         raise ValueError("multi-volume RAR: the first volume was not submitted") from exc
     except rarfile.RarCannotExec as exc:

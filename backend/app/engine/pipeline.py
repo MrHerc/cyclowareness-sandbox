@@ -229,7 +229,12 @@ def _archive_stage(
 
     try:
         unpacked = archives.unpack(sample.path, sample.mime, password)
-    except archives.PasswordRequired:
+    except archives.PasswordRequired as exc:
+        # A password that did not work is an ANSWER, not a fresh prompt. Without
+        # this the job simply returned to `awaiting_password` with `error` unset,
+        # so the interface re-drew the same box and the analyst could not tell a
+        # wrong password from a click that did nothing.
+        job.error = str(exc) if exc.attempted else None
         return None, True
     except Exception as exc:  # noqa: BLE001
         # ran=True, deliberately. An `unavailable` result carries no signals, so

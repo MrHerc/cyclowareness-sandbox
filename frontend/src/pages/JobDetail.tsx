@@ -219,10 +219,18 @@ export function JobDetail() {
             <Lock size={20} className="mt-0.5 shrink-0 text-brand-fg" aria-hidden />
             <div className="w-full">
               <h2 className="text-h">This archive is encrypted</h2>
-              <p className="text-sm mt-1 text-c2">
-                Provide the password to continue. It is used once and never stored — the engine does not
-                brute-force.
-              </p>
+              {/* A password that did not work is an ANSWER, not a fresh prompt.
+                  The job returns to `awaiting_password` either way, so without
+                  this the same box was simply re-drawn and the analyst could not
+                  tell a wrong password from a click that did nothing. */}
+              {job.error ? (
+                <p className="text-sm mt-1 text-warning">{job.error} Try another one.</p>
+              ) : (
+                <p className="text-sm mt-1 text-c2">
+                  Provide the password to continue. It is used once and never stored — the engine does not
+                  brute-force.
+                </p>
+              )}
               <form
                 className="mt-3 flex flex-wrap items-end gap-3"
                 onSubmit={(e: FormEvent) => {
