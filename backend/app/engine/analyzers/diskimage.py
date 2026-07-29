@@ -311,11 +311,22 @@ def _analyze_iso(data: bytes, facts: dict[str, Any]) -> tuple[list[Signal], IOCs
             Signal(
                 id="diskimage.embedded_executable",
                 title="Executable bundled inside the image",
-                severity="high",
+                # LOW, deliberately. An ISO carries programs because that is
+                # what an ISO is for — every operating system, every installer,
+                # every Linux distribution is shipped this way. Reported at high
+                # it made a signed copy of PuTTY on a disc `malicious` at 56.6.
+                #
+                # The image is UNPACKED now (archives._read_iso), so each of
+                # these files is analysed as a job of its own and the container
+                # inherits the worst of them. That inheritance is the real
+                # signal; this line is the inventory.
+                severity="low",
                 detail=(
                     f"{len(exec_files)} file(s) inside the image begin with an "
-                    "executable header (PE or ELF). An image is a delivery wrapper; "
-                    "the payload is whatever runs once it is mounted or burned."
+                    "executable header (PE or ELF). An image is a delivery wrapper, "
+                    "so each of these is analysed separately and this image takes "
+                    "the verdict of the worst of them. Carrying a program is not "
+                    "by itself a finding: it is what the format is for."
                 ),
                 evidence={
                     "files": [
@@ -471,7 +482,12 @@ def _scan_raw(data: bytes, facts: dict[str, Any]) -> tuple[list[Signal], IOCs]:
             Signal(
                 id="diskimage.embedded_executable",
                 title="Executable embedded in the raw image",
-                severity="high",
+                # Medium, not high, and not low either. Unlike an ISO this image
+                # has no filesystem to enumerate, so nothing inside it can be
+                # extracted and analysed — the finding cannot be corroborated or
+                # dismissed by looking. A bootable USB image legitimately
+                # contains executables; so does one built to deliver a payload.
+                severity="medium",
                 detail=(
                     "The raw image contains "
                     + ", ".join(
