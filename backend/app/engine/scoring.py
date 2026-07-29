@@ -211,6 +211,60 @@ CAPABILITY_NEEDS_CORROBORATION: dict[str, str] = {
 }
 
 
+#: Facts about how a binary was BUILT, not about what it does.
+#:
+#: Every one of these is produced by an ordinary compiler, linker, installer
+#: builder or commercial packer, and an unsigned lookalike produces every one of
+#: them identically. They are the reason Process Explorer, WinMerge, Audacity,
+#: Greenshot, the Python distribution and a dozen release archives read as
+#: `suspicious`, and no amount of tuning separates them from a loader, because
+#: THERE IS NOTHING IN THE BYTES THAT DIFFERS.
+#:
+#: What does differ is who signed them. So these stop accusing — and only these
+#: — when `pe.signature_verified` is present: the Authenticode signature covers
+#: these exact bytes, the signer's key verifies it, the chain is
+#: cryptographically linked, and it reaches an anchor this deployment trusts.
+#:
+#: `generic.high_entropy_overall` and `pe.overlay_present` are in this list even
+#: though both were REJECTED from `AMBIENT_SIGNALS` for losing WannaCry. That is
+#: not a contradiction — it is the point. WannaCry is not signed. Demoting them
+#: for everything costs a detection; demoting them only for a verified publisher
+#: costs nothing, and that is what a real discriminator buys.
+#:
+#: Behaviour is deliberately absent. A stolen certificate is stolen precisely to
+#: buy a waiver, ten of the malware samples on the detonation host are signed,
+#: and no signature will ever excuse what a program was watched doing.
+STRUCTURAL_SIGNALS = frozenset({
+    "generic.high_entropy_overall",
+    "pe.high_entropy_section",
+    "pe.section_size_anomaly",
+    "pe.packer_section_name",
+    "pe.writable_executable_section",
+    "pe.overlay_present",
+    "pe.few_imports",
+    "pe.import_combination",
+    "pe.timestamp_anomaly",
+    "pe.compile_timestomping",
+    "pe.tls_callbacks",
+    "yara.upx_packed_executable",
+    "capev2.pe_writable_executable_section",
+    "capev2.static_pe_anomaly",
+    "capev2.packer_entropy",
+    "capev2.packer_unknown_pe_section_name",
+    "capev2.pe_section_vsize_rsize_anomaly",
+    "capev2.pe_deep_entrypoint",
+    "capev2.contains_pe_overlay",
+    "capev2.pe_compile_timestomping",
+})
+
+#: The signal that switches the waiver on. One id, so there is one place to look.
+VERIFIED_PUBLISHER_SIGNAL = "pe.signature_verified"
+
+
+def publisher_verified(signals: Iterable[Signal]) -> bool:
+    return any(s.id == VERIFIED_PUBLISHER_SIGNAL for s in signals)
+
+
 def uncorroborated(signals: Iterable[Signal]) -> frozenset[str]:
     """Ids from `CAPABILITY_NEEDS_CORROBORATION` that stand alone in `signals`."""
     raised = list(signals)
@@ -228,16 +282,24 @@ def uncorroborated(signals: Iterable[Signal]) -> frozenset[str]:
     return frozenset(alone)
 
 
-def effective_severity(signal: Signal, alone: frozenset[str] = frozenset()) -> str:
+def effective_severity(
+    signal: Signal,
+    alone: frozenset[str] = frozenset(),
+    *,
+    verified_publisher: bool = False,
+) -> str:
     """The severity this signal carries INTO the score.
 
     Everything an analyzer or a sandbox reported is kept and shown; this is only
-    about what may push a verdict. See `AMBIENT_SIGNALS` and
-    `CAPABILITY_NEEDS_CORROBORATION` — `alone` comes from `uncorroborated()`.
+    about what may push a verdict. See `AMBIENT_SIGNALS`,
+    `CAPABILITY_NEEDS_CORROBORATION` (`alone` comes from `uncorroborated()`) and
+    `STRUCTURAL_SIGNALS` (`verified_publisher` from `publisher_verified()`).
     """
     if signal.severity not in ("medium", "high", "critical"):
         return signal.severity
     if signal.id in AMBIENT_SIGNALS or signal.id in alone:
+        return "low"
+    if verified_publisher and signal.id in STRUCTURAL_SIGNALS:
         return "low"
     return signal.severity
 
@@ -247,8 +309,11 @@ def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
     bands: dict[str, list[Signal]] = {}
     kept = _collapse_correlated(list(signals))
     alone = uncorroborated(kept)
+    signed = publisher_verified(kept)
     for signal in kept:
-        bands.setdefault(effective_severity(signal, alone), []).append(signal)
+        bands.setdefault(
+            effective_severity(signal, alone, verified_publisher=signed), []
+        ).append(signal)
 
     total = 0.0
     detail: list[dict[str, Any]] = []

@@ -408,6 +408,100 @@ def _resource_facts(pe_obj: Any) -> dict[str, Any]:
 
 # --- the analyzer -------------------------------------------------------------
 
+def _signature_signals(
+    sample: Sample, facts: dict[str, Any], signature_size: int
+) -> list[Signal]:
+    """What the Authenticode signature actually establishes.
+
+    `pe.signature_present` used to be the whole story, at `info`, with a detail
+    string admitting it validated nothing. It is now the fallback for when
+    verification cannot run at all.
+
+    Three outcomes are worth different things, and only one of them accuses:
+
+    * **the signature does not cover these bytes** — the file was altered after
+      it was signed. Measured across 104 signed benign files and every signed
+      malware sample on the detonation host, this fires zero times by accident;
+      the Authenticode hash either matches or the file changed.
+    * **verified and anchored** — the chain is cryptographically linked up to an
+      issuer this deployment trusts. This is `info`: it is not innocence, it is
+      identity. What it buys is in `scoring.STRUCTURAL_SIGNALS`.
+    * **signed by someone we do not anchor** — most of the software on earth.
+      Reported, never held against the file.
+    """
+    from .. import authenticode
+
+    try:
+        with open(sample.path, "rb") as handle:
+            data = handle.read(authenticode.MAX_HASH_BYTES + 1)
+        result = authenticode.verify(data)
+    except Exception as exc:  # noqa: BLE001 - hostile input, never a crash
+        facts["signature"] = {"error": f"{type(exc).__name__}: {exc}"[:160]}
+        return [Signal(
+            id="pe.signature_present",
+            title="An Authenticode signature is present",
+            severity="info",
+            detail="The signature could not be examined; presence only.",
+            evidence={"security_directory_bytes": signature_size},
+        )]
+
+    facts["signature"] = result.to_dict()
+    publisher = result.publisher.to_dict() if result.publisher else {}
+    evidence: dict[str, Any] = {
+        "security_directory_bytes": signature_size,
+        "digest_algorithm": result.digest_algorithm,
+        "chain": list(result.chain_subjects),
+        "revocation_checked": False,
+    }
+    if publisher:
+        evidence["publisher"] = publisher
+
+    if result.parsed and not result.covers_file:
+        return [Signal(
+            id="pe.signature_does_not_cover_file",
+            title="The Authenticode signature does not cover these bytes",
+            severity="high",
+            detail=(
+                "A signature is present and parses, but the file's Authenticode "
+                "hash is not the one the signature commits to. The file has been "
+                "modified since it was signed, or a signature was copied onto it "
+                "from somewhere else."
+            ),
+            evidence=evidence,
+        )]
+
+    if result.verified:
+        who = publisher.get("organisation") or publisher.get("common_name") or "unknown"
+        return [Signal(
+            id="pe.signature_verified",
+            title=f"Signed by {who}"[:120],
+            severity="info",
+            detail=(
+                f"The Authenticode signature covers these exact bytes, the "
+                f"signer's key verifies it, and the chain links to "
+                f"'{result.anchor}', which this deployment trusts. Revocation is "
+                "NOT checked — this engine makes no network calls — so a "
+                "certificate withdrawn after signing still verifies here."
+            ),
+            evidence={**evidence, "anchor": result.anchor},
+        )]
+
+    reason = {
+        "self-signed": "the certificate signs for itself; anyone can make one",
+        "unanchored": "the issuing authority is not one this deployment anchors",
+    }.get(result.chain, result.reason or "the signature could not be verified")
+    if result.digest_algorithm in authenticode.WEAK_DIGESTS:
+        reason += f"; signed under {result.digest_algorithm}, which is not collision-resistant"
+    return [Signal(
+        id="pe.signature_present",
+        title="An Authenticode signature is present but not verified",
+        severity="info",
+        detail=f"Present, {reason}. Most software is signed by an authority this "
+               "list does not include; that is not held against the file.",
+        evidence=evidence,
+    )]
+
+
 def handles(sample: Sample) -> bool:
     if sample.mime in _PE_MIMES:
         return True
@@ -690,17 +784,7 @@ def _analyze_parsed(
     facts["signature_present"] = signature_size > 0
     facts["signature_size"] = signature_size
     if signature_size > 0:
-        signals.append(Signal(
-            id="pe.signature_present",
-            title="An Authenticode signature is present",
-            severity="info",
-            detail=(
-                "Presence only — this analyzer does not validate the certificate "
-                "chain, revocation, or whether the signature covers the file. A "
-                "stolen or expired certificate looks identical here."
-            ),
-            evidence={"security_directory_bytes": signature_size},
-        ))
+        signals.extend(_signature_signals(sample, facts, signature_size))
 
     rich = None
     try:
