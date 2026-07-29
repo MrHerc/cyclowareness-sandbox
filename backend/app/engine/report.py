@@ -86,6 +86,59 @@ def _duration_ms(job) -> int | None:
     return int(delta) if delta >= 0 else None
 
 
+#: Names of the operator's own detonation estate. Not evidence about the sample
+#: — evidence about where the sample happened to be run.
+#:
+#: These exports are the ones that leave the building: the PDF someone attaches
+#: to a mail, the incident record a regulator receives, the signed evidence copy
+#: sent to an insurer or a partner. Measured on the live deployment,
+#: `detonation-01` appeared in 19 of 40 signed exports, which tells a reader the
+#: hostname of the machine that runs live malware for this organisation.
+#:
+#: The ENGINE stays. `capev2` is a real input to the verdict, the manifest
+#: exists to pin what produced it, and a reader comparing two reports needs it.
+#: What goes is the machine. An operator who needs to know which worker ran a
+#: job still sees it in the interface, on `/api/result`, inside their own
+#: deployment.
+_INFRASTRUCTURE_KEYS = ("worker", "hostname", "host", "worker_host", "machine", "guest_ip")
+
+
+def _infrastructure_names(job) -> tuple[str, ...]:
+    """The names this deployment calls its own detonation machines.
+
+    Read off the row rather than configured, because the point is to scrub rows
+    that ALREADY contain them: 19 of 40 signed exports on the live deployment
+    carried `detonation-01`, and re-analysis does not rewrite a stored sentence.
+    """
+    names: list[str] = []
+    for source in (getattr(job, "dynamic", None), (getattr(job, "tiers", None) or {}).get("dynamic")):
+        if isinstance(source, dict):
+            for key in _INFRASTRUCTURE_KEYS:
+                value = source.get(key)
+                if isinstance(value, str) and len(value.strip()) > 2:
+                    names.append(value.strip())
+    return tuple(dict.fromkeys(names))
+
+
+def _without_infrastructure(value: Any, names: tuple[str, ...] = ()) -> Any:
+    if isinstance(value, dict):
+        return {
+            k: _without_infrastructure(v, names)
+            for k, v in value.items()
+            if k not in _INFRASTRUCTURE_KEYS
+        }
+    if isinstance(value, list):
+        return [_without_infrastructure(v, names) for v in value]
+    if isinstance(value, str) and names:
+        # Key-based removal cannot reach a hostname built into a SENTENCE, and
+        # one was: "Detonated on the capev2 worker (detonation-01)." The
+        # sentence no longer says it, but rows written before that still do.
+        for name in names:
+            if name in value:
+                value = value.replace(name, "the attached worker")
+    return value
+
+
 def _analysis(job) -> dict[str, Any]:
     value = getattr(job, "analysis", None)
     return value if isinstance(value, dict) else {}
@@ -292,6 +345,7 @@ def _attack_url(technique_id: str) -> str:
 
 def as_json(job) -> dict:
     """The brief schema plus the full forensic payload."""
+    _own_names = _infrastructure_names(job)
     return {
         # --- brief-mandated schema ---
         "job_id": getattr(job, "public_id", None),
@@ -323,12 +377,14 @@ def as_json(job) -> dict:
         "submitted_url": getattr(job, "submitted_url", None),
         "status": getattr(job, "status", "") or "",
         "rule_score": _num(getattr(job, "rule_score", 0.0)),
-        "score_breakdown": getattr(job, "score_breakdown", None) or {},
+        "score_breakdown": _without_infrastructure(
+            getattr(job, "score_breakdown", None) or {}, _own_names
+        ),
         "signals": _all_signals(job),
-        "analyzers": _analysis(job),
+        "analyzers": _without_infrastructure(_analysis(job), _own_names),
         "iocs": getattr(job, "iocs", None) or {},
-        "tiers": getattr(job, "tiers", None) or {},
-        "tiers_summary": _tiers_summary(job),
+        "tiers": _without_infrastructure(getattr(job, "tiers", None) or {}, _own_names),
+        "tiers_summary": _without_infrastructure(_tiers_summary(job), _own_names),
         "top_reasons": _top_reasons(job),
         "archive_tree": _archive_tree(job),
         # WHEN, not just what.

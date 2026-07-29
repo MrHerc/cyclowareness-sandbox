@@ -299,13 +299,32 @@ def engine_manifest() -> dict[str, Any]:
 # ============================================================================
 
 
+#: Keys inside a dynamic analyzer's `facts` that identify THIS RUN rather than
+#: what the sample did. A CAPE task number is different on every detonation of
+#: the same bytes, so leaving it in made `reproducible_digest` — the one field
+#: this module exists to let two parties compare with a single string comparison
+#: — different every time, which quietly falsifies the module's central claim.
+VOLATILE_FACT_KEYS = (
+    "task_id", "started_at", "completed_at", "duration_ms", "analysis_started",
+    "machine", "guest", "guest_ip", "task_started_on", "task_completed_on",
+)
+
+def _clean_facts(facts: Any) -> Any:
+    if not isinstance(facts, dict):
+        return facts
+    return {k: v for k, v in facts.items() if k not in VOLATILE_FACT_KEYS}
+
+
 def _strip_volatile(analysis: Any) -> Any:
     if not isinstance(analysis, dict):
         return analysis
     cleaned: dict[str, Any] = {}
     for name, payload in analysis.items():
         if isinstance(payload, dict):
-            cleaned[name] = {k: v for k, v in payload.items() if k not in VOLATILE_ANALYZER_FIELDS}
+            entry = {k: v for k, v in payload.items() if k not in VOLATILE_ANALYZER_FIELDS}
+            if "facts" in entry:
+                entry["facts"] = _clean_facts(entry["facts"])
+            cleaned[name] = entry
         else:
             cleaned[name] = payload
     return cleaned

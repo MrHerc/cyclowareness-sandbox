@@ -134,3 +134,91 @@ def test_a_job_in_flight_does_not_claim_to_have_finished(client, auth) -> None:
 
     body = client.get(f"/api/jobs/{public_id}/export.json", headers=auth).json()
     assert body["completed_at"] >= body["started_at"]
+
+
+# --- and it does not describe the operator's own machines --------------------
+
+
+WORKER_REPORT = {
+    "engine": "capev2",
+    "worker": "detonation-01",
+    "ran": True,
+    "unavailable_reason": None,
+    "refused": False,
+    "signals": [],
+    "facts": {"task_id": 4242, "machine": "cape1", "guest_ip": "192.168.122.51"},
+    "iocs": {},
+    "duration_ms": 41000,
+    "timeline": [],
+}
+
+
+def _detonated(client, auth):
+    from tests.test_api import WORKER_TOKEN
+
+    public_id = _submit(client, auth, "loader.exe", b"MZ" + b"\x00" * 8192)
+    _poll_until_done(client, auth, public_id)
+    r = client.post(
+        f"/api/dynamic/report/{public_id}",
+        json=WORKER_REPORT,
+        headers={"X-Worker-Token": WORKER_TOKEN},
+    )
+    assert r.status_code == 200, r.text
+    return public_id
+
+
+def test_no_export_names_the_machine_that_ran_it(client, auth) -> None:
+    """These are the documents that leave the building: the PDF attached to a
+    mail, the incident record a regulator receives, the signed copy sent to an
+    insurer. Measured on the live deployment, `detonation-01` — the hostname of
+    the machine that runs live malware for this organisation — appeared in 19 of
+    40 signed exports."""
+    public_id = _detonated(client, auth)
+    for name in ("export.json", "export.stix", "export.incident", "export.signed"):
+        response = client.get(f"/api/jobs/{public_id}/{name}", headers=auth)
+        assert response.status_code == 200, name
+        body = response.text.lower()
+        for secret in ("detonation-01", "cape1", "192.168.122.51"):
+            assert secret not in body, f"{name} names {secret}"
+
+
+def test_the_engine_itself_is_still_named(client, auth) -> None:
+    """Redacting the estate must not redact the evidence. `capev2` is a real
+    input to the verdict and the manifest exists to pin what produced it."""
+    public_id = _detonated(client, auth)
+    body = client.get(f"/api/jobs/{public_id}/export.json", headers=auth).text
+    assert "capev2" in body
+
+
+def test_the_operator_can_still_see_it_in_their_own_ui(client, auth) -> None:
+    """Suppressing it from the EXPORTS is the point; hiding it from the operator
+    looking at their own deployment would just be losing the information."""
+    public_id = _detonated(client, auth)
+    detail = client.get(f"/api/result/{public_id}", headers=auth).json()
+    assert detail["dynamic"]["worker"] == "detonation-01"
+
+
+def test_the_reproducible_digest_survives_a_second_detonation(client, auth) -> None:
+    """`reproducible_digest` exists so two parties can compare one string. A
+    CAPE task number is different on every detonation of the same bytes, so
+    leaving it in the reproducible half made that string different every time —
+    which quietly falsifies the module's central claim."""
+    from tests.test_api import WORKER_TOKEN
+
+    first = _detonated(client, auth)
+    a = client.get(f"/api/jobs/{first}/export.signed", headers=auth).json()
+
+    second = _submit(client, auth, "loader.exe", b"MZ" + b"\x00" * 8192)
+    _poll_until_done(client, auth, second)
+    later = dict(WORKER_REPORT)
+    later["facts"] = {"task_id": 9999, "machine": "cape3", "guest_ip": "192.168.122.77"}
+    later["duration_ms"] = 60123
+    client.post(
+        f"/api/dynamic/report/{second}", json=later,
+        headers={"X-Worker-Token": WORKER_TOKEN},
+    )
+    b = client.get(f"/api/jobs/{second}/export.signed", headers=auth).json()
+
+    assert a["report"]["reproducible_digest"] == b["report"]["reproducible_digest"], (
+        "the same bytes, detonated twice, produced two different digests"
+    )

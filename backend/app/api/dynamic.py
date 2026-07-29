@@ -421,7 +421,11 @@ def ingest_report(
         "engine": report.engine,
         "worker": report.worker,
         "detail": report.unavailable_reason
-        or f"Detonated on the {report.engine} worker ({report.worker}).",
+        # The ENGINE, not the machine. This sentence is copied verbatim into
+        # the PDF, the incident record and the signed evidence — documents that
+        # leave the building — so naming the host published the hostname of the
+        # machine that runs live malware for this organisation.
+        or f"Detonated on the {report.engine} worker attached to this deployment.",
     }
     if report.refused:
         tiers["dynamic"]["refused"] = True
