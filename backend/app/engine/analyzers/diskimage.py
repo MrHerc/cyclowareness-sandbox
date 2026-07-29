@@ -180,8 +180,14 @@ def _extensions(name: str) -> list[str]:
 
 
 def _double_extension(name: str) -> bool:
-    exts = _extensions(name)
-    return len(exts) >= 2 and exts[-1] in _EXEC_EXTS and exts[-2] in _DOC_EXTS
+    """One check, shared with the archive and generic tiers.
+
+    See `identify.disguised_name`: counting dots called `rclone.1` a disguise
+    and `invoice.pdf.exe` ordinary.
+    """
+    from ..identify import disguised_name
+
+    return disguised_name(name) is not None
 
 
 def _looks_like_document(name: str) -> bool:

@@ -148,12 +148,13 @@ def _budget_signals(members: list[Member], kind: str) -> list[Signal]:
             )
         )
 
-    double = [
-        m
-        for m in members
-        if not m.is_dir and len([p for p in m.name.split(".") if p]) >= 3
-        and m.name.lower().rsplit(".", 1)[-1] in {"exe", "scr", "com", "pif", "bat", "cmd", "js", "vbs"}
-    ]
+    # `identify.disguised_name` rather than counting dots. Counting put
+    # `Archive.Dropper.DoubleExtension` on five benign release zips, because
+    # `libcurl-x64.dll.a` and a man page called `rclone.1` have the same shape as
+    # `invoice.pdf.exe` and mean nothing like it.
+    from .identify import disguised_name
+
+    double = [m for m in members if not m.is_dir and disguised_name(m.name)]
     if double:
         signals.append(
             Signal(

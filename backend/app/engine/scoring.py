@@ -189,7 +189,6 @@ AMBIENT_SIGNALS = frozenset({
     "capev2.suspicious_iocontrol_codes",
     # a container that contains things
     "archive.contains_executable",
-    "archive.double_extension",
 })
 
 

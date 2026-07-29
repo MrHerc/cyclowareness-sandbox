@@ -21,6 +21,7 @@ import re
 import time
 from urllib.parse import urlsplit
 
+from .. import identify as identify_mod
 from ..contracts import AnalyzerResult, IOCs, Sample, Signal
 
 NAME = "generic"
@@ -681,6 +682,38 @@ def analyze(sample: Sample, *, family: str = "") -> AnalyzerResult:
                     "stub, a truncated upload, or a downloader one-liner."
                 ),
                 evidence={"size_bytes": size},
+            )
+        )
+
+    # --- the name against itself
+    #
+    # `invoice.pdf.exe`. Windows hides known extensions by default, so the
+    # victim sees `invoice.pdf` and double-clicks a program. It is the oldest
+    # delivery trick there is and this analyzer did not look for it: the check
+    # existed only for files found INSIDE an archive or a disk image, so the
+    # same file uploaded directly came back **clean**. Found by submitting one.
+    #
+    # Note this is NOT `extension_mismatch` below. There is no mismatch here —
+    # the file really is a `.exe` and the bytes really are a PE. The lie is in
+    # the extension before the last one.
+    disguise = identify_mod.disguised_name(sample.original_name)
+    if disguise:
+        looks_like, runs_as = disguise
+        signals.append(
+            Signal(
+                id="generic.double_extension",
+                title="The file name is disguised as a document",
+                severity="high",
+                detail=(
+                    f"This is named to read as {looks_like} and to RUN as {runs_as}. "
+                    "Windows hides known extensions by default, so a person sees the "
+                    f"{looks_like} and double-clicks a program."
+                ),
+                evidence={
+                    "original_name": _truncate(sample.original_name or ""),
+                    "looks_like": looks_like,
+                    "runs_as": runs_as,
+                },
             )
         )
 

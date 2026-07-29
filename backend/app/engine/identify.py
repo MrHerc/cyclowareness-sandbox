@@ -157,6 +157,55 @@ _ZIP_EXTENSIONS = (
 )
 
 
+#: Extensions the operating system will RUN if a user double-clicks them.
+EXECUTABLE_EXTENSIONS = frozenset({
+    ".exe", ".scr", ".com", ".pif", ".cpl", ".dll", ".sys", ".drv", ".ocx",
+    ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf",
+    ".wsh", ".hta", ".msi", ".msp", ".jar", ".lnk", ".reg", ".inf", ".apk",
+    ".app", ".sh", ".py", ".pl", ".rb", ".php",
+})
+
+#: Extensions that make a file look like something to READ, WATCH or UNPACK —
+#: the half of the trick that lowers a person's guard.
+DOCUMENT_EXTENSIONS = frozenset({
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods",
+    ".txt", ".rtf", ".csv", ".log", ".md", ".htm", ".html", ".xml", ".json",
+    ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".tif", ".tiff",
+    ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav",
+    ".zip", ".rar", ".7z", ".tar", ".gz", ".iso",
+})
+
+
+def disguised_name(name: str | None) -> tuple[str, str] | None:
+    """`(what it looks like, what it runs as)` if the name is a disguise.
+
+    The classic delivery trick: `invoice.pdf.exe`. Windows hides known
+    extensions by default, so the victim sees `invoice.pdf` and double-clicks a
+    program.
+
+    The old test was "three or more dot-separated parts", which is both too
+    loose and too tight. Too loose: `libcurl-x64.dll.a`, `archive.tar.gz` and a
+    man page called `rclone.1` all have the shape and none is a disguise — that
+    check put `Archive.Dropper.DoubleExtension` on five benign release zips.
+    Too tight in the way that matters: it never looked at what the extensions
+    MEAN, so it did not fire at all on a top-level upload, and `invoice.pdf.exe`
+    submitted directly came back **clean**.
+
+    A disguise is specifically: the last extension RUNS, and the one before it
+    reads as something safe to open.
+    """
+    if not name:
+        return None
+    parts = name.strip().lower().rsplit(".", 2)
+    if len(parts) < 3 or not parts[0]:
+        return None
+    _stem, looks_like, runs_as = parts
+    looks_like, runs_as = f".{looks_like}", f".{runs_as}"
+    if runs_as in EXECUTABLE_EXTENSIONS and looks_like in DOCUMENT_EXTENSIONS:
+        return looks_like, runs_as
+    return None
+
+
 def _family_for(mime: str, claimed: str) -> str:
     if mime in ("application/x-dosexec",):
         return "pe"

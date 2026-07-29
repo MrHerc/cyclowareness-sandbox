@@ -122,6 +122,7 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     "deception": frozenset({
         "generic.extension_mismatch",
         "archive.double_extension",
+        "generic.double_extension",
         "diskimage.suspicious_filename",
         "generic.punycode_or_lookalike_domain",
         "archive.path_traversal",
