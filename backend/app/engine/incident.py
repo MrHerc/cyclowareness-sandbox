@@ -449,6 +449,31 @@ def _dora(job) -> dict[str, Any]:
     }
 
 
+def _retention_limitation(job) -> list[str]:
+    """Say so when the artifact this record is about no longer exists.
+
+    The `note` below tells the reader to recompute the SHA-256 over the original
+    file. `retention.sweep` deletes that file on a schedule and stamps
+    `sample_deleted_at` — and the only reader of that column anywhere in the
+    application was the dynamic ingest. So a regulatory record could invite a
+    verification step that this deployment had already made impossible, and say
+    nothing about it.
+
+    A limitation, not an error. Deleting the malware on a schedule is the
+    correct behaviour and often a contractual requirement; what is not correct
+    is a document that does not mention it.
+    """
+    deleted = getattr(job, "sample_deleted_at", None)
+    if deleted is None:
+        return []
+    return [
+        "The sample's bytes are no longer held by this deployment: they were "
+        f"deleted under the data-retention policy on {deleted:%Y-%m-%d}. The "
+        "SHA-256 below still identifies the artifact, but it cannot be "
+        "recomputed here — verification requires a copy of the original file."
+    ]
+
+
 def _evidence(job) -> dict[str, Any]:
     """What the record rests on — so a reader can check it rather than trust it."""
     tiers = report_mod._tiers_summary(job)
@@ -462,6 +487,7 @@ def _evidence(job) -> dict[str, Any]:
                 "produced is absent from this record."
                 for tier in not_run
             ]
+            + _retention_limitation(job)
             or ["All configured analysis tiers ran."]
         ),
         "analyzers_that_ran": sorted(name for name, _ in report_mod._ran_results(job)),

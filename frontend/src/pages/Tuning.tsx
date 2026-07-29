@@ -52,10 +52,18 @@ export function Tuning() {
   async function reset() {
     setBusy(true)
     setSaved(false)
+    // `save()` above catches and shows; this one had a bare try/finally, so a
+    // failed reset restored nothing, said nothing, and left the slider showing
+    // the value the operator was trying to abandon. Every path that can fail
+    // has to say so — an API key gets 403 here, and a lost session gets 401.
+    setError(null)
     try {
       const w = await api.post<Weights>('/api/admin/weights/reset')
       setWeights(w)
       setRulePct(Math.round(w.rule * 100))
+      setSaved(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reset')
     } finally {
       setBusy(false)
     }

@@ -395,6 +395,17 @@ def as_json(job) -> dict:
         # is a screenshot with a clock on it. Every incident timeline, every
         # "what did you know and when" question, and every correlation with
         # another system's logs needs these three.
+        # WHETHER THE EVIDENCE STILL EXISTS.
+        #
+        # `retention.sweep` deletes the quarantined bytes and stamps
+        # `sample_deleted_at`, and the only reader of that column anywhere was
+        # the dynamic ingest. So an evidence document went on publishing a
+        # SHA-256 and inviting the reader to check it against the original,
+        # while the original had been deleted by policy and nothing said so.
+        # "We hold the file" and "we hold a hash of a file we no longer have"
+        # are different claims.
+        "sample_retained": getattr(job, "sample_deleted_at", None) is None,
+        "sample_deleted_at": _utc(getattr(job, "sample_deleted_at", None)),
         "submitted_at": _utc(getattr(job, "created_at", None)),
         "started_at": _utc(getattr(job, "started_at", None)),
         "completed_at": _utc(getattr(job, "completed_at", None)),

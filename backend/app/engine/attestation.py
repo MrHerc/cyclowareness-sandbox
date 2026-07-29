@@ -115,6 +115,11 @@ SUBMISSION_KEYS = (
     "started_at",
     "completed_at",
     "duration_ms",
+    # Whether the bytes still exist is a fact about THIS deployment now, not
+    # about the analysis: retention deletes them on a schedule, so the same
+    # sample exported twice legitimately differs here.
+    "sample_retained",
+    "sample_deleted_at",
 )
 
 #: The parser libraries whose behaviour is an input to the verdict. A YARA or
