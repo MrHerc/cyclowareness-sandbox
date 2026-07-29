@@ -446,6 +446,50 @@ def classify(
     else:
         verdict = "clean"
 
+    # THE NAME HAS TO AGREE WITH THE VERDICT.
+    #
+    # `threat_name` is derived from the capabilities, up at the top of this
+    # function; `verdict` is decided down here from the score and the panel.
+    # Nothing reconciled them, so the report showed both and they disagreed —
+    # measured on this deployment, **43 of 200 clean jobs carried a name that
+    # accused them**, including Microsoft-signed Sysinternals tools:
+    #
+    #     PsGetsid.exe   clean   Win32.Downloader.OverlayPresent   20.7
+    #     tcpview.exe    clean   Win32.Downloader.TlsCallbacks     21.8
+    #     autorunsc.exe  clean   Win32.Downloader.TlsCallbacks     22.4
+    #
+    # A green "Clean" badge beside the word "Downloader" on Microsoft's own
+    # signed binary. This is the same mistake this file already fixed once, in
+    # another costume — see the comment on `category is None` above: naming a
+    # sample after its worst informational signal. An overlay, TLS callbacks and
+    # high entropy are how installers are built, not what they do.
+    #
+    # The mirror case is just as wrong and was also present: 17 suspicious jobs
+    # and 1 malicious job named `<Platform>.Clean`, a verdict that flags the
+    # sample beside a name that clears it.
+    #
+    # A clean verdict makes no claim, so it gets no claim in its name.
+    if verdict == "clean":
+        category = "Clean"
+        threat_name = f"{platform}.Clean"
+    elif category == "Clean":
+        # Flagged, but no capability was named — usually a sandbox identifying
+        # the family without this engine deriving a category from it. Say which
+        # of the two it is rather than borrow the word "Clean".
+        category = "Malware" if verdict == "malicious" else "Suspicious"
+        threat_name = f"{platform}.{category}.{fam}"
+
+    # Every row that reports a detection reports the sample's name, so they move
+    # with it. YARA rows are excluded on purpose: theirs is the matched rule's
+    # own description, which is a different and more useful thing to show.
+    for row in engines:
+        if (
+            row.get("detected")
+            and not str(row.get("engine", "")).startswith("CS-YARA")
+            and row.get("result") not in ("undetected", "Suspicious.Indicator")
+        ):
+            row["result"] = threat_name
+
     return VerdictResult(
         verdict=verdict,
         threat_name=threat_name,

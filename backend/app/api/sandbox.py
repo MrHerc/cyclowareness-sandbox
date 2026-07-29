@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import logging
 import math
+import re
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
@@ -77,6 +79,38 @@ def _trace(
         source_ip=client_ip(request),
         detail=detail,
     )
+
+
+def _attachment(original_name: str | None, fallback: str, suffix: str) -> str:
+    """A `Content-Disposition` an HTTP header can actually carry.
+
+    HTTP header values are latin-1. The old sanitiser kept any character for
+    which `str.isalnum()` is true — and `str.isalnum()` is true for `ə`, for
+    `ж`, for `文`: Python is right that they are letters, and latin-1 has
+    nowhere to put them. So downloading the PDF for a file named
+    `raport-2026-ə-ü.txt` was a **500**, from Starlette, while every other
+    export of the same job returned 200. Found by uploading a file named the
+    way the people who will use this product name files.
+
+    Two names go out, per RFC 6266. `filename*` carries the real one,
+    percent-encoded UTF-8, for anything from the last fifteen years;
+    `filename=` carries an ASCII reduction for the rest. The ASCII form is also
+    what makes header injection impossible — a name containing a quote, a
+    newline or a semicolon cannot survive the filter — and the percent-encoding
+    does the same job for the starred form.
+    """
+    name = (original_name or "").strip()
+    ascii_stem = "".join(c for c in name if c.isascii() and (c.isalnum() or c in "._-"))
+    # `/` is already gone, so `..` cannot traverse anything — but a name that
+    # still reads like a path is one a client may yet interpret as one, and
+    # nothing is lost by collapsing it.
+    ascii_stem = re.sub(r"\.{2,}", ".", ascii_stem).strip("._-")[:60]
+    # A job with no usable name is identified by the job, not by the word
+    # "report": three downloads called `sandbox-report.pdf` in one folder are
+    # three files an analyst cannot tell apart.
+    stem = ascii_stem or fallback
+    encoded = quote(f"sandbox-{name or fallback}{suffix}", safe="")
+    return f"attachment; filename=\"sandbox-{stem}{suffix}\"; filename*=UTF-8''{encoded}"
 
 
 def _job_or_404(db: Session, public_id: str, identity: Identity) -> SandboxJob:
@@ -541,11 +575,10 @@ def export_pdf(
     metrics.reports_generated_total.labels(format="pdf").inc()
     _trace(request, identity, audit.AuditAction.REPORT_EXPORTED, public_id=public_id,
            detail={"format": "pdf"})
-    safe = "".join(c for c in (job.original_name or "report") if c.isalnum() or c in "._-")[:60]
     return Response(
         content=pdf,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="sandbox-{safe or job.public_id}.pdf"'},
+        headers={"Content-Disposition": _attachment(job.original_name, job.public_id, ".pdf")},
     )
 
 

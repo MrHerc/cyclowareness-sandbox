@@ -164,7 +164,17 @@ def test_the_definitions_agree(client, auth) -> None:
     _poll_until_done(client, auth, _submit(client, auth, "dropper.ps1", DROPPER))
 
     stats = client.get("/api/jobs/stats", headers=auth).json()
-    everything = client.get("/api/jobs?limit=200", headers=auth).json()["items"]
+    # Walk the pages. Reading `limit=200` and calling it "everything" is the
+    # very assumption this file exists to remove — and the suite's shared
+    # database passed 200 rows, so the shortcut started failing here first.
+    everything: list[dict] = []
+    offset = 0
+    while True:
+        page = client.get(f"/api/jobs?limit=200&offset={offset}", headers=auth).json()
+        everything.extend(page["items"])
+        offset += len(page["items"])
+        if not page["items"] or offset >= page["total"]:
+            break
     completed = [j for j in everything if j["status"] == "completed"]
 
     def verdict_of(job):
