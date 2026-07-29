@@ -212,3 +212,80 @@ def test_a_single_credential_is_still_held_to_its_own_limit(client) -> None:
     rule = ratelimit.Rule(3, 60, "one-caller", address_limit=1000)
     ok = [ratelimit.limiter.check(["ip:9.9.9.9", "key:solo"], rule)[0] for _ in range(5)]
     assert ok == [True, True, True, False, False], ok
+
+
+# --- the header a proxy overwrites beats the list a client can write ---------
+
+
+@pytest.mark.parametrize("headers,expected", [
+    # nginx `proxy_set_header X-Real-IP $remote_addr` and XFF passed through
+    # verbatim. Reproduced with a real nginx: preferring the list meant thirty
+    # rotating login attempts produced ZERO 429s where the control produced 20.
+    ({"X-Real-IP": "10.0.0.1", "X-Forwarded-For": "203.0.113.9"}, "ip:10.0.0.1"),
+    # `proxy_add_x_forwarded_for` — the proxy appends what it saw, so the last
+    # entry is real and everything before it is the client's contribution.
+    ({"X-Forwarded-For": "1.2.3.4, 198.51.100.9"}, "ip:198.51.100.9"),
+    # An empty last element used to make the whole list falsy and fall through
+    # to the equally client-written X-Real-IP.
+    ({"X-Forwarded-For": "9.9.9.9,", "X-Real-IP": ""}, "ip:9.9.9.9"),
+    # Not addresses. Any string at all was an identity, so `a`, `b`, `c` was a
+    # fresh bucket each time — and an arbitrary value in the audit trail.
+    ({"X-Forwarded-For": "not-an-address"}, None),
+    ({"X-Real-IP": "'; DROP TABLE audit_events; --"}, None),
+    ({"X-Forwarded-For": "a, b, c"}, None),
+    # Shapes a careless proxy really does emit.
+    ({"X-Real-IP": "[2001:db8::1]"}, "ip:2001:db8::1"),
+    ({"X-Real-IP": "198.51.100.9:51234"}, "ip:198.51.100.9"),
+])
+def test_which_forwarded_value_is_believed(client, monkeypatch, headers, expected) -> None:
+    monkeypatch.setattr(get_settings(), "trust_proxy_headers", True)
+    ids = _identities(client, headers)
+    addresses = [i for i in ids if i.startswith("ip:")]
+    assert len(addresses) == 1, addresses
+    if expected is None:
+        # Falls back to the socket, which the caller cannot choose.
+        assert addresses[0] not in {"ip:" + v for v in headers.values()}
+        for value in headers.values():
+            assert value not in addresses[0]
+    else:
+        assert addresses[0] == expected, (headers, ids)
+
+
+def test_a_forged_header_cannot_mint_buckets_when_trust_is_on(client, monkeypatch) -> None:
+    """The attack, end to end: rotate X-Forwarded-For and walk the login limit.
+    With a proxy that sets X-Real-IP the real address is charged every time."""
+    monkeypatch.setattr(get_settings(), "trust_proxy_headers", True)
+    seen = [
+        _login(client, {"X-Real-IP": "10.0.0.1", "X-Forwarded-For": f"203.0.113.{n}"}).status_code
+        for n in range(14)
+    ]
+    assert 429 in seen, f"a rotating X-Forwarded-For walked {len(seen)} attempts: {seen}"
+
+
+def test_one_tenant_cannot_exhaust_another_behind_a_shared_address(client) -> None:
+    """The guarantee ratelimit.py states, tested with the REAL rules.
+
+    On a deployment behind docker-proxy every caller arrives from one address —
+    measured, `172.17.0.1` on all 1188 non-worker audit rows — so the address
+    bucket really is shared by everyone. If its ceiling equalled the credential
+    ceiling, the first tenant to spend theirs would lock out every other tenant
+    with an untouched budget of their own. The multiplier is what stops that,
+    and this walks each real rule to prove it.
+    """
+    for path, rule in ratelimit.RULES + (("/api/other", ratelimit.DEFAULT_RULE),):
+        if rule.name == "authentication":
+            continue  # equal on purpose — see Rule
+        ratelimit.limiter.reset()
+        shared = "ip:172.17.0.1"
+
+        # Tenant A spends its entire credential allowance.
+        for _ in range(rule.limit):
+            assert ratelimit.limiter.check([shared, "key:tenantA"], rule)[0], path
+        assert not ratelimit.limiter.check([shared, "key:tenantA"], rule)[0], (
+            f"{path}: tenant A was not held to its own limit"
+        )
+
+        # Tenant B, untouched, must still be served.
+        assert ratelimit.limiter.check([shared, "key:tenantB"], rule)[0], (
+            f"{path}: tenant A exhausting its own budget locked out tenant B"
+        )

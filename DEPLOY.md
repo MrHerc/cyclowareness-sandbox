@@ -76,10 +76,25 @@ forge the header, which lets them both mislabel their own audit trail and mint a
 fresh rate-limit budget for every request. Off is the safe default; the failure
 it causes is over-counting, and the failure the other way is no counting at all.
 
-The value taken is the **last** entry of `X-Forwarded-For`, because conventional
-proxies append the peer they saw (nginx's `proxy_add_x_forwarded_for`). A client
-that forges `X-Forwarded-For: 1.2.3.4` therefore produces `1.2.3.4, <real
-client>`, and the last entry is still what the proxy actually observed.
+**`X-Real-IP` is believed first**, then `X-Forwarded-For` read right to left,
+and every candidate must parse as an IP address.
+
+That ordering is not cosmetic. `X-Real-IP` is a single value a proxy
+*overwrites*; `X-Forwarded-For` is a list a proxy may only *append* to. A very
+common nginx configuration sets only `proxy_set_header X-Real-IP $remote_addr`
+and passes `X-Forwarded-For` through verbatim — and against exactly that,
+reproduced with a real nginx in front of this image, preferring the list meant a
+rotating `X-Forwarded-For` walked thirty login attempts with **zero** 429s where
+the control produced twenty, and wrote an address of the attacker's choosing
+into the hash-chained chain of custody.
+
+Reading the list from the right is the other half: conventional proxies append
+the peer they saw (`proxy_add_x_forwarded_for`), so a client forging
+`X-Forwarded-For: 1.2.3.4` produces `1.2.3.4, <real client>` and the last entry
+is what the proxy actually observed.
+
+**Configure your proxy to set at least one of them itself.** A proxy that sets
+neither is not one this switch can be turned on behind.
 
 ### Health checks
 

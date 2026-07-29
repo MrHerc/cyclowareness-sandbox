@@ -486,6 +486,15 @@ def run(
         # at status='queued' with error=NULL and nobody ever knew the job died.
         job.status = JobStatus.RUNNING
         job.started_at = utcnow()
+        # And the old finish time goes with it. A re-analysis moves `started_at`
+        # forward while `completed_at` still holds the PREVIOUS run's, so for the
+        # second or two the job is in flight the row says it finished before it
+        # started — and `export.json` now prints both. Measured during one
+        # re-scoring sweep: 441 of 622 completed jobs read that way at the same
+        # instant. Nothing was corrupt and it resolved as each job finished, but
+        # an evidence document that can say that, ever, is one an opponent only
+        # has to screenshot.
+        job.completed_at = None
         job.error = None
         db.flush()
 

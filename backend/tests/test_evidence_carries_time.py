@@ -103,3 +103,34 @@ def test_a_clean_bundle_makes_no_accusation(client, auth) -> None:
     _pid, response = _export(client, auth, CLEAN, "note.txt", "export.stix")
     bundle = json.loads(response.content)
     assert "indicator" not in {o.get("type") for o in bundle["objects"]}
+
+
+# --- and never an impossible pair --------------------------------------------
+
+
+def test_a_job_in_flight_does_not_claim_to_have_finished(client, auth) -> None:
+    """A re-analysis moves `started_at` forward. `completed_at` still held the
+    PREVIOUS run's, so while the job was in flight the row said it finished
+    before it started — and `export.json` prints both now. Measured during one
+    re-scoring sweep: 441 of 622 completed jobs read that way at the same
+    instant. It resolved as each job finished, which is exactly what makes it
+    the kind of thing nobody notices until it is in a screenshot."""
+    public_id = _submit(client, auth, "note.txt", CLEAN)
+    _poll_until_done(client, auth, public_id)
+
+    client.post(f"/api/jobs/{public_id}/reanalyze", headers=auth)
+    # Sample the row hard while the re-run is in flight.
+    for _ in range(60):
+        detail = client.get(f"/api/result/{public_id}", headers=auth).json()
+        started, finished = detail.get("created_at"), detail.get("completed_at")
+        if finished is not None and started is not None:
+            body = client.get(f"/api/jobs/{public_id}/export.json", headers=auth).json()
+            if body.get("started_at") and body.get("completed_at"):
+                assert body["completed_at"] >= body["started_at"], (
+                    f"finished {body['completed_at']} before it started {body['started_at']}"
+                )
+        if detail["status"] == "completed":
+            break
+
+    body = client.get(f"/api/jobs/{public_id}/export.json", headers=auth).json()
+    assert body["completed_at"] >= body["started_at"]
