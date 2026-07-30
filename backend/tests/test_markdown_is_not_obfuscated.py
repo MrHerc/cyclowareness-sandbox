@@ -132,3 +132,46 @@ def test_a_real_dropper_using_backticks_is_still_caught(tmp_path) -> None:
     got = verdict.classify(sample.family, sample.mime, [result], result.iocs,
                            risk.final_score)
     assert got.verdict in ("malicious", "suspicious"), (got.to_dict(), risk.final_score)
+
+
+# --- entropy is not obfuscation for a document either -------------------------
+
+
+def test_a_dense_readme_is_not_obfuscated() -> None:
+    """hugo's README.md sits at 5.22 bits/char against a 5.2 threshold — badges,
+    URLs and code samples in several languages. It was reported
+    `Script.Suspicious.ObfuscationHigh`, which made hugo.zip suspicious for
+    shipping a readme. jQuery was the same argument at 5.26 from minification:
+    the threshold cannot separate dense text from hidden code.
+
+    Priced: of the prose-extension malware on the detonation host, ZERO relied on
+    entropy as its only technique.
+    """
+    # Built rather than repeated: entropy is a per-character distribution, so
+    # repeating one sentence 90 times does not raise it (measured, 5.13). What
+    # raises it is the variety a real changelog has — mixed case, version
+    # numbers, hex digests, badge URLs, flags. This lands at 5.58.
+    dense = "".join(
+        "* [%s](https://Example%d.ORG/docs/v%d.%d.%d) --flag-%d "
+        "SHA256:%08X%08X Zq%dWx%dYv%d/{%d}\n"
+        % (name, i, i, i % 9, i % 7, i,
+           i * 2654435761 % (2 ** 32), i * 40503 % (2 ** 32),
+           i % 26, i % 13, i % 17, i % 5)
+        for i, name in enumerate(["Build", "Deploy", "Test", "Lint", "Bench", "Docs"] * 50)
+    )
+    assert scripts._entropy(dense) >= scripts.ENTROPY_THRESHOLD, scripts._entropy(dense)
+    waived = scripts._obfuscation_techniques(dense, is_prose=True)
+    counted = scripts._obfuscation_techniques(dense)
+    assert not any("entropy" in t for t in waived), waived
+    assert any("entropy" in t for t in counted), counted
+
+
+def test_entropy_still_counts_for_something_that_runs() -> None:
+    """The waiver is keyed on `_is_prose` — whether the operating system executes
+    the file at all — not on how the content happens to look."""
+    import base64
+    import os
+
+    blob = base64.b64encode(os.urandom(6000)).decode()
+    payload = "$x = '" + blob + "'\n"
+    assert any("entropy" in t for t in scripts._obfuscation_techniques(payload))

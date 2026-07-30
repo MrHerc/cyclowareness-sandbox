@@ -499,7 +499,9 @@ class _Hit:
 _PYTHON_EXTENSIONS = frozenset({".py", ".pyw", ".pyi"})
 
 
-def _scan_text(text: str, layer: str, *, is_python: bool = False) -> list[_Hit]:
+def _scan_text(
+    text: str, layer: str, *, is_python: bool = False, is_prose: bool = False
+) -> list[_Hit]:
     window = text[:MAX_SCAN_CHARS]
     hits: list[_Hit] = []
 
@@ -517,7 +519,7 @@ def _scan_text(text: str, layer: str, *, is_python: bool = False) -> list[_Hit]:
         if labels:
             hits.append(_Hit(det.signal_id, det.title, det.severity, labels, snippet, layer))
 
-    techniques = _obfuscation_techniques(window)
+    techniques = _obfuscation_techniques(window, is_prose=is_prose)
     if techniques:
         hits.append(
             _Hit(
@@ -569,7 +571,7 @@ def _is_published_library(window: str) -> bool:
     return bool(_RE_LIBRARY_BANNER.match(window.lstrip()[:600] or ""))
 
 
-def _obfuscation_techniques(window: str) -> list[str]:
+def _obfuscation_techniques(window: str, *, is_prose: bool = False) -> list[str]:
     found: list[str] = []
     n = max(len(window), 1)
 
@@ -586,8 +588,18 @@ def _obfuscation_techniques(window: str) -> list[str]:
     # so they still count against a file however it announces itself.
     published = _is_published_library(window)
 
+    # ENTROPY IS NOT OBFUSCATION FOR A DOCUMENT EITHER.
+    #
+    # Prose is dense: mixed case, punctuation, URLs, badges, code samples in
+    # several languages. Measured, hugo's README.md sits at 5.22 bits/char
+    # against a 5.2 threshold and was `Script.Suspicious.ObfuscationHigh`, which
+    # made hugo.zip suspicious for shipping a readme. jQuery was the same
+    # argument at 5.26 from minification. The threshold cannot separate dense
+    # text from hidden code, so it is not asked about files that are read rather
+    # than run — `_is_prose` already decides which those are, and the capability
+    # claims in such a file are already downgraded to `document.mentions_*`.
     ent = _entropy(window)
-    if ent >= ENTROPY_THRESHOLD and not published:
+    if ent >= ENTROPY_THRESHOLD and not published and not is_prose:
         found.append(f"high character entropy ({ent:.2f} bits/char)")
 
     backticks = len(_RE_BACKTICK.findall(window))
@@ -875,15 +887,17 @@ def analyze(sample: Sample) -> AnalyzerResult:
     is_python = (sample.claimed_extension or "").lower() in _PYTHON_EXTENSIONS or (
         sample.mime == "text/x-python"
     )
-    hits = _scan_text(text, "raw source", is_python=is_python)
+    prose = _is_prose(sample)
+    hits = _scan_text(text, "raw source", is_python=is_python, is_prose=prose)
     iocs = _extract_iocs(text)
     for index, layer in enumerate(layers, start=1):
         label = f"decoded layer {index} (depth {layer['depth']})"
-        hits.extend(_scan_text(layer["text"], label, is_python=is_python))
+        hits.extend(
+            _scan_text(layer["text"], label, is_python=is_python, is_prose=prose)
+        )
         iocs = iocs.merge(_extract_iocs(layer["text"]))
 
     signals = _merge_hits(hits) + _layer_signals(layers)
-    prose = _is_prose(sample)
     if prose:
         signals = _as_prose_findings(signals)
 
