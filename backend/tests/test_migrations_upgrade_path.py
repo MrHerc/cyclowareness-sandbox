@@ -32,7 +32,10 @@ from app.main import app
 #: has to be listed here, and that is the
 #: point: forgetting one makes the baseline-fidelity assertion fail loudly
 #: rather than letting a migration drift from the schema it claims to reproduce.
-POST_BASELINE_COLUMNS = ("impact", "verdict", "mitre", "sample_deleted_at", "tenant_id")
+POST_BASELINE_COLUMNS = (
+    "impact", "verdict", "mitre", "sample_deleted_at", "tenant_id",
+    "first_completed_at", "engine_manifest",
+)
 
 
 def _build_previous_release_schema(engine: sa.Engine) -> None:

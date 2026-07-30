@@ -277,6 +277,11 @@ def list_jobs(
     # product's main list endpoint. Invisible to the suite by construction:
     # SQLite accepts NUL in a bound parameter, so only a real deployment fails.
     # A status is a lower-case word; nothing else can reach the query.
+    #
+    # The shape is validated here and the VALUE below, in the handler: a status
+    # that is not one a job can hold returned `200 []`, which is indistinguishable
+    # from "no jobs are in that state". A typo in a filter therefore read as a
+    # clean queue. See JobStatus.ALL.
     status: str | None = Query(default=None, max_length=24, pattern=r"^[a-z_]+$"),
     # Bounded at the edge, not with ``min(limit, 200)``: that let a negative
     # through, and SQLite reads ``LIMIT -1`` as unbounded, so one authenticated
@@ -313,6 +318,18 @@ def list_jobs(
     identity: Identity = Depends(require_analyst),
 ):
     """One page of the queue, with the total the caller needs to page through it."""
+    # A status that no job can hold is a caller mistake, not an empty result.
+    # `?status=zzz` returned `200 []`, which is byte-identical to the answer for
+    # `?status=failed` on a healthy deployment — so a typo in a dashboard filter
+    # read as "nothing is failing". Say so instead, and name the valid values.
+    if status is not None and status not in JobStatus.ALL:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Unknown status {status!r}. A job's status is one of: "
+                + ", ".join(JobStatus.ALL)
+            ),
+        )
     conditions = _visible_jobs(identity, status)
     total = db.execute(
         select(func.count()).select_from(SandboxJob).where(*conditions)

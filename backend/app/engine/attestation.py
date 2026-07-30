@@ -270,14 +270,49 @@ def _library_versions() -> dict[str, str]:
     return versions
 
 
+#: The parts of the manifest that cannot change while the process runs, computed
+#: once.
+#:
+#: This used to be built on every call, which was fine when the only caller was
+#: an export. It is now captured at VERDICT time — on every job, including every
+#: member of every archive — and it hashes the YARA rule files and walks
+#: `importlib.metadata` for each pinned library. That is real I/O per job, and it
+#: was enough to make a polling test time out roughly one run in three.
+#:
+#: The rules are compiled at import and the installed libraries do not change
+#: under a running process, so caching them is not an approximation. The one
+#: field that IS runtime-mutable — the rule/model blend, tunable from the admin
+#: UI — is deliberately left out of the cache and read fresh below.
+_STATIC_MANIFEST: dict[str, Any] | None = None
+
+
+def _static_manifest() -> dict[str, Any]:
+    global _STATIC_MANIFEST
+    if _STATIC_MANIFEST is None:
+        _STATIC_MANIFEST = {
+            "analyzers": _analyzer_manifest(),
+            "unavailable_analyzers": analyzers.unavailable_analyzers(),
+            "yara_ruleset": ruleset_digest(),
+            "libraries": _library_versions(),
+        }
+    return _STATIC_MANIFEST
+
+
+def reset_manifest_cache() -> None:
+    """Forget the cached parts. For tests that swap the rule set or registry."""
+    global _STATIC_MANIFEST
+    _STATIC_MANIFEST = None
+
+
 def engine_manifest() -> dict[str, Any]:
     """Exactly what produced a verdict, in enough detail to reproduce it."""
+    static = _static_manifest()
     manifest = {
         "product": "Cyclowareness Sandbox",
         "app_version": __version__,
-        "analyzers": _analyzer_manifest(),
-        "unavailable_analyzers": analyzers.unavailable_analyzers(),
-        "yara_ruleset": ruleset_digest(),
+        "analyzers": static["analyzers"],
+        "unavailable_analyzers": static["unavailable_analyzers"],
+        "yara_ruleset": static["yara_ruleset"],
         "scoring": {
             "model": "expert-weighted logistic (8 features)",
             "feature_weights": dict(scoring.WEIGHTS),
@@ -293,7 +328,7 @@ def engine_manifest() -> dict[str, Any]:
             ],
         },
         "impact_rating": {"notation": impact_mod.NOTATION},
-        "libraries": _library_versions(),
+        "libraries": static["libraries"],
     }
     manifest["digest"] = digest(manifest)
     return manifest
@@ -362,8 +397,31 @@ def build_report(job) -> dict[str, Any]:
 
 
 def build_document(job) -> dict[str, Any]:
-    """The sub-document the signature covers: schema, manifest, report."""
-    return {"schema": SCHEMA, "manifest": engine_manifest(), "report": build_report(job)}
+    """The sub-document the signature covers: schema, manifest, report.
+
+    THE MANIFEST MUST BE THE ONE THAT REACHED THE VERDICT.
+
+    This called `engine_manifest()` — the LIVE one — so a report exported today
+    described the engine as it is today, not as it was when the verdict was
+    reached. Every rule change in between silently rewrote history inside a
+    document whose entire purpose is that it cannot be rewritten. A reader
+    checking reproducibility would pin the wrong engine and fail to reproduce a
+    verdict that was correct when it was made.
+
+    `job.engine_manifest` is captured at verdict time (pipeline.run). Rows
+    written before migration 0007 have none, and those fall back to the live
+    manifest and SAY SO in `manifest_source`, rather than quietly presenting
+    today's engine as the one that was used.
+    """
+    stored = getattr(job, "engine_manifest", None)
+    manifest = dict(stored) if isinstance(stored, dict) and stored else engine_manifest()
+    manifest["manifest_source"] = (
+        "captured at verdict time"
+        if isinstance(stored, dict) and stored
+        else "live at export time — this job predates verdict-time capture, so "
+             "the engine described here may not be the one that produced the verdict"
+    )
+    return {"schema": SCHEMA, "manifest": manifest, "report": build_report(job)}
 
 
 def signed_payload(envelope: dict[str, Any]) -> bytes:

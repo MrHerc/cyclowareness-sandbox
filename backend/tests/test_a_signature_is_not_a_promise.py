@@ -403,3 +403,113 @@ def test_the_structural_list_holds_no_behaviour() -> None:
                    if s.startswith("capev2.") and not any(
                        token in s for token in ("pe_", "packer", "overlay", "static_pe"))]
     assert not behavioural, behavioural
+
+
+# --- 6. the committed digest comes from eContent and nowhere else -------------
+
+
+def _tlv(tag: int, body: bytes) -> bytes:
+    if len(body) < 0x80:
+        return bytes([tag, len(body)]) + body
+    raw = len(body).to_bytes((len(body).bit_length() + 7) // 8, "big")
+    return bytes([tag, 0x80 | len(raw)]) + raw + body
+
+
+def _oid_der(dotted: str) -> bytes:
+    parts = [int(p) for p in dotted.split(".")]
+    body = bytes([parts[0] * 40 + parts[1]])
+    for arc in parts[2:]:
+        chunk = [arc & 0x7F]
+        arc >>= 7
+        while arc:
+            chunk.append((arc & 0x7F) | 0x80)
+            arc >>= 7
+        body += bytes(reversed(chunk))
+    return _tlv(0x06, body)
+
+
+def _digest_info(digest: bytes) -> bytes:
+    """DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING }, SHA-256."""
+    algorithm = _tlv(0x30, _oid_der("2.16.840.1.101.3.4.2.1") + _tlv(0x05, b""))
+    return _tlv(0x30, algorithm + _tlv(0x04, digest))
+
+
+def _spc_content(digest: bytes) -> bytes:
+    """SpcIndirectDataContent ::= SEQUENCE { data, messageDigest }."""
+    data = _tlv(0x30, _oid_der(OID := "1.3.6.1.4.1.311.2.1.15") + _tlv(0x05, b""))
+    return _tlv(0x30, data + _digest_info(digest))
+
+
+def _signed_data(real_digest: bytes, forged: bytes | None = None) -> bytes:
+    """A PKCS#7 SignedData whose eContent commits to `real_digest`.
+
+    When `forged` is given, an SPC OID and a DigestInfo carrying it are spliced
+    into `digestAlgorithms` — element 1, walked BEFORE encapContentInfo — which
+    is exactly the unauthenticated position the old scanning implementation read
+    from.
+    """
+    algorithms = _oid_der("2.16.840.1.101.3.4.2.1")
+    if forged is not None:
+        algorithms += _oid_der("1.3.6.1.4.1.311.2.1.4") + _digest_info(forged)
+    encap = _tlv(0x30, _oid_der("1.3.6.1.4.1.311.2.1.4")
+                 + _tlv(0xA0, _spc_content(real_digest)))
+    body = (
+        _tlv(0x02, b"\x01")
+        + _tlv(0x31, algorithms)
+        + encap
+        + _tlv(0xA0, b"")
+        + _tlv(0x31, b"")
+    )
+    return _tlv(0x30, _oid_der("1.2.840.113549.1.7.2") + _tlv(0xA0, _tlv(0x30, body)))
+
+
+REAL = bytes(range(32))
+FORGED = bytes(range(100, 132))
+
+
+def test_the_committed_digest_is_read_from_econtent() -> None:
+    blob = _signed_data(REAL)
+    parsed = authenticode._parse_signed_data(blob, [authenticode.MAX_DER_STEPS])
+    algorithm, committed = authenticode._committed_digest(
+        parsed.econtent, [authenticode.MAX_DER_STEPS])
+    assert algorithm == "sha256"
+    assert committed == REAL
+
+
+def test_a_digest_spliced_outside_econtent_is_ignored() -> None:
+    """THE ATTACK. `digestAlgorithms` is not covered by the signature, and the
+    old implementation walked the whole blob and took the first DigestInfo after
+    any SPC OID — so this splice moved `covers_file` onto a patched file while
+    the genuine signature, chain and anchor all still checked out."""
+    clean = _signed_data(REAL)
+    attacked = _signed_data(REAL, forged=FORGED)
+    assert clean != attacked, "the fixture did not actually splice anything"
+
+    budget = [authenticode.MAX_DER_STEPS]
+    parsed = authenticode._parse_signed_data(attacked, budget)
+    algorithm, committed = authenticode._committed_digest(parsed.econtent, budget)
+
+    assert committed == REAL, "the forged digest was accepted"
+    assert committed != FORGED
+
+
+def test_the_forgery_does_not_disturb_the_rest_of_the_parse() -> None:
+    """Proving the splice is otherwise invisible is what makes the first test
+    meaningful: everything except the digest is byte-identical, which is why a
+    real signature keeps verifying while `covers_file` flips."""
+    budget = [authenticode.MAX_DER_STEPS]
+    a = authenticode._parse_signed_data(_signed_data(REAL), budget)
+    b = authenticode._parse_signed_data(_signed_data(REAL, forged=FORGED), budget)
+    assert a.econtent == b.econtent
+    assert a.message_digest == b.message_digest
+    assert a.signature == b.signature
+
+
+def test_the_digest_is_never_taken_from_the_whole_blob() -> None:
+    """A structural guard: `_committed_digest` must be called with eContent, not
+    with the certificate blob. If someone re-widens it, this fails."""
+    import inspect
+
+    source = inspect.getsource(authenticode.verify)
+    assert "_committed_digest(parsed.econtent" in source, source[:400]
+    assert "_committed_digest(blob" not in source

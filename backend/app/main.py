@@ -12,7 +12,7 @@ import math
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +21,7 @@ from starlette.routing import Match, Route
 
 from . import __version__, retention
 from .api import admin, audit, auth, dynamic, meta, sandbox
+from .auth import require_analyst
 from .config import get_settings
 from .db import init_db
 from .ratelimit import rate_limit_middleware
@@ -102,6 +103,22 @@ app = FastAPI(
     ),
     version=__version__,
     lifespan=lifespan,
+    # THE API SURFACE IS NOT PUBLIC.
+    #
+    # FastAPI mounts `/docs`, `/redoc` and `/openapi.json` unauthenticated by
+    # default, so an anonymous caller could read the complete route list of a
+    # deployment that holds live malware: every parameter, every schema, the
+    # admin endpoints, the worker seam. Nothing there is a secret on its own, and
+    # all of it is reconnaissance handed over for free.
+    #
+    # The schema is still served — to an authenticated analyst, through
+    # `/api/openapi.json` below. Turned off entirely would have been the easy
+    # answer and the wrong one: an operator integrating against this needs the
+    # spec, and making them read the source instead is how undocumented clients
+    # get written.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 # --- a validation error must not itself be unserialisable --------------------
@@ -165,6 +182,33 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/api/openapi.json", include_in_schema=False)
+def authenticated_openapi(_identity=Depends(require_analyst)):
+    """The OpenAPI schema, to an analyst who has authenticated.
+
+    The default unauthenticated `/openapi.json` is turned off above. This is the
+    replacement rather than a removal: an operator integrating against the
+    product needs the spec, and the alternative to publishing it is undocumented
+    clients written against guesses.
+    """
+    return app.openapi()
+
+
+@app.get("/api/docs", include_in_schema=False)
+def authenticated_docs(_identity=Depends(require_analyst)):
+    """Swagger UI, pointed at the authenticated schema above.
+
+    The page itself carries no secret; the fetch it makes does, and that fetch
+    goes through `require_analyst` like everything else. A browser that reaches
+    here without a session gets the same 401 the schema would give it.
+    """
+    from fastapi.openapi.docs import get_swagger_ui_html
+
+    return get_swagger_ui_html(
+        openapi_url="/api/openapi.json", title="Cyclowareness Sandbox — API"
+    )
+
 
 app.include_router(meta.router)
 app.include_router(auth.router)

@@ -296,12 +296,30 @@ def classify(
     # file. See `scoring.CAPABILITY_NEEDS_CORROBORATION`: the demotion has to
     # reach the capability engine too, or the score says clean and the engine
     # row still detects.
-    from .scoring import publisher_verified, uncorroborated
+    # A SIGNAL THAT DESCRIBES THE INTERPRETER CANNOT ASSERT A CAPABILITY OF THE
+    # SCRIPT, for the same reason.
+    #
+    # `detect_capabilities` is severity-blind, so the `unbacked_*` cluster —
+    # demoted to `low` because it fires on 100% of PowerShell detonations,
+    # including tab-completion scripts — still yielded `injection`. The panel
+    # then contradicted itself: `fd.ps1` scored 6.1, every engine row carried
+    # severity `low`, and two rows still read DETECTED, so the file came out
+    # `suspicious` and took fd.zip with it.
+    #
+    # Deliberately narrow. `AMBIENT_SIGNALS` is demoted FOR SCORING ONLY by
+    # design and is NOT filtered here: routing it into the capability engine was
+    # measured and took the detonation fixture from 84 of 88 to 68.
+    # `FAMILY_AMBIENT_SIGNALS` makes a different claim — not "ordinary software
+    # does this too" but "this is the interpreter, not the sample" — and a
+    # capability the sample does not have is not a capability.
+    from .scoring import family_ambient, publisher_verified, uncorroborated
 
     alone = uncorroborated(all_signals)
     signed = publisher_verified(all_signals)
+    excluded = alone | family_ambient(family)
     caps = detect_capabilities(
-        [s for s in all_signals if s.id not in alone] if alone else all_signals, iocs
+        [s for s in all_signals if s.id not in excluded] if excluded else all_signals,
+        iocs,
     )
 
     platform = _platform(family, mime)
@@ -355,7 +373,15 @@ def classify(
             # Behaviour is not detection. This row now fires on the same standard
             # as the heuristic engine: an accusing capability demonstrated by the
             # behaviour it observed.
-            observed = detect_capabilities(result.signals, None)
+            # The SAME exclusion as the consensus capability set above, or this
+            # row contradicts it. It read the raw signals, so after
+            # `FAMILY_AMBIENT_SIGNALS` stopped the interpreter's own behaviour
+            # asserting `injection` for the verdict, this row went on asserting
+            # it anyway — `fd.ps1` scored 6.1 with every row at severity `low`
+            # and `CS-dynamic.capev2` still reading DETECTED.
+            observed = detect_capabilities(
+                [s for s in result.signals if s.id not in excluded], None
+            )
             flagged = bool(observed & ACCUSING_CAPABILITIES)
         else:
             # Static rows need HIGH, not medium. Every self-extracting

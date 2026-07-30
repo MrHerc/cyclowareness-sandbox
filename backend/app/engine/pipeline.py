@@ -708,14 +708,45 @@ def run(
         # That is the direction that matters. An ISO is a standard way to get a
         # payload past mark-of-the-web precisely because the wrapper looks
         # harmless, and "suspicious" is exactly the word an analyst triages last.
-        worst_verdict = (worst.verdict or {}).get("verdict") if worst is not None else None
+        # THE WORST VERDICT, NOT THE VERDICT OF THE HIGHEST SCORE.
+        #
+        # This read `worst`, which is selected by SCORE — so the container took
+        # the verdict of whichever member happened to score highest, not of the
+        # worst member. Those are different jobs whenever a low-scoring member is
+        # judged worse than a high-scoring one, which is exactly what the
+        # corroboration and ambient rules produce: caddy.zip held a `clean`
+        # LICENSE at 21.9 and a `suspicious` README.md at 13.0, and inherited
+        # CLEAN from the LICENSE. The rule this code states in its own message —
+        # "a container carries the verdict of the worst thing found in it" — was
+        # not the rule it implemented.
+        #
+        # Ordered by (verdict rank, score) so the tie-break is still the number.
+        # This can only ever RAISE a container relative to the old behaviour: the
+        # worst verdict is by definition no better than any single member's. It
+        # is also why improving one member could previously make a container look
+        # WORSE — lowering the top scorer promoted a different member, and its
+        # verdict came along.
+        worst_by_verdict = max(
+            descendants,
+            key=lambda d: (
+                _VERDICT_RANK.get((d.verdict or {}).get("verdict"), 0),
+                d.final_score or 0.0,
+            ),
+            default=None,
+        )
+        worst_verdict = (
+            (worst_by_verdict.verdict or {}).get("verdict")
+            if worst_by_verdict is not None
+            else None
+        )
         if worst_verdict in _VERDICT_RANK and _VERDICT_RANK.get(
             verdict_res.verdict, 0
         ) < _VERDICT_RANK[worst_verdict]:
+            named = worst_by_verdict.original_name or worst_by_verdict.sha256[:16]
             verdict_res = verdict_res.raised_to(
                 worst_verdict,
                 because=(
-                    f"{worst.original_name or worst.sha256[:16]} inside this container was "
+                    f"{named} inside this container was "
                     f"assessed {worst_verdict}. A container carries the verdict of the worst "
                     "thing found in it."
                 ),
@@ -734,7 +765,22 @@ def run(
         job.mitre = mitre_mod.map_techniques(all_signals)
         job.status = JobStatus.COMPLETED
         job.stage = "complete"
-        job.completed_at = utcnow()
+        finished = utcnow()
+        job.completed_at = finished
+        # Written ONCE. `completed_at` moves with every re-analysis; awareness
+        # does not. See the column comment in models.py — a 2027 re-score must
+        # not move a 2026 NIS2 deadline.
+        if job.first_completed_at is None:
+            job.first_completed_at = finished
+        # The engine that reached THIS verdict, captured now rather than read at
+        # export time, so a signed attestation describes the engine that produced
+        # it instead of whatever is deployed when someone exports it.
+        from .attestation import engine_manifest as _engine_manifest
+
+        try:
+            job.engine_manifest = _engine_manifest()
+        except Exception:  # noqa: BLE001 - a manifest must never fail a verdict
+            logger.warning("could not capture the engine manifest for %s", job.public_id)
         db.flush()
         return job
 

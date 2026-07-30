@@ -431,41 +431,74 @@ def _load_certificates(blob: bytes, budget: list[int]) -> list:
     return certs
 
 
-def _committed_digest(blob: bytes, budget: list[int]) -> tuple[str, bytes]:
-    """(algorithm, digest) that SpcIndirectDataContent commits the file to."""
-    root = _read(blob, 0, len(blob))
-    seen_spc = False
-    for node, _level in _find(blob, root, budget):
-        if node.tag == 0x06:
-            try:
-                if _oid(blob, node) == OID_SPC_INDIRECT_DATA:
-                    seen_spc = True
-            except DerError:
-                continue
-            continue
-        if not seen_spc or node.tag != 0x30:
-            continue
-        # DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING }
-        try:
-            kids = _children(blob, node, budget)
-        except DerError:
-            continue
-        if len(kids) != 2 or kids[0].tag != 0x30 or kids[1].tag != 0x04:
-            continue
-        try:
-            alg = _children(blob, kids[0], budget)
-        except DerError:
-            continue
-        if not alg or alg[0].tag != 0x06:
-            continue
-        try:
-            name = _DIGESTS.get(_oid(blob, alg[0]), "")
-        except DerError:
-            continue
-        if not name:
-            continue
-        return name, blob[kids[1].value:kids[1].end]
-    return "", b""
+def _committed_digest(econtent: bytes, budget: list[int]) -> tuple[str, bytes]:
+    """(algorithm, digest) that SpcIndirectDataContent commits the file to.
+
+    READ ONLY FROM eContent. THIS IS THE WHOLE SECURITY PROPERTY.
+
+    This used to pre-order walk the ENTIRE PKCS#7 blob and return the first
+    DigestInfo-shaped SEQUENCE after any OID equal to SPC_INDIRECT_DATA — the
+    exact "scan for likely-looking bytes" mistake `_parse_signed_data` was
+    rewritten to avoid, left behind in the one function where it is fatal.
+
+    The attack, confirmed by running the module: take a genuinely
+    Microsoft-signed EXE, patch its code, and splice two elements into the
+    SignedData `digestAlgorithms` SET — the SPC OID, then a DigestInfo carrying
+    SHA-256 of the PATCHED file. `digestAlgorithms` is element 1 and
+    `encapContentInfo` is element 2, so the walk reached the forgery first and
+    `covers_file` came back True. The signature covers only `signedAttrs`, so
+    `signature_valid` stayed True against the real SignerInfo, the real
+    Microsoft chain still anchored, and `verified` was True. The report then
+    said "Signed by Microsoft Corporation — the Authenticode signature covers
+    these exact bytes" over a modified binary, and handed it the
+    `STRUCTURAL_SIGNALS` waiver. Growing the certificate table cannot disturb
+    the hash being forged, because `authenticode_digest` excludes that table by
+    construction — so there is not even a chicken-and-egg to solve.
+
+    `econtent` is the SpcIndirectDataContent CONTENT octets, located by
+    `_parse_signed_data` walking the grammar, and it is the same buffer the
+    `messageDigest` signed attribute is taken over. Reading the digest from
+    anywhere else means the thing checked and the thing signed are different
+    objects.
+
+        SpcIndirectDataContent ::= SEQUENCE {
+            data          SpcAttributeTypeAndOptionalValue,
+            messageDigest DigestInfo }
+        DigestInfo ::= SEQUENCE { AlgorithmIdentifier, OCTET STRING }
+    """
+    if not econtent:
+        return "", b""
+    try:
+        fields = _children(
+            econtent,
+            _Node(tag=0x30, start=0, header=0, length=len(econtent), value=0),
+            budget,
+        )
+    except DerError:
+        return "", b""
+    # Exactly two, in order, and the DigestInfo is the SECOND. Not "the first
+    # one that parses": position is what makes this unambiguous.
+    if len(fields) != 2 or fields[1].tag != 0x30:
+        return "", b""
+    try:
+        kids = _children(econtent, fields[1], budget)
+    except DerError:
+        return "", b""
+    if len(kids) != 2 or kids[0].tag != 0x30 or kids[1].tag != 0x04:
+        return "", b""
+    try:
+        alg = _children(econtent, kids[0], budget)
+    except DerError:
+        return "", b""
+    if not alg or alg[0].tag != 0x06:
+        return "", b""
+    try:
+        name = _DIGESTS.get(_oid(econtent, alg[0]), "")
+    except DerError:
+        return "", b""
+    if not name:
+        return "", b""
+    return name, econtent[kids[1].value:kids[1].end]
 
 
 @dataclass(frozen=True)
@@ -719,9 +752,13 @@ def verify(data: bytes) -> SignatureResult:
         return _ABSENT
     budget = [MAX_DER_STEPS]
 
+    # ORDER MATTERS. The structure is navigated FIRST, and the file digest is
+    # then read only out of the eContent that walk located — never scavenged from
+    # the blob at large. See `_committed_digest`.
     try:
         certs = _load_certificates(blob, budget)
-        algorithm, committed = _committed_digest(blob, budget)
+        parsed = _parse_signed_data(blob, budget)
+        algorithm, committed = _committed_digest(parsed.econtent, budget)
     except DerError as exc:
         return SignatureResult(present=True, reason=f"malformed signature: {exc}")
     except Exception as exc:  # noqa: BLE001 - hostile input, never a crash
@@ -742,7 +779,6 @@ def verify(data: bytes) -> SignatureResult:
 
     valid = False
     try:
-        parsed = _parse_signed_data(blob, budget)
         signer_algorithm = parsed.digest_algorithm or algorithm
         if parsed.signed_attributes and parsed.signature:
             valid = _verify_signature(

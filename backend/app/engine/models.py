@@ -25,6 +25,13 @@ class JobStatus:
     COMPLETED = "completed"
     FAILED = "failed"
 
+    #: Every value a job's status can hold. Exists so a caller filtering on a
+    #: status that does not exist gets told, instead of an empty page that reads
+    #: like "there are none" — `?status=zzz` returned `200 []`, which is the
+    #: same answer as `?status=failed` on a healthy deployment and means
+    #: something completely different.
+    ALL = ("queued", "running", "awaiting_password", "completed", "failed")
+
 
 class JobSource:
     UPLOAD = "upload"
@@ -129,7 +136,22 @@ class SandboxJob(Base):
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: When THIS analysis run finished. Cleared and rewritten by a re-analysis.
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: When this sample was FIRST assessed, written once and never again.
+    #:
+    #: `completed_at` moves every time the job is re-scored, which is correct for
+    #: "when did this run end" and wrong for the only thing the regulation asks:
+    #: NIS2 Article 23(4)(a) starts its 24-hour clock at AWARENESS, and awareness
+    #: happened once. Re-scoring a job in 2027 must not move a 2026 deadline.
+    first_completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    #: The engine manifest as it stood when the verdict was reached.
+    #:
+    #: The signed attestation used to read the manifest at EXPORT time, so a
+    #: report exported today described today's engine rather than the one that
+    #: produced the verdict — every rule change since silently rewriting history
+    #: inside a document whose whole purpose is that it cannot be.
+    engine_manifest: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Self-referential one-to-many: a parent archive job has many member jobs.
     # remote_side belongs on the MANY-TO-ONE side (parent), so the relationship

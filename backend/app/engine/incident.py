@@ -99,7 +99,16 @@ def _awareness(job) -> datetime | None:
     unfinished job has no awareness time, and the record says so instead of
     substituting "now" and manufacturing a deadline.
     """
-    completed = getattr(job, "completed_at", None)
+    # FIRST completion, not the latest one. `completed_at` is cleared and
+    # rewritten by every re-analysis, so deriving the deadline from it meant a
+    # re-scoring sweep silently moved the regulatory clock forward for every job
+    # it touched. Awareness happened once.
+    #
+    # `first_completed_at` is backfilled from `completed_at` by migration 0007,
+    # which is exact for any job never re-analysed and the best available answer
+    # for the rest; the fallback keeps a row written before that migration
+    # readable rather than claiming there is no awareness time.
+    completed = getattr(job, "first_completed_at", None) or getattr(job, "completed_at", None)
     if isinstance(completed, datetime):
         return completed if completed.tzinfo else completed.replace(tzinfo=timezone.utc)
     return None
