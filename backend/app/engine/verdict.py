@@ -191,6 +191,14 @@ class VerdictResult:
 #: member rather than derived from this sample's own capabilities.
 _CATEGORY_FOR_VERDICT = {"malicious": "Malware", "suspicious": "Suspicious"}
 
+#: Categories that accuse the sample of being a kind of malware. `Riskware` is
+#: absent on purpose — it is the honest word for a dual-use tool, and it is what
+#: a verified publisher's ambiguous evidence is renamed to.
+_ACCUSING_CATEGORIES = frozenset({
+    "Ransom", "Spyware", "Exploit", "Downloader", "Injector", "Backdoor",
+    "Dropper", "Trojan",
+})
+
 
 def _platform(family: str, mime: str) -> str:
     if family == "script":
@@ -288,9 +296,10 @@ def classify(
     # file. See `scoring.CAPABILITY_NEEDS_CORROBORATION`: the demotion has to
     # reach the capability engine too, or the score says clean and the engine
     # row still detects.
-    from .scoring import uncorroborated
+    from .scoring import publisher_verified, uncorroborated
 
     alone = uncorroborated(all_signals)
+    signed = publisher_verified(all_signals)
     caps = detect_capabilities(
         [s for s in all_signals if s.id not in alone] if alone else all_signals, iocs
     )
@@ -549,6 +558,27 @@ def classify(
         # the family without this engine deriving a category from it. Say which
         # of the two it is rather than borrow the word "Clean".
         category = "Malware" if verdict == "malicious" else "Suspicious"
+        threat_name = f"{platform}.{category}.{fam}"
+    elif verdict == "suspicious" and signed and category in _ACCUSING_CATEGORIES:
+        # A VERIFIED PUBLISHER IS NOT A BACKDOOR ON AMBIGUOUS EVIDENCE.
+        #
+        # Process Explorer installs a helper driver as a service, which really is
+        # an autorun, so `capev2.persistence_autorun` fires — and that signal is
+        # pinned as never-demote, because it is the persistence signal and a
+        # malware sandbox does not trade it away. The verdict `suspicious` is
+        # therefore correct and stays.
+        #
+        # The NAME was not. `Win32.Backdoor.PersistenceAutorun` on a binary whose
+        # Authenticode signature verifies to Microsoft Code Signing PCA 2024 says
+        # the product does not know what it is looking at. When the publisher is
+        # established and the evidence only reached `suspicious`, the honest word
+        # for a dual-use tool is `Riskware` — which is what commercial engines
+        # call Sysinternals too.
+        #
+        # Deliberately narrow: `malicious` keeps its accusing category, because
+        # signed malware exists and eight of the samples on this host are signed.
+        # This changes a label, never a score and never a verdict.
+        category = "Riskware"
         threat_name = f"{platform}.{category}.{fam}"
 
     # Every row that reports a detection reports the sample's name, so they move

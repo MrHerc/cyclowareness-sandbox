@@ -354,6 +354,48 @@ def test_the_waiver_needs_the_verified_signal_not_merely_a_signature() -> None:
     assert score_verified < score_present
 
 
+def _classify(signals, family="pe", mime="application/x-dosexec"):
+    from app.engine.contracts import AnalyzerResult
+
+    results = [AnalyzerResult(analyzer="pe", ran=True, signals=signals)]
+    assessment = scoring.assess(results, ioc_total=0, family=family)
+    from app.engine import verdict as verdict_mod
+
+    return verdict_mod.classify(family, mime, results, __import__(
+        "app.engine.contracts", fromlist=["IOCs"]).IOCs(), assessment.final_score)
+
+
+def test_a_verified_publisher_is_not_called_a_backdoor() -> None:
+    """Process Explorer installs a helper driver as a service, so
+    `capev2.persistence_autorun` fires — and that signal is pinned as
+    never-demote, because it IS the persistence signal. So `suspicious` is
+    correct and stays. `Win32.Backdoor.PersistenceAutorun` on a binary whose
+    signature verifies to Microsoft was not: the honest word for a dual-use tool
+    is Riskware, which is what commercial engines call Sysinternals too."""
+    behaviour = [_signal("capev2.persistence_autorun"),
+                 _signal("capev2.modify_certs", "medium")]
+    accused = _classify(behaviour)
+    excused = _classify(behaviour + [VERIFIED])
+    assert accused.verdict == excused.verdict, "the verdict must not change"
+    assert accused.category in ("Backdoor", "Downloader", "Trojan"), accused.to_dict()
+    if excused.verdict == "suspicious":
+        assert excused.category == "Riskware", excused.to_dict()
+        assert "Backdoor" not in excused.threat_name
+
+
+def test_a_signed_malicious_sample_keeps_its_accusing_name() -> None:
+    """Deliberately narrow: signed malware exists — eight samples on the
+    detonation host are signed — so a `malicious` verdict keeps its category."""
+    heavy = [_signal("capev2.mass_data_encryption"),
+             _signal("capev2.deletes_shadow_copies"),
+             _signal("capev2.credential_dumping"),
+             _signal("capev2.persistence_autorun"),
+             VERIFIED]
+    got = _classify(heavy)
+    if got.verdict == "malicious":
+        assert got.category != "Riskware", got.to_dict()
+
+
 def test_the_structural_list_holds_no_behaviour() -> None:
     """A later edit that drops a `capev2` behaviour signal in here would hand
     every signed publisher a free pass on what their program did."""
