@@ -260,6 +260,71 @@ STRUCTURAL_SIGNALS = frozenset({
 #: The signal that switches the waiver on. One id, so there is one place to look.
 VERIFIED_PUBLISHER_SIGNAL = "pe.signature_verified"
 
+#: Signals that describe the INTERPRETER, not the script it was handed.
+#:
+#: Detonating a `.ps1` runs powershell.exe, which loads AMSI on startup and whose
+#: .NET JIT emits code into unbacked memory — that is what a JIT IS. Measured
+#: across every PowerShell script detonated on this host, INCLUDING ripgrep's and
+#: fd's shell-completion scripts, which define a few functions and exit:
+#:
+#:     signal                                          on .ps1   on PE   fixture
+#:     capev2.unbacked_api_resolution                     100%     22%      45%
+#:     capev2.unbacked_library_load                       100%     23%      45%
+#:     capev2.unbacked_dotnet_execution                   100%      6%      19%
+#:     capev2.amsi_enumeration                            100%     12%      25%
+#:     capev2.creates_suspended_process                    100%     38%      58%
+#:     capev2.resumethread_remote_process                  100%     38%      59%
+#:     ... twelve more `unbacked_*` at 100%
+#:
+#: A signal that fires on 100% of a population cannot distinguish within it. It
+#: made `_rg.ps1` — a tab-completion script — `malicious` at 45.9, which made
+#: ripgrep's release archive malicious too.
+#:
+#: This is keyed on FAMILY and not global, because the same observation means
+#: something real about a PE: unbacked code execution in a compiled binary is
+#: manual mapping or a reflective loader, and it fires on only 6-23% of them.
+#:
+#: Priced against every script-shaped malware sample on the detonation host — 17
+#: files, 36 stored analyses of them: **0 lost**. Thirty-four stay `malicious`;
+#: two move from `malicious` to `suspicious`. The 88-sample fixture cannot price
+#: this, because it contains no scripts at all.
+FAMILY_AMBIENT_SIGNALS: dict[str, frozenset[str]] = {
+    "script": frozenset({
+        # powershell.exe / wscript.exe starting up and spawning a child
+        "capev2.creates_suspended_process",
+        "capev2.resumethread_remote_process",
+        "capev2.reads_memory_remote_process",
+        "capev2.terminates_remote_process",
+        # AMSI is loaded by the host, not requested by the script
+        "capev2.amsi_enumeration",
+        # every one of these is the .NET JIT: unbacked memory is where it emits
+        "capev2.unbacked_api_resolution",
+        "capev2.unbacked_library_load",
+        "capev2.unbacked_memory_protection_alteration",
+        "capev2.unbacked_process_mitigation_alteration",
+        "capev2.unbacked_token_manipulation",
+        "capev2.unbacked_dotnet_execution",
+        "capev2.unbacked_crypto_operations",
+        "capev2.unbacked_com_instantiation",
+        "capev2.unbacked_file_dropping",
+        "capev2.unbacked_process_enumeration",
+        "capev2.unbacked_privilege_escalation",
+        "capev2.unbacked_mutex_creation",
+    }),
+}
+
+
+def family_ambient(family: str | None) -> frozenset[str]:
+    return FAMILY_AMBIENT_SIGNALS.get((family or "").lower(), frozenset())
+
+
+#: Prefixes of the signals a detonation produces.
+_DYNAMIC_PREFIX = "capev2."
+
+
+def _dynamic(signal_id: str) -> bool:
+    return signal_id.startswith(_DYNAMIC_PREFIX)
+
 
 def publisher_verified(signals: Iterable[Signal]) -> bool:
     return any(s.id == VERIFIED_PUBLISHER_SIGNAL for s in signals)
@@ -287,13 +352,16 @@ def effective_severity(
     alone: frozenset[str] = frozenset(),
     *,
     verified_publisher: bool = False,
+    family: str | None = None,
+    dynamic_attributable: bool = True,
 ) -> str:
     """The severity this signal carries INTO the score.
 
     Everything an analyzer or a sandbox reported is kept and shown; this is only
     about what may push a verdict. See `AMBIENT_SIGNALS`,
-    `CAPABILITY_NEEDS_CORROBORATION` (`alone` comes from `uncorroborated()`) and
-    `STRUCTURAL_SIGNALS` (`verified_publisher` from `publisher_verified()`).
+    `CAPABILITY_NEEDS_CORROBORATION` (`alone` comes from `uncorroborated()`),
+    `STRUCTURAL_SIGNALS` (`verified_publisher` from `publisher_verified()`) and
+    `FAMILY_AMBIENT_SIGNALS` (`family` — the interpreter is not the script).
     """
     if signal.severity not in ("medium", "high", "critical"):
         return signal.severity
@@ -301,10 +369,22 @@ def effective_severity(
         return "low"
     if verified_publisher and signal.id in STRUCTURAL_SIGNALS:
         return "low"
+    if family and signal.id in family_ambient(family):
+        return "low"
+    # A detonation of something that cannot execute observed the GUEST, not the
+    # sample. The observations are kept and shown — an analyst can see exactly
+    # what the guest did — but they may not accuse a file that never ran.
+    if not dynamic_attributable and _dynamic(signal.id):
+        return "low"
     return signal.severity
 
 
-def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
+def rule_score(
+    signals: Iterable[Signal],
+    *,
+    family: str | None = None,
+    dynamic_attributable: bool = True,
+) -> tuple[float, list[dict[str, Any]]]:
     """Severity-weighted rule score in 0-100, plus the per-band arithmetic."""
     bands: dict[str, list[Signal]] = {}
     kept = _collapse_correlated(list(signals))
@@ -312,7 +392,10 @@ def rule_score(signals: Iterable[Signal]) -> tuple[float, list[dict[str, Any]]]:
     signed = publisher_verified(kept)
     for signal in kept:
         bands.setdefault(
-            effective_severity(signal, alone, verified_publisher=signed), []
+            effective_severity(
+                signal, alone, verified_publisher=signed, family=family,
+                dynamic_attributable=dynamic_attributable,
+            ), [],
         ).append(signal)
 
     total = 0.0
@@ -628,11 +711,17 @@ def assess(
     *,
     ioc_total: int,
     tiers: dict[str, Any] | None = None,
+    family: str | None = None,
+    dynamic_attributable: bool = True,
 ) -> Assessment:
     results = list(results)
     signals = [s for r in results if r.ran for s in r.signals]
 
-    rules, rule_detail = rule_score(signals)
+    # `family` is optional so every existing caller and test keeps working; when
+    # it is absent nothing is family-demoted, which is the stricter direction.
+    rules, rule_detail = rule_score(
+        signals, family=family, dynamic_attributable=dynamic_attributable
+    )
     features = extract_features(results, signals, ioc_total)
     ai, contributions = model_score(features)
     weights = get_weights()

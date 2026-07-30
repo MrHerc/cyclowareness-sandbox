@@ -624,7 +624,44 @@ def run(
             r.analyzer.startswith("dynamic.") and r.ran for r in results
         ):
             tiers["dynamic"] = dict(carried)
-        assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
+        # A DETONATION OF SOMETHING THAT CANNOT EXECUTE OBSERVED THE GUEST.
+        #
+        # `_needs_dynamic` no longer sends inert files to a worker, but 226 of
+        # them were already detonated and their reports are carried forward above
+        # — deliberately, because a detonation costs a guest and cannot be
+        # recovered from the quarantined bytes. So the evidence is kept and shown
+        # in full, and simply may not accuse: rclone's `README.html` was reported
+        # with `capev2.ransomware_file_modifications`, and an HTML file does not
+        # encrypt anything.
+        #
+        # Recorded in the score breakdown rather than as a signal. A first
+        # attempt added an `AnalyzerResult` named `dynamic.attribution`, which
+        # the carry-forward loop above then re-imported on every re-analysis AND
+        # which made `tiers["dynamic"]["ran"]` true for a job that had never been
+        # detonated.
+        attributable = sample.family != "script" or identify_mod.has_execution_path(
+            sample.claimed_extension, sample.mime
+        )
+        detonated = any(r.analyzer.startswith("dynamic.") and r.ran for r in results)
+        assessment = scoring.assess(
+            results,
+            ioc_total=merged.total(),
+            tiers=tiers,
+            family=sample.family,
+            dynamic_attributable=attributable,
+        )
+        if not attributable and detonated:
+            assessment.breakdown["dynamic_not_attributable"] = {
+                "claimed_extension": sample.claimed_extension,
+                "mime": sample.mime,
+                "reason": (
+                    "Windows has no way to run a file of this type, so everything "
+                    "the guest was observed doing belongs to the guest - a default "
+                    "handler opening it, the agent copying it into place - and not "
+                    "to this sample. The behavioural findings are reported in full "
+                    "and excluded from the score."
+                ),
+            }
 
         # A container is at least as dangerous as the worst thing anywhere
         # inside it. Signals alone do not guarantee that — they are severity

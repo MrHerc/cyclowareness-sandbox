@@ -202,6 +202,50 @@ def _is_inert_text(mime: str) -> bool:
     return mime.startswith("text/") or mime in _INERT_TEXT_MIMES
 
 
+#: Extensions Windows will actually RUN, one way or another — a shell, a script
+#: host, a registry import, a shortcut.
+#:
+#: `identify()` routes every `text/*` mime into family `script`, and `script` is a
+#: detonatable family, so a LICENSE file, a README, a man page, a CA bundle and a
+#: `.desktop` entry were all being handed to a live Windows guest. Measured on the
+#: detonation host: **226 detonations of files Windows cannot execute** — 87
+#: `.txt`, 42 `.md`, 39 with no extension at all. Each one costs a guest and
+#: several minutes, and each one comes back with signals about what the GUEST did
+#: when asked to open something that does not run: `README.html` was reported with
+#: `capev2.ransomware_file_modifications`.
+WINDOWS_RUNS_THESE = frozenset({
+    ".ps1", ".psm1", ".psd1", ".bat", ".cmd", ".com",
+    ".vbs", ".vbe", ".vb", ".js", ".jse", ".wsf", ".wsh", ".ws",
+    ".hta", ".msc", ".reg", ".lnk", ".url", ".scf", ".inf", ".pif",
+    ".py", ".pyw", ".jar", ".sh",
+})
+
+#: Mimes whose CONTENT identifies a script, whatever the file is called. A
+#: PowerShell dropper renamed `notes.txt` still gets detonated because of this —
+#: the gate is about whether there is an execution path, never about whether the
+#: submitter chose an honest name.
+_EXECUTABLE_SCRIPT_MIMES = frozenset({
+    "text/x-powershell", "text/x-msdos-batch", "text/vbscript",
+    "text/javascript", "application/javascript", "text/x-python",
+    "text/x-shellscript", "text/x-script", "application/hta",
+})
+
+
+def has_execution_path(claimed_extension: str | None, mime: str) -> bool:
+    """Is there any way this file RUNS, rather than merely being read?
+
+    Deliberately generous on the content side and strict on the name side: if
+    either the bytes look like a script or the name is one Windows executes, the
+    answer is yes. `.html` is NOT included — double-clicking a local HTML file
+    opens a browser, and a browser rendering a page is not the sample executing
+    on the host. Static analysis still reads every one of these in full; this only
+    decides whether a guest is spent on it.
+    """
+    if (mime or "") in _EXECUTABLE_SCRIPT_MIMES:
+        return True
+    return (claimed_extension or "").lower() in WINDOWS_RUNS_THESE
+
+
 EXECUTABLE_EXTENSIONS = frozenset({
     ".exe", ".scr", ".com", ".pif", ".cpl", ".dll", ".sys", ".drv", ".ocx",
     ".bat", ".cmd", ".ps1", ".psm1", ".vbs", ".vbe", ".js", ".jse", ".wsf",

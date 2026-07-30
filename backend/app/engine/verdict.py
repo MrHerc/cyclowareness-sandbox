@@ -198,7 +198,7 @@ def _platform(family: str, mime: str) -> str:
     return _FAMILY_PLATFORM.get(family, "Generic")
 
 
-def _family_token(signals: list) -> str:
+def _family_token(signals: list, family: str | None = None) -> str:
     """The family half of the threat name.
 
     A sandbox that identified the family by name is the best source there is, so
@@ -229,7 +229,7 @@ def _family_token(signals: list) -> str:
     ranked = sorted(
         signals,
         key=lambda s: -SEVERITY_ORDER.get(
-            effective_severity(s, alone, verified_publisher=signed), 0
+            effective_severity(s, alone, verified_publisher=signed, family=family), 0
         ),
     )
     top = ranked[0]
@@ -238,7 +238,7 @@ def _family_token(signals: list) -> str:
     return (token or "Agent")[:20]
 
 
-def _worst(signals: list) -> str:
+def _worst(signals: list, family: str | None = None) -> str:
     """The worst severity that may drive an engine's verdict.
 
     Reads `scoring.effective_severity`, not `signal.severity`, so an ambient
@@ -254,7 +254,8 @@ def _worst(signals: list) -> str:
     alone = uncorroborated(signals)
     signed = publisher_verified(signals)
     return max(
-        (effective_severity(s, alone, verified_publisher=signed) for s in signals),
+        (effective_severity(s, alone, verified_publisher=signed, family=family)
+         for s in signals),
         key=lambda sev: SEVERITY_ORDER.get(sev, 0),
     )
 
@@ -301,7 +302,7 @@ def classify(
     #: a Microsoft-signed binary became "Win32.Downloader.TimestampAnomaly".
     if category is None:
         category = "Clean"
-    fam = _family_token(all_signals)
+    fam = _family_token(all_signals, family)
     threat_name = f"{platform}.{category}.{fam}" if category != "Clean" else f"{platform}.Clean"
 
     # Build the engine panel.
@@ -328,7 +329,7 @@ def classify(
             continue
         if name is None:
             name = f"CS-{result.analyzer}"
-        worst = _worst(result.signals)
+        worst = _worst(result.signals, family)
         if result.analyzer.startswith('dynamic.'):
             # A detonation ALWAYS produces medium-or-worse signals — every
             # program that runs performs discovery, touches the registry and
@@ -389,7 +390,7 @@ def classify(
         "engine": "CS-Heuristic",
         "detected": bool(accusing),
         "result": threat_name if accusing else "undetected",
-        "severity": _worst(all_signals) if accusing else "info",
+        "severity": _worst(all_signals, family) if accusing else "info",
     })
 
     # Sandbox identification. Distinct from every engine above, because those
@@ -423,7 +424,7 @@ def classify(
         "engine": "CS-SandboxID",
         "detected": bool(identification),
         "result": f"{platform}.{category}.{fam}" if identification else "undetected",
-        "severity": _worst(identification) if identification else "info",
+        "severity": _worst(identification, family) if identification else "info",
     })
     # Reputation engine. It must key off indicators that are themselves *bad*
     # (an IP-literal URL, a lookalike domain, a suspicious TLD) — not off the
@@ -441,7 +442,7 @@ def classify(
         "engine": "CS-Reputation",
         "detected": bool(bad_rep),
         "result": "Suspicious.Indicator" if bad_rep else "undetected",
-        "severity": _worst(bad_rep) if bad_rep else "info",
+        "severity": _worst(bad_rep, family) if bad_rep else "info",
     })
 
     # Count distinct EVIDENCE, not distinct rows.

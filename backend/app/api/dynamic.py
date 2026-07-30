@@ -30,7 +30,7 @@ from ..config import Settings, get_settings
 from ..db import get_db
 from ..remote import client_ip
 from ..safejson import json_safe
-from ..engine import scoring
+from ..engine import identify, scoring
 from ..engine.contracts import IOCs, AnalyzerResult, Signal
 from ..engine.models import JobStatus, SandboxJob
 from ..engine.storage import quarantine_root
@@ -86,7 +86,29 @@ def _needs_dynamic(job: SandboxJob) -> bool:
     # `completed` with no error recorded.
     if dynamic.get("refused"):
         return False
-    return job.status == JobStatus.COMPLETED and job.family in _DYNAMIC_FAMILIES
+    if job.status != JobStatus.COMPLETED or job.family not in _DYNAMIC_FAMILIES:
+        return False
+    # DO NOT SPEND A GUEST ON A FILE THAT CANNOT RUN.
+    #
+    # `identify()` puts every `text/*` mime in family `script`, so this predicate
+    # was sending LICENSE files, READMEs, man pages, CA bundles, `.desktop`
+    # entries and `.gitignore` to a live Windows VM. Measured: 226 such
+    # detonations, at a guest and minutes each — and every one came back with
+    # signals about what the GUEST did when asked to open something inert.
+    # rclone's `README.html` was reported with
+    # `capev2.ransomware_file_modifications`; a LICENSE file with
+    # `capev2.process_creation_suspicious_location`. That is the analysis harness
+    # being described, and it was scored against the sample.
+    #
+    # Only the `script` family is gated: a PE, an ELF, an Office document and a
+    # PDF all have an execution path by construction. Static analysis still reads
+    # every byte of the files this skips.
+    if job.family == "script":
+        name = (job.original_name or job.archive_path or "").rsplit("/", 1)[-1]
+        extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+        if not identify.has_execution_path(extension, job.mime or ""):
+            return False
+    return True
 
 
 #: A file extension, and nothing else: one dot, then 1-8 ASCII alphanumerics.
@@ -430,7 +452,9 @@ def ingest_report(
     if report.refused:
         tiers["dynamic"]["refused"] = True
 
-    assessment = scoring.assess(results, ioc_total=merged.total(), tiers=tiers)
+    assessment = scoring.assess(
+        results, ioc_total=merged.total(), tiers=tiers, family=job.family
+    )
 
     job.analysis = {r.analyzer: r.to_dict() for r in results}
     job.iocs = merged.to_dict()

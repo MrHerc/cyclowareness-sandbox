@@ -183,6 +183,8 @@ def test_assess_refuses_to_return_a_non_finite_score(monkeypatch) -> None:
     job that produced it — loudly, with the reason on the row — is recoverable;
     writing it is not.
     """
-    monkeypatch.setattr(scoring, "rule_score", lambda signals: (float("nan"), []))
+    monkeypatch.setattr(
+        scoring, "rule_score", lambda signals, **_kwargs: (float("nan"), [])
+    )
     with pytest.raises(ValueError, match="non-finite"):
         scoring.assess([], ioc_total=0)

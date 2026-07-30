@@ -267,8 +267,26 @@ _DETECTORS: tuple[_Detector, ...] = (
 
 # --- obfuscation techniques ---------------------------------------------------
 
-_RE_BACKTICK = re.compile(r"`")
-_RE_CARET = re.compile(r"\^")
+#: PowerShell and cmd obfuscation splits an identifier with escape characters —
+#: `` i`e`x ``, `p^o^w^e^r^s^h^e^l^l`` — so the escape sits BETWEEN two word
+#: characters. That is the whole trick, and it is what these must match.
+#:
+#: Counting every backtick instead made Markdown obfuscated: a `` `code span` ``
+#: is a backtick, and caddy's and hugo's CHANGELOG.md have 910 and 253 of them.
+#: Both READMEs came out `Script.Suspicious.ObfuscationHigh`, which made caddy.zip
+#: and hugo.zip suspicious with them. Counting every caret has the same problem
+#: with regular expressions, diffs and mathematics.
+#:
+#: A fence (```` ``` ````) and a code span both put the backtick against
+#: whitespace or another backtick, never inside a word, so neither can reach this.
+#: The caret is LETTERS on both sides, not word characters: cmd escaping splits
+#: an identifier (`p^o^w^e^r^s^h^e^l^l`), while `x^2`, `y^2`, `n^k` is how
+#: exponentiation is written in any document that contains mathematics. A
+#: symbolic exponent (`a^n`) is still letter-caret-letter and would trip if a
+#: document repeated one hundreds of times; none of the 105 documentation files
+#: in the benign corpus does.
+_RE_BACKTICK = re.compile(r"(?<=\w)`(?=\w)")
+_RE_CARET = re.compile(r"(?<=[A-Za-z])\^(?=[A-Za-z])")
 _RE_CHARCODE = re.compile(r"\[char\]\s*\d{1,3}|\bchrw?\s*\(\s*\d{1,3}\s*\)|fromcharcode", re.I)
 #: STRING reversal, which is a way to hide a literal. A bare `.reverse()` is
 #: `Array.prototype.reverse` — jQuery calls it to order DOM nodes, and that was
