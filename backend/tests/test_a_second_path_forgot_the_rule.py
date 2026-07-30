@@ -239,6 +239,54 @@ def test_an_interrupted_job_is_re_queued_at_startup(db) -> None:
     assert "restart" in (refreshed.stage or "")
 
 
+def test_a_recovered_job_can_be_re_analysed_immediately(client, db, auth) -> None:
+    """Relabelling the row is not the same as making it reclaimable.
+
+    `reanalyze` refuses an in-flight job unless it is older than `_STALE_AFTER`,
+    so a process killed thirty seconds after a job started would leave that job
+    409-ing for another ten minutes even after the startup sweep had seen it.
+    Clearing `started_at` is what closes that window.
+    """
+    from app.engine.models import SandboxJob
+    from app.main import _recover_interrupted_jobs
+    from app.util import utcnow
+
+    job = SandboxJob(
+        public_id="stranded-2", tenant_id="default", source="upload",
+        original_name="y.bin", sha256="e" * 64, md5="f" * 32, size_bytes=1,
+        status=JobStatus.RUNNING, stage="analysing",
+        # Started seconds ago: well inside the staleness window.
+        started_at=utcnow().replace(tzinfo=None),
+    )
+    db.add(job)
+    db.commit()
+
+    _recover_interrupted_jobs()
+    db.expire_all()
+    assert db.get(SandboxJob, job.id).started_at is None
+
+    response = client.post(f"/api/jobs/{job.public_id}/reanalyze", headers=auth)
+    assert response.status_code == 200, response.text
+
+
+def test_a_job_that_really_is_running_is_still_refused(client, db, auth) -> None:
+    """The 409 exists for a reason, and the staleness escape must not remove it."""
+    from app.engine.models import SandboxJob
+    from app.util import utcnow
+
+    job = SandboxJob(
+        public_id="busy-1", tenant_id="default", source="upload",
+        original_name="z.bin", sha256="1" * 64, md5="2" * 32, size_bytes=1,
+        status=JobStatus.RUNNING, stage="analysing",
+        started_at=utcnow().replace(tzinfo=None),
+    )
+    db.add(job)
+    db.commit()
+
+    response = client.post(f"/api/jobs/{job.public_id}/reanalyze", headers=auth)
+    assert response.status_code == 409, response.text
+
+
 def test_the_re_analysis_claim_is_one_statement(client) -> None:
     """Read-then-write let two clicks both pass, and on an archive that builds
     the whole child-job tree twice."""

@@ -47,6 +47,12 @@ def _recover_interrupted_jobs() -> None:
     and re-running is cheap and correct. The submission is left to the analyst's
     next action rather than fired here: a restart that recovers 200 jobs must not
     also start 200 analyses before the service is serving requests.
+
+    `started_at` is CLEARED, and that is what makes them reclaimable rather than
+    merely relabelled. `reanalyze` refuses an in-flight job unless it is older
+    than `_STALE_AFTER`, so a process killed thirty seconds after a job started
+    would leave that job 409-ing for another ten minutes. A null start time says
+    what is true: nothing is running this.
     """
     from sqlalchemy import update
 
@@ -58,7 +64,11 @@ def _recover_interrupted_jobs() -> None:
         count = db.execute(
             update(SandboxJob)
             .where(SandboxJob.status.in_([JobStatus.RUNNING, JobStatus.QUEUED]))
-            .values(status=JobStatus.QUEUED, stage="interrupted by a restart")
+            .values(
+                status=JobStatus.QUEUED,
+                stage="interrupted by a restart",
+                started_at=None,
+            )
         ).rowcount
         db.commit()
         if count:
