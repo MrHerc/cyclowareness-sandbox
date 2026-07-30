@@ -500,7 +500,11 @@ def ingest_report(
     )
     if not attributable and report.ran:
         assessment.breakdown["dynamic_not_attributable"] = {
-            "claimed_extension": (job.original_name or "").rsplit(".", 1)[-1],
+            # `_safe_suffix` is the same reading of the name the queue uses, and
+            # it returns "" rather than the whole filename when there is no dot.
+            # `rsplit(".", 1)[-1]` recorded `claimed_extension: "LICENSE"` for a
+            # file the pipeline records as "".
+            "claimed_extension": _safe_suffix(job.original_name),
             "mime": job.mime,
             "reason": (
                 "Windows has no way to run a file of this type, so everything "
