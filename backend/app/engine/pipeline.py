@@ -811,6 +811,15 @@ def run(
         job.ai_score = assessment.ai_score
         job.final_score = assessment.final_score
         job.risk_level = assessment.risk_level
+        # A CLEAN VERDICT RATES NOTHING. `classify` has a gate `impact.assess`
+        # does not — it decides `clean` from the score and the detection panel —
+        # so the two disagreed on exactly the samples where nothing was found.
+        if verdict_res.verdict == "clean":
+            impact_res = impact_mod.unrated(
+                "The engine\'s verdict for this sample is clean: no finding reached "
+                "the threshold to flag it, so there is no demonstrated impact to rate."
+            )
+            impact_override = None
         job.impact = impact_override or impact_res.to_dict()
         job.verdict = verdict_res.to_dict()
         job.mitre = mitre_mod.map_techniques(all_signals)

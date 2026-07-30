@@ -162,6 +162,44 @@ def _has(caps: set[str], *names: str) -> bool:
     return any(n in caps for n in names)
 
 
+#: The metrics of a rating that rates nothing. Every value is the benign one, so
+#: the vector is still a well-formed vector a reader can parse.
+_EMPTY_METRICS = {
+    "AV": "L", "AC": "L", "PR": "N", "UI": "R", "S": "U", "C": "N", "I": "N", "A": "N",
+}
+
+
+def unrated(why: str = "") -> ImpactRating:
+    """0.0 / "none" — there is nothing here to rate, and why.
+
+    Two callers, and the second is the point. `assess` returns this when the
+    evidence demonstrates no capability. The SCORING PATHS return it when the
+    engine's verdict is `clean`, because `classify` has a gate this function does
+    not: it decides `clean` from the score and the detection panel, not from
+    capabilities alone.
+
+    Without that, a file whose only signals were low-severity ambient ones still
+    derived five capabilities here, and the report read `Script.Clean` beside
+    "Impact: 6.9 high" — 25 of 478 top-level jobs on the live deployment,
+    including a `ca-bundle.crt` and a `styles.css`. A reader cannot tell which
+    half to believe, and the honest answer is the half that found nothing.
+    """
+    return ImpactRating(
+        vector=vector_string(_EMPTY_METRICS),
+        base_score=0.0,
+        severity="none",
+        metrics=dict(_EMPTY_METRICS),
+        rationale=[{
+            "metric": "-",
+            "value": "none",
+            "why": why or (
+                "No capability was demonstrated by the evidence, so there is no "
+                "impact to rate."
+            ),
+        }],
+    )
+
+
 def assess(
     family: str,
     signals: Iterable[Signal],
@@ -207,18 +245,7 @@ def assess(
         return value
 
     if not caps:
-        metrics = {"AV": "L", "AC": "L", "PR": "N", "UI": "R", "S": "U", "C": "N", "I": "N", "A": "N"}
-        return ImpactRating(
-            vector=vector_string(metrics),
-            base_score=0.0,
-            severity="none",
-            metrics=metrics,
-            rationale=[{
-                "metric": "-",
-                "value": "none",
-                "why": "No capability was demonstrated by the evidence, so there is no impact to rate.",
-            }],
-        )
+        return unrated()
 
     # "Can cause code to run" — asserted only by execution/injection evidence,
     # never merely by the file being of an executable type.

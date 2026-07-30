@@ -61,6 +61,42 @@ def test_a_real_capability_is_still_rated() -> None:
     assert rating.base_score > 0
 
 
+def test_a_clean_verdict_publishes_no_rating() -> None:
+    """Filtering the capability INPUT closed half of this.
+
+    `classify` has a second gate `assess` does not: it decides `clean` from the
+    SCORE and the detection panel, not from capabilities alone. So a file whose
+    only signals were low-severity ambient ones still derived five capabilities
+    and read `Script.Clean` beside "Impact: 6.9 high" — measured, 25 of 478
+    top-level jobs on the live deployment, including a `ca-bundle.crt`.
+    """
+    rating = impact_mod.unrated()
+    assert rating.severity == "none"
+    assert rating.base_score == 0.0
+    assert rating.vector.startswith("CIR:")
+    assert "no impact to rate" in rating.rationale[0]["why"]
+
+
+def test_the_reason_travels_with_it() -> None:
+    """"none" with no explanation reads as a gap in the analysis rather than as
+    a finding. The caller says which of the two it is."""
+    rating = impact_mod.unrated("The engine's verdict for this sample is clean.")
+    assert "verdict for this sample is clean" in rating.rationale[0]["why"]
+
+
+def test_both_scoring_paths_apply_the_rule() -> None:
+    """It is a rule in two places, which is how the first half of this finding
+    happened. If a third path appears, it belongs here too."""
+    import inspect
+
+    from app.api import dynamic
+    from app.engine import pipeline
+
+    for source in (inspect.getsource(pipeline.run), inspect.getsource(dynamic.ingest_report)):
+        assert 'verdict_res.verdict == "clean"' in source
+        assert "impact_mod.unrated(" in source
+
+
 # --- MITRE names the technique the signal is actually about -------------------
 
 

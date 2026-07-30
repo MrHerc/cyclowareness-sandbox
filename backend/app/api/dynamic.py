@@ -552,10 +552,21 @@ def ingest_report(
     # fetched from the internet. Omitting it here meant DETONATING a URL-delivered
     # sample LOWERED its impact rating, because this recomputation replaced the
     # pipeline's rating with one that had forgotten where the file came from.
-    job.impact = impact_mod.assess(
+    impact_res = impact_mod.assess(
         job.family, all_signals, merged, from_url=(job.source == JobSource.URL)
-    ).to_dict()
-    job.verdict = verdict_mod.classify(job.family, job.mime, results, merged, assessment.final_score).to_dict()
+    )
+    verdict_res = verdict_mod.classify(
+        job.family, job.mime, results, merged, assessment.final_score
+    )
+    # The same rule the pipeline applies: a clean verdict rates nothing. See
+    # `impact.unrated` for why the two can disagree at all.
+    if verdict_res.verdict == "clean":
+        impact_res = impact_mod.unrated(
+            "The engine\'s verdict for this sample is clean: no finding reached "
+            "the threshold to flag it, so there is no demonstrated impact to rate."
+        )
+    job.impact = impact_res.to_dict()
+    job.verdict = verdict_res.to_dict()
     job.mitre = mitre_mod.map_techniques(all_signals)
     db.commit()
     db.refresh(job)
