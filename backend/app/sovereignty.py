@@ -155,14 +155,28 @@ def record(destination: str, *, reason: str, detail: str = "") -> None:
     logger.warning("%s%s", reason, f" ({detail[:300]})" if detail else "")
 
 
-def refusals() -> dict:
-    """The running refusal tally — the operator's proof that nothing left."""
+def refusals(*, include_detail: bool = False) -> dict:
+    """The running refusal tally — the operator's proof that nothing left.
+
+    `include_detail` gates the `recent` list, and it defaults to OFF because that
+    list is not a tally: a refusal's `detail` is the thing that was refused. For
+    `url_fetch` that is the submitted URL verbatim, and for `virustotal` it is
+    the sample's SHA-256 — so on `/api/capabilities`, which is unauthenticated by
+    design so a buyer can read the posture before they have an account, the
+    evidence of what was blocked WAS a live feed of what every tenant on the
+    deployment had been analysing.
+
+    The counts stay public, because the counts are the auditable claim. The
+    subjects are analysis data and are served to an authenticated caller.
+    """
     with _lock:
-        return {
+        out = {
             "total": sum(_counts.values()),
             "by_destination": dict(_counts),
-            "recent": list(_recent),
         }
+        if include_detail:
+            out["recent"] = list(_recent)
+    return out
 
 
 def reset() -> None:
@@ -172,8 +186,11 @@ def reset() -> None:
         _recent.clear()
 
 
-def status() -> dict:
+def status(*, include_detail: bool = False) -> dict:
     """The sovereignty block for ``/api/capabilities``.
+
+    `include_detail` is passed straight to :func:`refusals`; see the warning
+    there about what a refusal's `detail` contains.
 
     Deliberately states both halves of the promise. "Sovereign mode: ON" alone
     would be a half-truth on a deployment that still fetches submitted URLs, and
@@ -213,5 +230,5 @@ def status() -> dict:
             }
             for key, what in DESTINATIONS.items()
         ],
-        "outbound_refusals": refusals(),
+        "outbound_refusals": refusals(include_detail=include_detail),
     }

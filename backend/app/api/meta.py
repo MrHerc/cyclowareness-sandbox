@@ -15,12 +15,12 @@ number of times it fired.
 from __future__ import annotations
 
 import logging
-import secrets
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from .. import metrics, retention, sovereignty
+from ..auth import _secure_equals, require_analyst
 from ..config import get_settings
 from ..db import session_scope
 from ..engine import native
@@ -112,10 +112,18 @@ def capabilities():
         "unavailable_analyzers": analyzers.unavailable_analyzers(),
         "yara": yara_status,
         "dynamic_worker": native.dynamic_available(),
-        # The sovereignty posture, with the refusal count. The count is the part
-        # that matters: "no data leaves" is a claim, "we refused 14 outbound
-        # calls and here they are" is evidence, and this is the endpoint an
-        # operator points an auditor at.
+        # The sovereignty posture, with the refusal COUNT. The count is the part
+        # that matters here: "no data leaves" is a claim, "we refused 14 outbound
+        # calls" is evidence, and this is the endpoint an operator points an
+        # auditor at — deliberately unauthenticated, so a buyer can read the
+        # posture before they have an account.
+        #
+        # Which is exactly why the refusal LIST is not on it. Each entry carries
+        # the thing that was refused: for `url_fetch` the submitted URL verbatim,
+        # for `virustotal` the sample's SHA-256. So the proof that nothing left
+        # the building was a public, live feed of what every tenant on this
+        # deployment had been analysing. The list is served from
+        # /api/sovereignty/refusals, to an authenticated caller.
         "sovereignty": sovereignty.status(),
         # How long this deployment keeps a customer's malware and its evidence.
         # It belongs next to the sovereignty posture because both answer the same
@@ -130,6 +138,18 @@ def capabilities():
         "max_sample_mb": settings.max_sample_mb,
         "metrics_enabled": metrics.enabled(),
     }
+
+
+@router.get("/api/sovereignty/refusals")
+def sovereignty_refusals(_identity=Depends(require_analyst)):
+    """The refusals in full, with what each one was — for the operator.
+
+    Split off `/api/capabilities` because the two answer different questions to
+    different readers. "How many did you refuse" is a posture a prospect may
+    read; "which URLs and which sample hashes" is analysis data belonging to the
+    deployment.
+    """
+    return sovereignty.refusals(include_detail=True)
 
 
 @router.get("/metrics")
@@ -164,7 +184,7 @@ def prometheus_metrics(request: Request):
             )
         presented = request.headers.get("authorization", "")
         presented = presented[7:] if presented.lower().startswith("bearer ") else presented
-        if not secrets.compare_digest(presented, token):
+        if not _secure_equals(presented, token):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Metrics require the configured token",

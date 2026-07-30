@@ -205,13 +205,24 @@ class Settings(BaseSettings):
 
     @property
     def ai_provider(self) -> str:
-        # An LLM provider is an outbound destination like any other. Reporting
-        # "anthropic" while sovereign mode refuses the call would advertise a
-        # capability this deployment does not have, in the one place an operator
-        # looks to find out what leaves the building.
-        if self.sovereign_mode:
-            return "template"
-        return "anthropic" if self.anthropic_api_key.strip() else "template"
+        """Always "template". There is no LLM narrative path in this codebase.
+
+        This returned "anthropic" when a key was set and sovereign mode was off,
+        and the UI reads that value to show the narrative as LIVE
+        (`ui.tsx: const live = source === 'anthropic'`). But nothing anywhere
+        calls a model: `api.anthropic.com`, `import anthropic` and
+        `messages.create` have zero hits across backend/, worker/ and frontend/.
+        So the one screen an operator reads to find out what this deployment
+        sends to a third party advertised a third party it never contacts, and a
+        prose narrative that a template writes was labelled as a model's.
+
+        The setting stays because the capability is a real intention and the
+        variable is documented; what changes is that the product does not claim
+        it until code implements it. `ANTHROPIC_API_KEY` therefore does nothing
+        today, and the sovereignty destination `llm` is a declaration of a path
+        that would need one — which is the correct thing for it to be.
+        """
+        return "template"
 
     def validate_production(self) -> list[str]:
         """Reasons this configuration is unsafe to expose. Empty ⇒ safe."""
@@ -227,7 +238,27 @@ class Settings(BaseSettings):
             problems.append("API_KEYS contains a built-in/guessable key")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL is SQLite; use PostgreSQL in production")
+        # A TENANT NAME IS TRUNCATED ON WRITE AND MATCHED IN FULL ON READ.
+        #
+        # `tenant_id` is `String(64)` and every writer stores `name[:64]`, while
+        # every reader compares `tenant_id == identity.tenant` with the untrimmed
+        # configured value. So a tenant whose name exceeds 64 characters writes
+        # rows it can never read back: its own evidence, invisible to it, with no
+        # error anywhere. Caught at boot instead, where an operator can fix it.
+        for name in self.tenant_names():
+            if len(name) > 64:
+                problems.append(
+                    f"tenant name {name[:20]!r}... is {len(name)} characters; the "
+                    "limit is 64, and a longer one silently hides that tenant's "
+                    "own jobs from it"
+                )
         return problems
+
+    def tenant_names(self) -> list[str]:
+        """Every tenant this configuration names, deduplicated."""
+        names = [self.analyst_tenant_name, self.default_tenant.strip() or "default"]
+        names.extend(tenant for _key, tenant in self.api_key_tenants)
+        return list(dict.fromkeys(n for n in names if n))
 
 
 @lru_cache

@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import secrets
 import threading
 import time
 from collections.abc import Callable
@@ -31,6 +30,7 @@ from dataclasses import dataclass, field
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
+from .auth import _secure_equals
 from .config import get_settings
 from .remote import client_ip
 
@@ -104,7 +104,12 @@ def _is_exempt(request: Request, path: str) -> bool:
         return False
     configured = get_settings().dynamic_worker_token
     presented = request.headers.get("x-worker-token", "")
-    return bool(configured) and secrets.compare_digest(presented, configured)
+    # `_secure_equals`, not `secrets.compare_digest`. The latter raises
+    # TypeError on a `str` holding a code point above U+007F, and this runs in
+    # MIDDLEWARE, before any handler — so `X-Worker-Token: é` on any
+    # /api/dynamic/* path was an unauthenticated 500 from an unauthenticated
+    # caller. The same comparison is used at all three token sites.
+    return bool(configured) and _secure_equals(presented, configured)
 
 
 def _rule_for(path: str) -> Rule:

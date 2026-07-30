@@ -26,13 +26,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .. import audit, metrics
+from ..auth import _secure_equals
 from ..config import Settings, get_settings
 from ..db import get_db
 from ..remote import client_ip
 from ..safejson import json_safe
 from ..engine import identify, scoring
 from ..engine.contracts import IOCs, AnalyzerResult, Signal
-from ..engine.models import JobStatus, SandboxJob
+from ..engine.models import JobSource, JobStatus, SandboxJob
 from ..engine.storage import quarantine_root
 from ..schemas import DynamicReportIn, JobDetail
 
@@ -61,17 +62,38 @@ def require_worker(
     x_worker_token: str | None = Header(default=None),
     settings: Settings = Depends(get_settings),
 ) -> str:
-    import hmac
-
     configured = settings.dynamic_worker_token.strip()
     if not configured:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dynamic ingest is not enabled on this deployment (no worker token set)",
         )
-    if not x_worker_token or not hmac.compare_digest(x_worker_token.strip(), configured):
+    if not x_worker_token or not _secure_equals(x_worker_token.strip(), configured):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid worker token")
     return "worker"
+
+
+def _dynamic_is_attributable(job: SandboxJob) -> bool:
+    """Can Windows run this file at all — and so, is the observed behaviour the
+    SAMPLE's rather than the guest's?
+
+    One definition, read by two callers that must not disagree. `_needs_dynamic`
+    uses it to decide whether to spend a guest; `ingest_report` uses it to decide
+    whether a report that arrives anyway may raise the score. The pipeline
+    computes the same predicate from `Sample`, and when this function did not
+    exist `ingest_report` simply did not ask: a detonation posted for one of the
+    226 already-detonated inert files re-scored the job on the guest's behaviour
+    and overwrote the pipeline's correct answer with the one it had been written
+    to prevent.
+
+    Only `script` is gated. A PE, an ELF, an Office document and a PDF all have an
+    execution path by construction.
+    """
+    if job.family != "script":
+        return True
+    name = (job.original_name or job.archive_path or "").rsplit("/", 1)[-1]
+    extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
+    return identify.has_execution_path(extension, job.mime or "")
 
 
 def _needs_dynamic(job: SandboxJob) -> bool:
@@ -103,11 +125,8 @@ def _needs_dynamic(job: SandboxJob) -> bool:
     # Only the `script` family is gated: a PE, an ELF, an Office document and a
     # PDF all have an execution path by construction. Static analysis still reads
     # every byte of the files this skips.
-    if job.family == "script":
-        name = (job.original_name or job.archive_path or "").rsplit("/", 1)[-1]
-        extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
-        if not identify.has_execution_path(extension, job.mime or ""):
-            return False
+    if not _dynamic_is_attributable(job):
+        return False
     return True
 
 
@@ -393,6 +412,17 @@ def ingest_report(
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
+    # READ THE "BEFORE" BEFORE ANYTHING IS WRITTEN.
+    #
+    # These two feed the chain-of-custody entry that records what this ingest
+    # changed, and they were read two hundred lines below — after
+    # `job.final_score` had already been reassigned. So the single largest
+    # mutation this product performs on a verdict recorded `score_before ==
+    # score_after` on every row: a Formbook sample that went 32.0 -> 71.8 wrote
+    # `71.8 -> 71.8`, and the audit trail said nothing had happened.
+    verdict_before = (job.verdict or {}).get("verdict")
+    score_before = job.final_score
+
     # EVERY free-form value the worker sent, made storable.
     #
     # `facts`, a signal's `evidence` and the timeline are `dict[str, Any]`, so
@@ -452,9 +482,34 @@ def ingest_report(
     if report.refused:
         tiers["dynamic"]["refused"] = True
 
+    # THE SAME ASSESSMENT THE PIPELINE WOULD HAVE MADE.
+    #
+    # This path re-scores a job from scratch when a report lands, and it was
+    # missing `dynamic_attributable` — the one argument that exists to stop the
+    # guest's behaviour being charged to a file Windows cannot run. So a report
+    # arriving here overwrote the pipeline's correct score with the answer the
+    # pipeline had already rejected: `capev2.ransomware_file_modifications` on a
+    # README, scored.
+    attributable = _dynamic_is_attributable(job)
     assessment = scoring.assess(
-        results, ioc_total=merged.total(), tiers=tiers, family=job.family
+        results,
+        ioc_total=merged.total(),
+        tiers=tiers,
+        family=job.family,
+        dynamic_attributable=attributable,
     )
+    if not attributable and report.ran:
+        assessment.breakdown["dynamic_not_attributable"] = {
+            "claimed_extension": (job.original_name or "").rsplit(".", 1)[-1],
+            "mime": job.mime,
+            "reason": (
+                "Windows has no way to run a file of this type, so everything "
+                "the guest was observed doing belongs to the guest - a default "
+                "handler opening it, the agent copying it into place - and not "
+                "to this sample. The behavioural findings are reported in full "
+                "and excluded from the score."
+            ),
+        }
 
     job.analysis = {r.analyzer: r.to_dict() for r in results}
     job.iocs = merged.to_dict()
@@ -489,9 +544,13 @@ def ingest_report(
     from ..engine import impact as impact_mod, mitre as mitre_mod, verdict as verdict_mod
 
     all_signals = [s for r in results if r.ran for s in r.signals]
-    verdict_before = (job.verdict or {}).get("verdict")
-    score_before = job.final_score
-    job.impact = impact_mod.assess(job.family, all_signals, merged).to_dict()
+    # `from_url` is what makes Attack Vector Network for a sample the analyst
+    # fetched from the internet. Omitting it here meant DETONATING a URL-delivered
+    # sample LOWERED its impact rating, because this recomputation replaced the
+    # pipeline's rating with one that had forgotten where the file came from.
+    job.impact = impact_mod.assess(
+        job.family, all_signals, merged, from_url=(job.source == JobSource.URL)
+    ).to_dict()
     job.verdict = verdict_mod.classify(job.family, job.mime, results, merged, assessment.final_score).to_dict()
     job.mitre = mitre_mod.map_techniques(all_signals)
     db.commit()

@@ -33,6 +33,46 @@ logger = logging.getLogger("sandbox.main")
 settings = get_settings()
 
 
+def _recover_interrupted_jobs() -> None:
+    """Re-queue every job this process's predecessor was in the middle of.
+
+    `running` and `queued` are owned by an in-process thread pool. A restart —
+    a deploy, an OOM kill, `docker compose up -d` — takes the pool with it and
+    leaves those rows exactly as they were, and nothing anywhere reset them. The
+    job then sat in-flight forever: the queue page showed it working, the API
+    answered 409 to every re-analysis, and the analyst's evidence was simply
+    gone with no error to read.
+
+    Re-queued rather than failed, because the quarantined bytes are still there
+    and re-running is cheap and correct. The submission is left to the analyst's
+    next action rather than fired here: a restart that recovers 200 jobs must not
+    also start 200 analyses before the service is serving requests.
+    """
+    from sqlalchemy import update
+
+    from .db import session_scope
+    from .engine.models import JobStatus, SandboxJob
+
+    db = session_scope()
+    try:
+        count = db.execute(
+            update(SandboxJob)
+            .where(SandboxJob.status.in_([JobStatus.RUNNING, JobStatus.QUEUED]))
+            .values(status=JobStatus.QUEUED, stage="interrupted by a restart")
+        ).rowcount
+        db.commit()
+        if count:
+            logger.warning(
+                "%d job(s) were in flight when this process last stopped and have been "
+                "re-queued. Re-analyse them from the interface to run them again.",
+                count,
+            )
+    except Exception:  # noqa: BLE001 — never block startup on the sweep
+        logger.exception("could not re-queue interrupted jobs")
+    finally:
+        db.close()
+
+
 def _check_quarantine_is_writable() -> None:
     """Refuse to start if samples cannot be stored, and say why.
 
@@ -71,6 +111,7 @@ def _check_quarantine_is_writable() -> None:
 async def lifespan(app: FastAPI):
     init_db()
     _check_quarantine_is_writable()
+    _recover_interrupted_jobs()
     if settings.is_demo:
         logger.info(
             "DEMO build. Log in at the UI with  username=%s  password=%s  "

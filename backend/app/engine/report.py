@@ -252,6 +252,28 @@ def _tiers_summary(job) -> list[dict[str, Any]]:
     return summary
 
 
+def _tiers_phrase(job) -> str:
+    """"static analysis" / "static and dynamic analysis" / "no analysis tier".
+
+    The sentence an export uses to describe what the assessment rests on, derived
+    from the tier record rather than written as a literal.
+    """
+    ran = [t["tier"] for t in _tiers_summary(job) if t.get("ran")]
+    if not ran:
+        return "an assessment with no analysis tier recorded"
+    return " and ".join(ran) + " analysis"
+
+
+def _tier_caveats(job) -> list[str]:
+    """One sentence per tier that did not run, in the words the JSON export uses."""
+    return [
+        f"The {t['tier']} analysis tier did not run. Any finding that tier would "
+        "have produced is absent from this assessment."
+        for t in _tiers_summary(job)
+        if not t.get("ran")
+    ]
+
+
 def _archive_tree(job) -> list[dict[str, Any]]:
     archive = _analysis(job).get("archive", {}) or {}
     facts = archive.get("facts", {}) or {}
@@ -344,9 +366,17 @@ def _attack_url(technique_id: str) -> str:
 
 
 def as_json(job) -> dict:
-    """The brief schema plus the full forensic payload."""
+    """The brief schema plus the full forensic payload.
+
+    SCRUBBED AS A WHOLE, not field by field. Four fields were wrapped in
+    `_without_infrastructure` and the rest were not, so `signals`, `top_reasons`
+    and the verdict/impact/MITRE blocks still carried "Detonated on the capev2
+    worker (detonation-01)" straight out of the building. Wrapping the whole
+    payload once means the next field added is covered by default, which is the
+    only way a rule like this survives.
+    """
     _own_names = _infrastructure_names(job)
-    return {
+    payload = {
         # --- brief-mandated schema ---
         "job_id": getattr(job, "public_id", None),
         "filename": getattr(job, "original_name", "") or "",
@@ -413,6 +443,7 @@ def as_json(job) -> dict:
         "generated_at": _utc(datetime.now(timezone.utc)),
         "schema": "cyclowareness-sandbox.report/1",
     }
+    return _without_infrastructure(payload, _own_names)
 
 
 # ============================================================================
@@ -437,8 +468,13 @@ def _ioc_patterns(iocs: dict[str, list[str]]) -> list[tuple[str, str, str]]:
     def pat_domain(v: str) -> str:
         return f"[domain-name:value = '{_stix_escape(v)}']"
 
-    def pat_ipv4(v: str) -> str:
-        return f"[ipv4-addr:value = '{_stix_escape(v)}']"
+    def pat_ip(v: str) -> str:
+        # AN IPv6 ADDRESS IS NOT AN ipv4-addr. Every extracted IP was emitted as
+        # `ipv4-addr`, so a bundle carrying `2001:db8::1` published a pattern
+        # matching an object type that can never hold that value — silently
+        # unmatchable in every TIP that ingests it, and wrong in a document whose
+        # whole claim is that the spec is enforced for us.
+        return f"[{_ip_type(v)}:value = '{_stix_escape(v)}']"
 
     def pat_email(v: str) -> str:
         return f"[email-addr:value = '{_stix_escape(v)}']"
@@ -450,7 +486,9 @@ def _ioc_patterns(iocs: dict[str, list[str]]) -> list[tuple[str, str, str]]:
     builders = [
         ("urls", "url", pat_url),
         ("domains", "domain-name", pat_domain),
-        ("ips", "ipv4-addr", pat_ipv4),
+        # The per-value type is decided in `_ip_kind`, below; "ip" is the marker
+        # that this row is version-dependent rather than a STIX type name.
+        ("ips", "ip", pat_ip),
         ("emails", "email-addr", pat_email),
         ("hashes", "file", pat_hash),
     ]
@@ -518,6 +556,19 @@ def _is_own_infrastructure(value: str) -> bool:
     )
 
 
+def _ip_type(value: str) -> str:
+    """`ipv6-addr` or `ipv4-addr` — the STIX type this address actually is.
+
+    Defaults to v4 for anything unparseable rather than raising: the caller has
+    already accepted the string as an IOC, and a report must not fail to export
+    because one extracted value was malformed.
+    """
+    try:
+        return "ipv6-addr" if ipaddress.ip_address(value).version == 6 else "ipv4-addr"
+    except ValueError:
+        return "ipv4-addr"
+
+
 def _observable(stix, kind: str, value: str):
     """The SCO for an IOC — the fact that the sample contained this value.
 
@@ -528,8 +579,12 @@ def _observable(stix, kind: str, value: str):
         return stix.URL(value=value)
     if kind == "domain-name":
         return stix.DomainName(value=value)
-    if kind == "ipv4-addr":
-        return stix.IPv4Address(value=value)
+    if kind in ("ip", "ipv4-addr", "ipv6-addr"):
+        return (
+            stix.IPv6Address(value=value)
+            if _ip_type(value) == "ipv6-addr"
+            else stix.IPv4Address(value=value)
+        )
     if kind == "email-addr":
         return stix.EmailAddress(value=value)
     if kind == "file":
@@ -590,6 +645,23 @@ def as_stix(job) -> dict:
             )
         )
 
+    # --- the tier record, as a Note on the file ---
+    # A bundle is ingested by a machine and then read by a person deciding what
+    # to act on, and neither could see that a tier had not run. The blind spot is
+    # part of the assessment, so it travels with it.
+    tier_lines = [
+        f"{t['tier']}: {'ran' if t.get('ran') else 'did not run'}"
+        + (f" - {t['detail']}" if t.get("detail") else "")
+        for t in _tiers_summary(job)
+    ]
+    objects.append(
+        stix2.Note(
+            abstract=f"Analysis tiers: {_tiers_phrase(job)}"[:STR_LIMIT],
+            content="\n".join(tier_lines + _tier_caveats(job))[:STR_LIMIT * 4],
+            object_refs=[file_obs.id],
+        )
+    )
+
     # --- malware SDO, only when the verdict warrants naming one ---
     # Naming malware is a claim, so it follows the engine's own verdict rather
     # than the risk band alone: a high score with no demonstrated capability is
@@ -602,11 +674,17 @@ def as_stix(job) -> dict:
     if malicious:
         family = getattr(job, "family", "") or "unknown"
         ratio = str(verdict.get("detection_ratio", "") or "n/a")
+        # WHICH TIERS ACTUALLY RAN. This said "static analysis" unconditionally,
+        # in the one export designed to be machine-ingested and forwarded. Every
+        # other format in this module carries the tier record verbatim, and the
+        # module docstring says that is the claim it is most careful about — so
+        # a bundle asserting a detonation-free assessment for a detonated sample,
+        # or the reverse, was the exception nobody could see.
         malware = stix2.Malware(
             name=threat_name or f"Cyclowareness Sandbox-detected sample ({family})",
             is_family=False,
             description=(
-                f"Sample assessed by Cyclowareness Sandbox static analysis as {risk} risk "
+                f"Sample assessed by Cyclowareness Sandbox {_tiers_phrase(job)} as {risk} risk "
                 f"(score {score:.0f}/100), detection ratio {ratio}. Family: {family}."
             )[:STR_LIMIT],
         )
@@ -769,6 +847,41 @@ def _sev_color(severity: str):
     return colors.Color(r, g, b)
 
 
+#: Which band's colour a verdict word borrows. The palette is indexed by
+#: severity, and the verdict vocabulary is a different one — without this the
+#: page-one box fell through to the default grey for every job.
+_VERDICT_TONE = {"malicious": "critical", "suspicious": "medium", "clean": "low"}
+
+
+def _band_text() -> str:
+    """The risk bands, read from the table that defines them.
+
+    Restated as a literal in the PDF, which is how a document ends up describing
+    thresholds the engine no longer uses.
+    """
+    from .contracts import RISK_BANDS
+
+    bands = sorted(RISK_BANDS)  # ascending by threshold
+    parts = []
+    for index, (low, label) in enumerate(bands):
+        high = bands[index + 1][0] - 1 if index + 1 < len(bands) else 100
+        parts.append(f"{low}–{high} {label}")
+    return ", ".join(parts)
+
+
+def _score_formula(job) -> str:
+    """The formula THIS job was scored with, not the one in the source at build time.
+
+    `assess()` stores it on the row from the live weights, which the admin API can
+    change. Rows written before that field existed fall back to the shipped
+    default, stated as such.
+    """
+    stored = (getattr(job, "score_breakdown", None) or {}).get("formula")
+    if isinstance(stored, str) and stored.strip():
+        return stored.strip()
+    return "final = 0.6 x rule + 0.4 x model (deployment default)"
+
+
 def as_pdf(job) -> bytes:
     """Executive summary on page one, technical annex after it."""
     from reportlab.lib import colors
@@ -825,15 +938,32 @@ def as_pdf(job) -> bytes:
     flow.append(HRFlowable(width="100%", thickness=0.6, color=colors.Color(0.8, 0.8, 0.82)))
     flow.append(Spacer(1, 8))
 
+    # THE BOX LABELLED "VERDICT" PRINTS THE VERDICT.
+    #
+    # It printed the risk band. Those are different statements and the product
+    # says so everywhere else: the band is a number bucketed into four words,
+    # the verdict is the engine's judgement after corroboration, publisher
+    # verification and the ambient rules. A signed installer at 61 read "VERDICT:
+    # HIGH" on page one of an exported PDF while the engine's verdict, printed
+    # three pages later, was `clean`. Whichever is right, a document cannot say
+    # both.
+    #
+    # A job that never reached a verdict still has a band, so the band is the
+    # fallback — the same rule the UI applies.
+    verdict_word = (_verdict(job).get("verdict") or "").strip()
     verdict_tbl = Table(
         [
             [
-                Paragraph("VERDICT", small),
+                Paragraph("VERDICT" if verdict_word else "RISK BAND", small),
                 Paragraph("SCORE", small),
                 Paragraph("RULE / AI", small),
             ],
             [
-                Paragraph(f"<b>{esc(risk.upper())}</b>", ParagraphStyle("v", parent=body, fontSize=16, textColor=_sev_color(risk))),
+                Paragraph(
+                    f"<b>{esc((verdict_word or risk).upper())}</b>",
+                    ParagraphStyle("v", parent=body, fontSize=16,
+                                   textColor=_sev_color(_VERDICT_TONE.get(verdict_word, risk))),
+                ),
                 Paragraph(f"<b>{score:.0f}</b> / 100", ParagraphStyle("s", parent=body, fontSize=16, textColor=ink)),
                 Paragraph(f"{rule_s:.0f} / {ai_s:.0f}", ParagraphStyle("r", parent=body, fontSize=16, textColor=ink)),
             ],
@@ -856,8 +986,16 @@ def as_pdf(job) -> bytes:
     flow.append(Spacer(1, 4))
     flow.append(
         Paragraph(
-            f"Risk bands: 0&ndash;29 low, 30&ndash;59 medium, 60&ndash;79 high, 80&ndash;100 critical. "
-            f"Score = 0.6 &times; rule + 0.4 &times; model. The model is expert-weighted, not corpus-trained.",
+            # THE WEIGHTS ARE TUNABLE AT RUNTIME. `assess()` already stores the
+            # formula it actually used on the row, so print that rather than a
+            # literal: an operator who moved the split via the admin API got a
+            # PDF stating the old one, and a reader reproducing the arithmetic
+            # from the printed formula got a different number than the printed
+            # score. The literal is the fallback for rows written before the
+            # field existed.
+            f"Risk bands: {esc(_band_text())}. "
+            f"Score: {esc(_score_formula(job))}. "
+            f"The model is expert-weighted, not corpus-trained.",
             small,
         )
     )

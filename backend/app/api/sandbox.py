@@ -13,16 +13,17 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import re
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import Response
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from .. import audit, metrics, sovereignty
+from ..util import utcnow
 from ..auth import Identity, require_analyst
 from ..config import Settings, get_settings
 from ..db import get_db
@@ -47,6 +48,18 @@ from ..schemas import (
 )
 
 logger = logging.getLogger("sandbox.api")
+
+#: How long a job may sit in an in-flight status before a re-analysis may
+#: reclaim it.
+#:
+#: `running` and `queued` are set by the process that owns the job, and nothing
+#: resets them when that process dies — so after a restart those rows stay
+#: in-flight forever and every attempt to re-run them answered 409. Ten minutes
+#: is comfortably longer than any analysis this engine performs (the wall-clock
+#: ceiling on a detonation is two minutes, and the static tier is seconds), so a
+#: job older than this is not slow, it is abandoned.
+_STALE_AFTER = timedelta(minutes=10)
+
 
 router = APIRouter(prefix="/api", tags=["analysis"])
 
@@ -539,12 +552,43 @@ def reanalyze(
     db: Session = Depends(get_db),
     identity: Identity = Depends(require_analyst),
 ):
-    """Re-run analysis on the same quarantined bytes (e.g. after new YARA rules)."""
+    """Re-run analysis on the same quarantined bytes (e.g. after new YARA rules).
+
+    CLAIMED WITH ONE STATEMENT, NOT CHECKED AND THEN SET.
+
+    This read the status, raised 409 on `running`, then wrote `queued` and
+    committed. Two clicks half a second apart both read a non-running status and
+    both proceeded, and on an archive that means the whole child-job tree is
+    built twice: 22 zips of ~25 members each manufactured ~550 duplicate
+    analyses. The `UPDATE ... WHERE status NOT IN (...)` below is decided by the
+    database, so exactly one caller can win it.
+    """
     job = _job_or_404(db, public_id, identity)
-    if job.status == JobStatus.RUNNING:
-        raise HTTPException(status_code=409, detail="Analysis is already running")
-    job.status = JobStatus.QUEUED
+
+    # A job left `running` or `queued` by a PROCESS RESTART is not running: the
+    # thread pool that owned it is gone, and nothing anywhere resets it. Under
+    # the old check those jobs answered 409 forever — permanently unrecoverable
+    # through the API, on the one endpoint whose whole purpose is re-running a
+    # job. So an in-flight status only blocks a re-analysis while it is FRESH;
+    # past `_STALE_AFTER` it is treated as abandoned and may be reclaimed.
+    #
+    # Startup does the same sweep for every such job at once (`main.lifespan`);
+    # this is the path for a job that hung rather than one the restart caught.
+    claimed = db.execute(
+        update(SandboxJob)
+        .where(
+            SandboxJob.id == job.id,
+            or_(
+                SandboxJob.status.notin_([JobStatus.RUNNING, JobStatus.QUEUED]),
+                SandboxJob.started_at.is_(None),
+                SandboxJob.started_at < utcnow().replace(tzinfo=None) - _STALE_AFTER,
+            ),
+        )
+        .values(status=JobStatus.QUEUED)
+    ).rowcount
     db.commit()
+    if not claimed:
+        raise HTTPException(status_code=409, detail="Analysis is already running")
     _trace(request, identity, audit.AuditAction.REANALYSIS_REQUESTED, public_id=job.public_id)
     submit_analysis(job.id)
     db.refresh(job)

@@ -221,8 +221,28 @@ attached, the scoring model and live weights, the integration matrix
 (`configured` per engine — no secrets), supported extensions, and whether metrics
 are enabled.
 
+It also carries the sovereignty posture and the running **count** of refused
+outbound calls, per destination. The count is the auditable claim, and it is
+deliberately readable without an account so a buyer can check the posture before
+they have one.
+
 ```bash
 curl http://localhost:8000/api/capabilities
+```
+
+### `GET /api/sovereignty/refusals`
+Auth: analyst. The refusals **in full** — when, which destination, and what was
+refused.
+
+Split off `/api/capabilities` because the two answer different questions. "How
+many outbound calls did you refuse" is a posture; "which URLs and which sample
+hashes" is analysis data. Each entry's `detail` is the thing itself — for
+`url_fetch` the submitted URL verbatim, for `virustotal` the sample's SHA-256 —
+so on the unauthenticated endpoint the proof that nothing left the building was
+a live feed of what every tenant had been analysing.
+
+```bash
+curl -H "X-API-Key: demo-key" http://localhost:8000/api/sovereignty/refusals
 ```
 
 ### `GET /metrics` (closed by default in production)

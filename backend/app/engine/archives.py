@@ -41,6 +41,17 @@ MAX_TOTAL_EXPANSION = 256 * 1024 * 1024
 MAX_MEMBER_BYTES = 32 * 1024 * 1024
 #: Compression ratio above which a member is treated as a bomb.
 MAX_RATIO = 120
+#: Below this, a high ratio is noise rather than a bomb: a 200-byte file of one
+#: repeated character deflates to a handful of bytes and posts a ratio in the
+#: dozens, and it expands to 200 bytes.
+#:
+#: The floor was `> 1024 * 1024`, a strict inequality on a round number the
+#: submitter chooses. A member of EXACTLY 1 MiB at 1000:1 was therefore neither
+#: skipped by the extraction guard nor reported by the signal — measured, 1 MiB
+#: of zeros deflates to 1,033 bytes — and 500 of them is a 512 MiB expansion from
+#: a 500 KB upload that the report calls unremarkable. 64 KiB is not a number
+#: anyone lands on by accident, and it still expands to nothing worth stopping.
+BOMB_SIZE_FLOOR = 64 * 1024
 #: How deep nested archives are followed.
 MAX_DEPTH = 3
 #: Members listed/extracted per archive.
@@ -160,7 +171,7 @@ def _safe_display_name(raw: str) -> str:
 def _budget_signals(members: list[Member], kind: str) -> list[Signal]:
     signals: list[Signal] = []
 
-    bombs = [m for m in members if m.ratio > MAX_RATIO and m.size > 1024 * 1024]
+    bombs = [m for m in members if m.ratio > MAX_RATIO and m.size >= BOMB_SIZE_FLOOR]
     if bombs:
         worst = max(bombs, key=lambda m: m.ratio)
         signals.append(
@@ -266,7 +277,7 @@ def _read_zip(path: str, password: str | None, budget: ExpansionBudget) -> Archi
             if member.size > MAX_MEMBER_BYTES:
                 member.skipped_reason = "larger than the per-member limit"
                 continue
-            if member.ratio > MAX_RATIO and member.size > 1024 * 1024:
+            if member.ratio > MAX_RATIO and member.size >= BOMB_SIZE_FLOOR:
                 member.skipped_reason = "compression ratio exceeds the bomb threshold"
                 continue
             if not budget.affordable(member.size):
@@ -414,7 +425,7 @@ def _read_7z(path: str, password: str | None, budget: ExpansionBudget) -> Archiv
                 if member.size > MAX_MEMBER_BYTES:
                     member.skipped_reason = "larger than the per-member limit"
                     continue
-                if member.ratio > MAX_RATIO and member.size > 1024 * 1024:
+                if member.ratio > MAX_RATIO and member.size >= BOMB_SIZE_FLOOR:
                     member.skipped_reason = "compression ratio exceeds the bomb threshold"
                     continue
                 if member.size > planned:

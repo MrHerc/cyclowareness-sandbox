@@ -80,6 +80,7 @@ ENGINES: list[Engine] = [
     ),
     Engine(
         key="cuckoo",
+        configured_on_worker=True,
         name="Cuckoo Sandbox",
         vendor="Cuckoo (open source)",
         kind="opensource-sandbox",
@@ -97,6 +98,7 @@ ENGINES: list[Engine] = [
     ),
     Engine(
         key="capev2",
+        configured_on_worker=True,
         name="CAPE Sandbox",
         vendor="CAPEv2 (open source)",
         kind="opensource-sandbox",
@@ -131,13 +133,22 @@ ENGINES: list[Engine] = [
     ),
     Engine(
         key="joesandbox",
+        configured_on_worker=True,
         name="Joe Sandbox (community)",
         vendor="Joe Security",
         kind="opensource-sandbox",
         tier="dynamic",
-        env_keys=["JOE_API_KEY"],
+        # BOTH, because the engine that runs it requires both:
+        # `JoeSandboxEngine.available()` is `joe_url and joe_apikey`. On the key
+        # alone the matrix said "configured / Enabled" while the worker skipped
+        # the engine every time — an operator following the screen had no way to
+        # find out why nothing was ever detonated by Joe.
+        env_keys=["JOE_URL", "JOE_API_KEY"],
         destination="joesandbox",
-        requires="A Joe Sandbox community API key: set JOE_API_KEY.",
+        requires=(
+            "A Joe Sandbox endpoint and a community API key: set JOE_URL and "
+            "JOE_API_KEY (both, on the WORKER's environment)."
+        ),
         notes=(
             "Community edition of a deep dynamic analysis sandbox. Samples are "
             "submitted to the hosted Joe Sandbox service over its Web API for "

@@ -53,6 +53,20 @@ class Engine:
     #: overstates a capability.
     notes: str = ""
     docs_url: str = ""
+    #: True when the credentials this row reports on live in the WORKER's
+    #: environment, not this process's.
+    #:
+    #: `configured()` reads `os.environ` — the web service's. Cuckoo, CAPEv2 and
+    #: Joe are run by the worker, from the worker's own environment, so on a
+    #: split deployment (the normal one: the detonation host is a separate
+    #: machine) this row reports on variables the process that runs the engine
+    #: never sees. It can say "not configured" for a working integration and
+    #: "configured" for one the worker has no credentials for.
+    #:
+    #: There is no way to fix that from here — the two processes share only the
+    #: /api/dynamic/* seam — so the row SAYS SO rather than presenting a guess as
+    #: a fact.
+    configured_on_worker: bool = False
     #: The sovereignty choke-point destination this engine's client calls, when
     #: it leaves the building at all. Empty for worker-resident engines, which
     #: the web service never reaches over the network. Declared per engine rather
@@ -95,6 +109,17 @@ class Engine:
             "sends_data_off_host": self.sends_data_off_host(),
             "blocked_by_sovereign_mode": self.blocked_by_sovereign_mode(),
             "requires": self.requires,
+            # Which process's environment `configured` was read from. Without
+            # this the matrix presents a reading of the wrong machine's
+            # configuration as a fact about the integration.
+            "configured_on_worker": self.configured_on_worker,
+            "configuration_caveat": (
+                "Read from this web service's environment. This engine runs in "
+                "the off-host worker and uses the WORKER's environment, so on a "
+                "split deployment this row may not reflect what the worker has."
+                if self.configured_on_worker
+                else ""
+            ),
             "notes": self.notes,
             "docs_url": self.docs_url,
         }

@@ -631,6 +631,25 @@ def run(
             r.analyzer.startswith("dynamic.") and r.ran for r in results
         ):
             tiers["dynamic"] = dict(carried)
+        # A REFUSAL IS CARRIED INDEPENDENTLY OF `ran`, BECAUSE IT IS THE `ran:
+        # False` CASE.
+        #
+        # The block above only carries a tier that RAN, and a refused sample by
+        # definition did not. So re-analysis — the documented way to re-run a
+        # sample after a rules change — erased the `refused` marker, and
+        # `_needs_dynamic` reads exactly that marker to stop re-offering a sample
+        # the sandbox has already declined. One re-analysis therefore reopened
+        # the infinite loop it was written to close: eight ELF samples CAPE will
+        # never accept, re-downloaded and re-refused on every poll, forever.
+        #
+        # `job.error` goes with it. It is the only place the reason is visible on
+        # the job, and without it a live Mirai binary reads `completed` / `low`
+        # with `error = NULL` again.
+        elif carried.get("refused"):
+            tiers["dynamic"]["refused"] = True
+            tiers["dynamic"]["detail"] = carried.get("detail") or tiers["dynamic"]["detail"]
+            if not job.error:
+                job.error = carried.get("detail") or "The sandbox declined this sample."
         # A DETONATION OF SOMETHING THAT CANNOT EXECUTE OBSERVED THE GUEST.
         #
         # `_needs_dynamic` no longer sends inert files to a worker, but 226 of
@@ -696,6 +715,10 @@ def run(
         from . import impact as impact_mod, mitre as mitre_mod, verdict as verdict_mod
 
         all_signals = [s for r in results if r.ran for s in r.signals]
+        #: A rating adopted from a member, set only by the container inheritance
+        #: below. Kept as the stored dict rather than a rebuilt `ImpactRating`
+        #: because that is what was measured on the member's own signals.
+        impact_override: dict[str, Any] | None = None
         impact_res = impact_mod.assess(
             sample.family, all_signals, merged, from_url=(job.source == JobSource.URL)
         )
@@ -759,6 +782,27 @@ def run(
                 ),
             )
 
+            # AND THE IMPACT RATING, WHICH WAS LEFT BEHIND.
+            #
+            # The score and the verdict were both raised from the member; the
+            # rating was not, and a container has no capabilities of its own, so
+            # `impact.assess` returns 0.0 / "none" for it. One report therefore
+            # read "Malicious, 62.9, ransomware inside" next to "Impact: 0.0 —
+            # no capability was demonstrated by the evidence", which is a direct
+            # contradiction and reads as the product not believing itself.
+            #
+            # The member's own rating is adopted rather than recomputed: it was
+            # measured from that file's signals, and recomputing it here from the
+            # container's signals is precisely what produces the 0.0.
+            inherited = worst_by_verdict.impact or {}
+            if inherited.get("severity") not in (None, "", "none"):
+                impact_override = dict(inherited)
+                impact_override["raised_because"] = (
+                    f"This rating belongs to {named}, found inside this container. "
+                    "A container has no capabilities of its own, so it is rated by "
+                    "the worst thing it carries."
+                )
+
         job.analysis = {r.analyzer: r.to_dict() for r in results}
         job.iocs = merged.to_dict()
         job.tiers = tiers
@@ -767,7 +811,7 @@ def run(
         job.ai_score = assessment.ai_score
         job.final_score = assessment.final_score
         job.risk_level = assessment.risk_level
-        job.impact = impact_res.to_dict()
+        job.impact = impact_override or impact_res.to_dict()
         job.verdict = verdict_res.to_dict()
         job.mitre = mitre_mod.map_techniques(all_signals)
         job.status = JobStatus.COMPLETED

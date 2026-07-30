@@ -11,6 +11,8 @@ static API key pasted into a CI pipeline must not be able to do it.
 """
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
@@ -22,13 +24,33 @@ from ..schemas import MAX_OFFSET
 
 router = APIRouter(prefix="/api/audit", tags=["audit"])
 
+#: The four free-text filters, bounded and made printable.
+#:
+#: They were plain `str | None` and went straight into a SQL comparison. On
+#: PostgreSQL a NUL byte in a text parameter is a `ValueError` from the driver
+#: — an authenticated 500 on the audit trail from `?actor=%00` — and an
+#: unbounded string is a query parameter the caller sizes. The columns they
+#: filter are 128 chars or less, so nothing longer can match anything anyway.
+#:
+#: 128 printable ASCII, matching the widest of the columns (`actor`).
+#:
+#: A FUNCTION, not a shared `Query()` instance. FastAPI binds the parameter's
+#: name onto the object it is given, so one instance reused across four
+#: parameters ends up with one alias and all four read the same query key —
+#: `?actor=x` was silently ignored and every filtered request returned the
+#: unfiltered set.
+def _filter() -> Any:
+    return Query(default=None, max_length=128, pattern=r"^[ -~]*$")
+
+
+
 
 @router.get("")
 def list_events(
-    actor: str | None = None,
-    action: str | None = None,
-    object_type: str | None = None,
-    object_id: str | None = None,
+    actor: str | None = _filter(),
+    action: str | None = _filter(),
+    object_type: str | None = _filter(),
+    object_id: str | None = _filter(),
     # Bounded at the edge rather than clamped in the handler: a negative limit
     # reads as "unbounded" to SQLite, which would serialise the whole trail.
     limit: int = Query(default=50, ge=1, le=500),
@@ -82,10 +104,10 @@ def verify(
 @router.get("/export")
 def export(
     format: str = Query(default="json", pattern="^(json|cef)$"),
-    actor: str | None = None,
-    action: str | None = None,
-    object_type: str | None = None,
-    object_id: str | None = None,
+    actor: str | None = _filter(),
+    action: str | None = _filter(),
+    object_type: str | None = _filter(),
+    object_id: str | None = _filter(),
     limit: int = Query(default=1000, ge=1, le=10000),
     offset: int = Query(default=0, ge=0, le=MAX_OFFSET),
     db: Session = Depends(get_db),

@@ -97,15 +97,25 @@ def test_the_stix_bundle_carries_the_rating_and_the_disclaimer(db):
     bundle = report_mod.as_stix(job)
     stix2.parse(bundle, allow_custom=False)
 
+    # Two Notes now: this one and the tier record (which tiers ran, and the
+    # caveat for any that did not). Selected by abstract rather than by count,
+    # so adding a third annotation is not a failure of this test.
     notes = [o for o in bundle["objects"] if o["type"] == "note"]
-    assert len(notes) == 1, "the impact rating must reach the bundle exactly once"
-    assert "Cyclowareness Impact Rating" in notes[0]["abstract"]
-    assert job.impact["vector"] in notes[0]["content"]
-    assert "not CVSS" in notes[0]["content"]
+    rating = [n for n in notes if "Cyclowareness Impact Rating" in n["abstract"]]
+    assert len(rating) == 1, "the impact rating must reach the bundle exactly once"
+    assert job.impact["vector"] in rating[0]["content"]
+    assert "not CVSS" in rating[0]["content"]
 
     # A Note is an annotation, not an accusation: it must not have been modelled
     # as an indicator, which a TIP would turn into a blocklist entry.
-    assert notes[0]["object_refs"], "the note must be attached to the file it rates"
+    assert rating[0]["object_refs"], "the note must be attached to the file it rates"
+
+    # And the tier record travels with it: a bundle is machine-ingested and then
+    # read by a person deciding what to act on, and neither could see that the
+    # dynamic tier had not run.
+    tiers = [n for n in notes if n["abstract"].startswith("Analysis tiers:")]
+    assert len(tiers) == 1, [n["abstract"] for n in notes]
+    assert "static" in tiers[0]["content"]
 
 
 def test_the_api_payload_names_the_rating(client, auth, db):

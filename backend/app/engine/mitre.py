@@ -19,7 +19,15 @@ from .contracts import Signal
 _RULES: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
     (("download_and_execute", "download", "ingress", "webclient", "downloadfile"),
      "T1105", "Ingress Tool Transfer", "Command and Control"),
-    (("network", "beacon", "c2", "remote", "http_request", "connect"),
+    # NOT a bare "remote". Matched as a substring it caught four
+    # process-manipulation signals in the corpus —
+    # `capev2.injection_createremotethread`, `reads_memory_remote_process`,
+    # `resumethread_remote_process`, `terminates_remote_process` — and filed all
+    # of them under Command and Control, which is where an analyst goes looking
+    # for network activity. A report that puts process injection under C2 sends
+    # the reader to the wrong place and is wrong about the technique.
+    (("network", "beacon", "c2", "remote_template", "remote_host", "remote_url",
+      "remote_content", "http_request", "connect"),
      "T1071", "Application Layer Protocol", "Command and Control"),
     (("powershell", "encoded_command", "amsi"),
      "T1059.001", "Command and Scripting Interpreter: PowerShell", "Execution"),
@@ -47,7 +55,11 @@ _RULES: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
      "T1497", "Virtualization/Sandbox Evasion", "Defense Evasion"),
     (("classloader", "reflection", "reflective", "dynamic_code", "defineclass"),
      "T1620", "Reflective Code Loading", "Defense Evasion"),
-    (("injection", "hollow", "process_inject"),
+    # The remote-process tokens live here, where they belong: writing to,
+    # reading from or resuming a thread in another process is the technique
+    # itself. They were previously swept up by the bare "remote" above.
+    (("injection", "hollow", "process_inject", "createremotethread",
+      "remote_process", "remote_thread"),
      "T1055", "Process Injection", "Defense Evasion"),
     (("schtask", "scheduled_task"),
      "T1053.005", "Scheduled Task/Job: Scheduled Task", "Persistence"),

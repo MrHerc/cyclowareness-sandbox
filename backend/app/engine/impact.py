@@ -178,7 +178,28 @@ def assess(
     documents at 7.x.
     """
     signals = list(signals)
-    caps = detect_capabilities(signals, iocs)
+    # THE SAME CAPABILITY SET THE VERDICT USED, OR THE TWO DISAGREE ON SCREEN.
+    #
+    # This called `detect_capabilities` on the raw signals while `verdict.classify`
+    # dropped the demoted ones first, so a file the verdict cleared still carried
+    # a rated impact: `Win32.Clean` beside "Impact: 5.4 medium", from the very
+    # signals the engine had already decided do not support an accusation. A
+    # reader cannot tell which half to believe, and the honest answer is that the
+    # accusing half was wrong.
+    #
+    # The exclusions are verdict.py's, deliberately and exactly: `uncorroborated`
+    # (a lone high-consequence signal is a lead, not a finding) and
+    # `family_ambient` (the interpreter is not the sample). `AMBIENT_SIGNALS` is
+    # NOT among them there and is not here — it is demoted for scoring only, and
+    # routing it into the capability engine was measured at a cost of 16 fixture
+    # detections.
+    from .scoring import family_ambient, uncorroborated
+
+    excluded = uncorroborated(signals) | family_ambient(family)
+    caps = detect_capabilities(
+        [s for s in signals if s.id not in excluded] if excluded else signals,
+        iocs,
+    )
     rationale: list[dict[str, str]] = []
 
     def note(metric: str, value: str, why: str) -> str:

@@ -131,7 +131,12 @@ def test_vt_configured_deployment_makes_no_call_and_reports_the_refusal(monkeypa
     tally = sovereignty.refusals()
     assert tally["total"] == 1
     assert tally["by_destination"] == {"virustotal": 1}
-    assert tally["recent"][0]["destination"] == "virustotal"
+    # The list of WHAT was refused is opt-in: an entry's `detail` is the thing
+    # itself — a submitted URL, a sample's SHA-256 — and the counts are served
+    # unauthenticated on /api/capabilities.
+    assert "recent" not in tally
+    detailed = sovereignty.refusals(include_detail=True)
+    assert detailed["recent"][0]["destination"] == "virustotal"
 
 
 def test_an_unconfigured_integration_does_not_pollute_the_refusal_tally(monkeypatch):
@@ -278,10 +283,42 @@ def test_capabilities_states_the_off_posture_honestly(client):
 
 
 def test_ai_provider_never_advertises_an_llm_it_may_not_call():
-    with _env(SOVEREIGN_MODE="true", ANTHROPIC_API_KEY="sk-ant-not-a-real-key"):
-        assert get_settings().ai_provider == "template"
-    with _env(SOVEREIGN_MODE="false", ANTHROPIC_API_KEY="sk-ant-not-a-real-key"):
-        assert get_settings().ai_provider == "anthropic"
+    """Or one it CANNOT call, which turned out to be every deployment.
+
+    This asserted that sovereign mode suppresses the claim, and it did. What it
+    could not see is that there is no LLM path in the codebase at all —
+    `api.anthropic.com`, `import anthropic` and `messages.create` have zero hits
+    across backend/, worker/ and frontend/ — so with the switch off, the one
+    screen an operator reads to learn what leaves the building named a third
+    party this product never contacts, and the UI labelled a template's prose as
+    a model's (`ui.tsx: const live = source === 'anthropic'`).
+    """
+    for mode in ("true", "false"):
+        with _env(SOVEREIGN_MODE=mode, ANTHROPIC_API_KEY="sk-ant-not-a-real-key"):
+            assert get_settings().ai_provider == "template"
+
+
+def test_no_llm_call_exists_to_advertise():
+    """The reason for the test above. If someone implements the narrative, this
+    fails and both tests get revisited together — which is the point."""
+    import pathlib
+    import re
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    # Code, not prose. `config.py` explains this very absence and quotes both
+    # forms; a backtick means the line is documentation, and documentation
+    # naming a thing is not the thing.
+    pattern = re.compile(r"api\.anthropic\.com|^\s*(import|from)\s+anthropic\b")
+    hits = [
+        f"{path.relative_to(root)}:{n}"
+        for folder in ("backend/app", "worker")
+        for path in (root / folder).rglob("*.py")
+        for n, line in enumerate(
+            path.read_text(encoding="utf-8", errors="replace").splitlines(), 1
+        )
+        if "`" not in line and pattern.search(line)
+    ]
+    assert not hits, f"an LLM call exists now: {hits} — revisit ai_provider"
 
 
 def test_integration_matrix_separates_configured_from_reachable():

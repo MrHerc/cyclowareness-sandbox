@@ -524,7 +524,7 @@ def build(job) -> dict[str, Any]:
     complete = status == "completed"
     sovereignty = sovereignty_status()
 
-    return {
+    record = {
         "schema": SCHEMA,
         "record_status": "draft evidence record — not a regulatory filing",
         "disclaimer": DISCLAIMER,
@@ -573,6 +573,16 @@ def build(job) -> dict[str, Any]:
             "outbound_refusals_total": sovereignty["outbound_refusals"]["total"],
         },
     }
+    # THE DOCUMENT THAT LEAVES THE BUILDING MOST DEFINITELY MUST NOT NAME THE
+    # HOST THAT DETONATES LIVE MALWARE.
+    #
+    # `report.as_json` scrubs infrastructure names; this record — the one written
+    # for a regulator under NIS2 Article 23 and DORA 17-19, and the one most
+    # likely to be forwarded outside the organisation — did not, and it embeds
+    # `_tiers_summary(job)` and the verdict block verbatim. So the detonation
+    # host's name went to the national authority while the JSON export beside it
+    # said "the attached worker".
+    return report_mod._without_infrastructure(record, report_mod._infrastructure_names(job))
 
 
 # ============================================================================
