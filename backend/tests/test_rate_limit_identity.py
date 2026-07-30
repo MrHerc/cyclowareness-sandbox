@@ -23,6 +23,12 @@ The address itself is only as good as the deployment says it is. Behind an
 untrusted proxy every caller shares one bucket, which over-counts; that is the
 correct direction to be wrong in, and `TRUST_PROXY_HEADERS` is how an operator
 who terminates TLS at a proxy they control gets the real one back.
+
+Turning that switch on is not enough, because there is no safe ordering of the
+two forwarding headers: whichever is believed first, some real deployment does
+not write it, and the client's own copy survives to be believed. So the operator
+also names the header their proxy WRITES, with `PROXY_CLIENT_HEADER`, and only
+that one is read. Unnamed, nothing is believed and the socket peer wins.
 """
 from __future__ import annotations
 
@@ -121,13 +127,19 @@ def test_a_forwarded_header_is_ignored_by_default(client) -> None:
     assert not any(i == "ip:203.0.113.7" for i in ids), ids
 
 
+def _trust(monkeypatch, header: str) -> None:
+    """Turn the switch on and name the header the proxy writes."""
+    settings = get_settings()
+    monkeypatch.setattr(settings, "trust_proxy_headers", True)
+    monkeypatch.setattr(settings, "proxy_client_header", header)
+
+
 def test_when_trusted_the_LAST_hop_is_taken_not_the_first(client, monkeypatch) -> None:
     """Proxies APPEND the peer they saw, so a client that forges its own
     `X-Forwarded-For: 1.2.3.4` produces `1.2.3.4, <real client>`. Reading the
     first entry — the common mistake — reads exactly the part the attacker
     wrote."""
-    settings = get_settings()
-    monkeypatch.setattr(settings, "trust_proxy_headers", True)
+    _trust(monkeypatch, "x-forwarded-for")
     ids = _identities(client, {"X-Forwarded-For": "1.2.3.4, 198.51.100.9"})
     assert "ip:198.51.100.9" in ids, ids
     assert "ip:1.2.3.4" not in ids, ids
@@ -214,31 +226,42 @@ def test_a_single_credential_is_still_held_to_its_own_limit(client) -> None:
     assert ok == [True, True, True, False, False], ok
 
 
-# --- the header a proxy overwrites beats the list a client can write ---------
+# --- only the header the operator named is believed ---------------------------
 
 
-@pytest.mark.parametrize("headers,expected", [
+@pytest.mark.parametrize("header,headers,expected", [
     # nginx `proxy_set_header X-Real-IP $remote_addr` and XFF passed through
-    # verbatim. Reproduced with a real nginx: preferring the list meant thirty
+    # verbatim. Reproduced with a real nginx: believing the list meant thirty
     # rotating login attempts produced ZERO 429s where the control produced 20.
-    ({"X-Real-IP": "10.0.0.1", "X-Forwarded-For": "203.0.113.9"}, "ip:10.0.0.1"),
+    ("x-real-ip", {"X-Real-IP": "10.0.0.1", "X-Forwarded-For": "203.0.113.9"}, "ip:10.0.0.1"),
     # `proxy_add_x_forwarded_for` — the proxy appends what it saw, so the last
     # entry is real and everything before it is the client's contribution.
-    ({"X-Forwarded-For": "1.2.3.4, 198.51.100.9"}, "ip:198.51.100.9"),
+    ("x-forwarded-for", {"X-Forwarded-For": "1.2.3.4, 198.51.100.9"}, "ip:198.51.100.9"),
     # An empty last element used to make the whole list falsy and fall through
     # to the equally client-written X-Real-IP.
-    ({"X-Forwarded-For": "9.9.9.9,", "X-Real-IP": ""}, "ip:9.9.9.9"),
+    ("x-forwarded-for", {"X-Forwarded-For": "9.9.9.9,", "X-Real-IP": ""}, "ip:9.9.9.9"),
     # Not addresses. Any string at all was an identity, so `a`, `b`, `c` was a
     # fresh bucket each time — and an arbitrary value in the audit trail.
-    ({"X-Forwarded-For": "not-an-address"}, None),
-    ({"X-Real-IP": "'; DROP TABLE audit_events; --"}, None),
-    ({"X-Forwarded-For": "a, b, c"}, None),
+    ("x-forwarded-for", {"X-Forwarded-For": "not-an-address"}, None),
+    ("x-real-ip", {"X-Real-IP": "'; DROP TABLE audit_events; --"}, None),
+    ("x-forwarded-for", {"X-Forwarded-For": "a, b, c"}, None),
     # Shapes a careless proxy really does emit.
-    ({"X-Real-IP": "[2001:db8::1]"}, "ip:2001:db8::1"),
-    ({"X-Real-IP": "198.51.100.9:51234"}, "ip:198.51.100.9"),
+    ("x-real-ip", {"X-Real-IP": "[2001:db8::1]"}, "ip:2001:db8::1"),
+    ("x-real-ip", {"X-Real-IP": "198.51.100.9:51234"}, "ip:198.51.100.9"),
+    # THE HEADER THAT WAS NOT NAMED IS CLIENT-WRITTEN TEXT. Both rows are a real
+    # deployment the old code got wrong: behind an append-only proxy (ALB,
+    # Cloudflare, Render) no `X-Real-IP` is set, so the client's own arrives
+    # untouched — and it was believed first.
+    ("x-forwarded-for", {"X-Real-IP": "203.0.113.9"}, None),
+    ("x-real-ip", {"X-Forwarded-For": "203.0.113.9"}, None),
+    # Unset, and misspelt: believe nothing, charge the socket.
+    ("", {"X-Real-IP": "10.0.0.1", "X-Forwarded-For": "203.0.113.9"}, None),
+    ("x-client-ip", {"X-Real-IP": "10.0.0.1"}, None),
+    # The operator's own value is normalised, not required to be typed exactly.
+    ("  X-Real-IP  ", {"X-Real-IP": "10.0.0.1"}, "ip:10.0.0.1"),
 ])
-def test_which_forwarded_value_is_believed(client, monkeypatch, headers, expected) -> None:
-    monkeypatch.setattr(get_settings(), "trust_proxy_headers", True)
+def test_which_forwarded_value_is_believed(client, monkeypatch, header, headers, expected) -> None:
+    _trust(monkeypatch, header)
     ids = _identities(client, headers)
     addresses = [i for i in ids if i.startswith("ip:")]
     assert len(addresses) == 1, addresses
@@ -248,18 +271,30 @@ def test_which_forwarded_value_is_believed(client, monkeypatch, headers, expecte
         for value in headers.values():
             assert value not in addresses[0]
     else:
-        assert addresses[0] == expected, (headers, ids)
+        assert addresses[0] == expected, (header, headers, ids)
 
 
-def test_a_forged_header_cannot_mint_buckets_when_trust_is_on(client, monkeypatch) -> None:
-    """The attack, end to end: rotate X-Forwarded-For and walk the login limit.
-    With a proxy that sets X-Real-IP the real address is charged every time."""
-    monkeypatch.setattr(get_settings(), "trust_proxy_headers", True)
+@pytest.mark.parametrize("header,forge", [
+    # The nginx-that-sets-X-Real-IP deployment: the forged list is ignored.
+    ("x-real-ip", "X-Forwarded-For"),
+    # The append-only deployment: the forged single value is ignored. This is
+    # the case the old ordering lost — it believed X-Real-IP first, and here
+    # nothing upstream ever writes X-Real-IP.
+    ("x-forwarded-for", "X-Real-IP"),
+    # Nothing named at all: the socket peer, so still one bucket.
+    ("", "X-Forwarded-For"),
+])
+def test_a_forged_header_cannot_mint_buckets_when_trust_is_on(
+    client, monkeypatch, header, forge
+) -> None:
+    """The attack, end to end: rotate the header the proxy does NOT write and
+    try to walk the login limit."""
+    _trust(monkeypatch, header)
     seen = [
-        _login(client, {"X-Real-IP": "10.0.0.1", "X-Forwarded-For": f"203.0.113.{n}"}).status_code
+        _login(client, {forge: f"203.0.113.{n}"}).status_code
         for n in range(14)
     ]
-    assert 429 in seen, f"a rotating X-Forwarded-For walked {len(seen)} attempts: {seen}"
+    assert 429 in seen, f"a rotating {forge} walked {len(seen)} attempts: {seen}"
 
 
 def test_one_tenant_cannot_exhaust_another_behind_a_shared_address(client) -> None:

@@ -8,10 +8,21 @@ refuses, counts and logs, rather than as a sentence in a datasheet.
 
 Three properties make this auditable rather than decorative:
 
-1. **One choke point.** Every module that would talk to a third party asks
-   :func:`check` first. There is no second path, and a new enrichment that
-   forgets to ask is refused anyway — :func:`check` denies destinations it does
-   not recognise, so the failure mode of forgetting is "blocked", not "leaked".
+1. **One choke point per process.** Every module in *this* process that would
+   talk to a third party asks :func:`check` first. There is no second path, and
+   a new enrichment that forgets to ask is refused anyway — :func:`check` denies
+   destinations it does not recognise, so the failure mode of forgetting is
+   "blocked", not "leaked".
+
+   The detonation worker is a **separate program**, with its own configuration
+   and no import of this module, so it has a choke point of its own in
+   ``worker/engines/opensource.py`` reading the same ``SOVEREIGN_MODE``. It had
+   none, and that was a real hole rather than a theoretical one: three of the
+   destinations named below — `cuckoo`, `capev2`, `joesandbox` — are reached
+   only by the worker, so ``/api/capabilities`` showed them as Blocked while a
+   worker with ``CAPEV2_URL`` set uploaded every detonatable sample. Adding a
+   destination that the worker reaches means adding it in both places; there is
+   no way to make one process enforce for the other, only to make both refuse.
 2. **Refusal is loud.** A refusal raises :class:`OutboundRefused`, logs at
    WARNING and increments a counter. A silent skip would be indistinguishable
    from an integration that was never configured, which is exactly the

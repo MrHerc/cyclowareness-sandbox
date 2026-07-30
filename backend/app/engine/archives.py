@@ -29,6 +29,13 @@ from .contracts import Signal
 from .storage import StoredSample, store_bytes
 
 #: Total bytes we are willing to write while unpacking one submission.
+#:
+#: It is spent through an :class:`ExpansionBudget` that the caller owns, because
+#: this said "one submission" and was a fresh local in each of the four readers.
+#: A nested archive is a separate `unpack` of a separate child job, so the real
+#: ceiling was 256 MiB x every archive in the tree — bounded only by
+#: `MAX_TOTAL_CHILD_JOBS`, which is 200. About 51 GiB written to quarantine from
+#: one upload, from a zip of zips well under the size limit.
 MAX_TOTAL_EXPANSION = 256 * 1024 * 1024
 #: A single member larger than this is not extracted (it is still listed).
 MAX_MEMBER_BYTES = 32 * 1024 * 1024
@@ -61,6 +68,27 @@ ARCHIVE_MIMES = {
     # halves.
     "application/x-iso9660-image",
 }
+
+
+@dataclass
+class ExpansionBudget:
+    """Bytes a submission may still write while unpacking, at any depth.
+
+    One object is shared by every `unpack` in a submission's tree — the same
+    shape as the pipeline's `_ChildBudget`, and for the same reason: a limit that
+    resets per archive is not a limit on the archive that contains archives.
+
+    Callers that unpack a single container and nothing else may leave it out and
+    get a fresh budget, which is what a direct `unpack(path, mime)` means.
+    """
+
+    remaining: int = MAX_TOTAL_EXPANSION
+
+    def spend(self, count: int) -> None:
+        self.remaining -= count
+
+    def affordable(self, count: int) -> bool:
+        return count <= self.remaining
 
 
 class PasswordRequired(Exception):
@@ -207,7 +235,7 @@ def _budget_signals(members: list[Member], kind: str) -> list[Signal]:
 # --- ZIP ----------------------------------------------------------------------
 
 
-def _read_zip(path: str, password: str | None) -> ArchiveResult:
+def _read_zip(path: str, password: str | None, budget: ExpansionBudget) -> ArchiveResult:
     result = ArchiveResult(kind="zip")
     with zipfile.ZipFile(path) as zf:
         infos = zf.infolist()
@@ -231,7 +259,6 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
         if result.encrypted and not password:
             raise PasswordRequired("ZIP")
 
-        budget = MAX_TOTAL_EXPANSION
         pwd = password.encode() if password else None
         for member, info in zip(result.members, infos):
             if member.is_dir:
@@ -242,7 +269,7 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
             if member.ratio > MAX_RATIO and member.size > 1024 * 1024:
                 member.skipped_reason = "compression ratio exceeds the bomb threshold"
                 continue
-            if member.size > budget:
+            if not budget.affordable(member.size):
                 member.skipped_reason = "total expansion budget exhausted"
                 result.truncated = True
                 continue
@@ -252,7 +279,7 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
                 if len(data) > MAX_MEMBER_BYTES:
                     member.skipped_reason = "declared size understated the real size"
                     continue
-                budget -= len(data)
+                budget.spend(len(data))
                 member.stored = store_bytes(data)
             except RuntimeError as exc:  # bad password / unsupported encryption
                 if "password" in str(exc).lower():
@@ -273,7 +300,7 @@ def _read_zip(path: str, password: str | None) -> ArchiveResult:
 MAX_ISO_BYTES = 256 * 1024 * 1024
 
 
-def _read_iso(path: str) -> ArchiveResult:
+def _read_iso(path: str, budget: ExpansionBudget) -> ArchiveResult:
     """Extract the files a victim would see after mounting the image.
 
     The directory walk is `analyzers.diskimage._walk_iso` — the same hand-written
@@ -302,7 +329,6 @@ def _read_iso(path: str) -> ArchiveResult:
         result.truncated = True
         entries = entries[:MAX_MEMBERS]
 
-    budget = MAX_TOTAL_EXPANSION
     for entry in entries:
         member = Member(
             name=entry["name"],
@@ -317,7 +343,7 @@ def _read_iso(path: str) -> ArchiveResult:
         if member.size > MAX_MEMBER_BYTES:
             member.skipped_reason = "larger than the per-member limit"
             continue
-        if member.size > budget:
+        if not budget.affordable(member.size):
             member.skipped_reason = "total expansion budget exhausted"
             result.truncated = True
             continue
@@ -331,7 +357,7 @@ def _read_iso(path: str) -> ArchiveResult:
             continue
         try:
             payload = data[start:end]
-            budget -= len(payload)
+            budget.spend(len(payload))
             member.stored = store_bytes(payload)
         except Exception as exc:  # noqa: BLE001 — one bad member is not a failed job
             member.skipped_reason = f"could not be read: {type(exc).__name__}"
@@ -342,7 +368,7 @@ def _read_iso(path: str) -> ArchiveResult:
 # --- 7z -----------------------------------------------------------------------
 
 
-def _read_7z(path: str, password: str | None) -> ArchiveResult:
+def _read_7z(path: str, password: str | None, budget: ExpansionBudget) -> ArchiveResult:
     import py7zr
 
     result = ArchiveResult(kind="7z")
@@ -374,7 +400,11 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
             # the declared sizes, to pick what is worth asking for at all, and
             # again to the bytes as they arrive, because a 7z header can
             # understate every size in it.
-            budget = MAX_TOTAL_EXPANSION
+            # `planned` is the declared-size half. It starts at what the
+            # submission has left and is NOT spent from the shared budget here:
+            # the header chose these numbers, and the bytes that actually arrive
+            # are what gets charged, below.
+            planned = budget.remaining
             targets: list[str] = []
             by_name: dict[str, Member] = {}
             for member in result.members:
@@ -387,14 +417,14 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
                 if member.ratio > MAX_RATIO and member.size > 1024 * 1024:
                     member.skipped_reason = "compression ratio exceeds the bomb threshold"
                     continue
-                if member.size > budget:
+                if member.size > planned:
                     member.skipped_reason = "total expansion budget exhausted"
                     result.truncated = True
                     continue
-                budget -= member.size
+                planned -= member.size
                 targets.append(member.name)
 
-            for name, data in _seven_zip_read(zf, targets).items():
+            for name, data in _seven_zip_read(zf, targets, budget.remaining).items():
                 member = by_name.get(name)
                 if member is None:
                     continue
@@ -402,6 +432,7 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
                     member.skipped_reason = "declared size understated the real size"
                     result.truncated = True
                     continue
+                budget.spend(len(data))
                 member.stored = store_bytes(data)
     except py7zr.exceptions.PasswordRequired as exc:
         raise PasswordRequired("7z", attempted=bool(password)) from exc
@@ -424,7 +455,7 @@ def _read_7z(path: str, password: str | None) -> ArchiveResult:
     return result
 
 
-def _seven_zip_read(zf, targets: list[str]) -> dict[str, bytes]:
+def _seven_zip_read(zf, targets: list[str], total: int) -> dict[str, bytes]:
     """Read the selected members into memory, whichever py7zr generation is installed.
 
     py7zr 0.x offered ``read()``/``readall()``, which return file-like buffers;
@@ -437,7 +468,7 @@ def _seven_zip_read(zf, targets: list[str]) -> dict[str, bytes]:
     if not targets:
         return {}
 
-    factory = _bytes_factory(MAX_MEMBER_BYTES, MAX_TOTAL_EXPANSION)
+    factory = _bytes_factory(MAX_MEMBER_BYTES, total)
     if factory is not None:
         zf.extract(targets=targets, factory=factory)
         out: dict[str, bytes] = {}
@@ -501,7 +532,7 @@ def _seven_zip_is_encrypted(path: str) -> bool:
 # --- RAR ----------------------------------------------------------------------
 
 
-def _read_rar(path: str, password: str | None) -> ArchiveResult:
+def _read_rar(path: str, password: str | None, budget: ExpansionBudget) -> ArchiveResult:
     import rarfile
 
     result = ArchiveResult(kind="rar")
@@ -524,15 +555,15 @@ def _read_rar(path: str, password: str | None) -> ArchiveResult:
             if password:
                 rf.setpassword(password)
 
-            budget = MAX_TOTAL_EXPANSION
             for member, info in zip(result.members, infos):
-                if member.is_dir or member.size > MAX_MEMBER_BYTES or member.size > budget:
+                if (member.is_dir or member.size > MAX_MEMBER_BYTES
+                        or not budget.affordable(member.size)):
                     if not member.is_dir:
                         member.skipped_reason = "exceeds an extraction limit"
                     continue
                 try:
                     data = rf.read(info)
-                    budget -= len(data)
+                    budget.spend(len(data))
                     member.stored = store_bytes(data)
                 except Exception as exc:  # noqa: BLE001
                     member.skipped_reason = f"could not be read: {type(exc).__name__}"
@@ -557,20 +588,30 @@ def _read_rar(path: str, password: str | None) -> ArchiveResult:
 # --- entry point ---------------------------------------------------------------
 
 
-def unpack(path: str, mime: str, password: str | None = None) -> ArchiveResult:
+def unpack(
+    path: str,
+    mime: str,
+    password: str | None = None,
+    budget: ExpansionBudget | None = None,
+) -> ArchiveResult:
     """Open an archive and quarantine every member we are willing to extract.
 
     Raises :class:`PasswordRequired` when the container is encrypted and no
     password was given — the caller parks the job rather than guessing.
+
+    `budget` is the submission's remaining expansion allowance. Pass the same
+    object for every archive in one tree; omit it and this container gets a fresh
+    `MAX_TOTAL_EXPANSION` of its own.
     """
+    budget = budget if budget is not None else ExpansionBudget()
     if mime == "application/x-iso9660-image":
-        result = _read_iso(path)
+        result = _read_iso(path, budget)
     elif mime == "application/x-7z-compressed":
-        result = _read_7z(path, password)
+        result = _read_7z(path, password, budget)
     elif mime == "application/x-rar-compressed":
-        result = _read_rar(path, password)
+        result = _read_rar(path, password, budget)
     else:
-        result = _read_zip(path, password)
+        result = _read_zip(path, password, budget)
 
     result.signals = _budget_signals(result.members, result.kind)
     if result.encrypted:

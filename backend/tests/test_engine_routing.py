@@ -33,7 +33,14 @@ def engines():
         from engines.native_linux import NativeLinuxEngine  # type: ignore
         from engines.opensource import CapeV2Engine  # type: ignore
 
-        config = Config(worker_token="t", capev2_url="http://cape.invalid")
+        # `sovereign_mode=False` is what a deployment that actually uses CAPE
+        # has set: with it on — the default — the CAPE engine is unavailable by
+        # design, because reaching it means uploading the sample to another host.
+        # This file is about ROUTING, so it describes the deployment where both
+        # engines can run.
+        config = Config(
+            worker_token="t", capev2_url="http://cape.invalid", sovereign_mode=False
+        )
         yield NativeLinuxEngine(config), CapeV2Engine(config)
     finally:
         sys.path.remove(str(WORKER))

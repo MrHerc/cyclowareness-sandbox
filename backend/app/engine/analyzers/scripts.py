@@ -323,7 +323,28 @@ _TLDS = (
     "au|nz|mx|ar|cl|ca|xyz|top|club|online|site|shop|store|live|link|fun|icu|dev|app|zip|"
     "mov|cloud|space|website|pw|tk|ml|ga|cf|gq|to|st|sh|is|am|fm|gg|vip|work|life|world"
 )
-_RE_DOMAIN = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9.-]{0,80}\.(?:" + _TLDS + r")\b")
+#: A DENIAL OF SERVICE, MEASURED.
+#:
+#: The old pattern was `\b[a-zA-Z0-9][a-zA-Z0-9.-]{0,80}\.(?:<100 TLDs>)\b`, and
+#: its label class INCLUDES the dot that the following `\.` must then match. So
+#: every start position backtracks through up to 81 lengths and retries the
+#: 100-branch alternation at every dot it lands on. One million characters of
+#: "a.a.a.a…" took SECONDS and matched nothing — and `_extract_iocs` runs once on
+#: the raw source and once per decoded layer up to `MAX_LAYERS`, so one upload of
+#: a megabyte of dots wrapped in eight base64 layers costs minutes of CPU.
+#:
+#: Fixed the way `generic._DOMAIN_TOKEN_RE` already does it: the dot leaves the
+#: label class, each label is bounded on its own, and lookarounds replace `\b` so
+#: there is exactly one way to match at any position. Linear, and it still finds
+#: every domain the old one found.
+_RE_DOMAIN = re.compile(
+    r"(?<![A-Za-z0-9._-])"
+    r"[A-Za-z0-9][A-Za-z0-9-]{0,62}"
+    r"(?:\.[A-Za-z0-9][A-Za-z0-9-]{0,62})*"
+    r"\.(?:" + _TLDS + r")"
+    r"(?![A-Za-z0-9-])",
+    re.IGNORECASE,
+)
 
 #: Base64 candidate. 20+ chars of the alphabet is 15 bytes — short enough to
 #: catch ``FromBase64String('...')`` one-liners, long enough that ordinary

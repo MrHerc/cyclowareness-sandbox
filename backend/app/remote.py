@@ -40,10 +40,13 @@ arbitrary value written into the chain of custody.
 from __future__ import annotations
 
 import ipaddress
+import logging
 
 from fastapi import Request
 
 from .config import get_settings
+
+logger = logging.getLogger("sandbox.remote")
 
 #: Longest address string worth keeping. An IPv6 address with a zone is under
 #: 60; anything beyond this is not an address, it is someone filling a column.
@@ -74,33 +77,57 @@ def _as_address(value: str | None) -> str | None:
 
 def client_ip(request: Request) -> str | None:
     """The caller's address, as well as this deployment can know it."""
-    if get_settings().trust_proxy_headers:
-        # X-REAL-IP FIRST, and that ordering is the fix.
+    settings = get_settings()
+    if settings.trust_proxy_headers:
+        # NAME THE HEADER. GUESSING IS THE BUG.
         #
-        # It was the other way round on the reasoning that proxies APPEND to
-        # `X-Forwarded-For`, so the last entry is the peer they saw. Many do.
-        # But a very common nginx configuration sets only
+        # This tried `X-Real-IP` first and fell through to `X-Forwarded-For`,
+        # because a very common nginx sets only
         # `proxy_set_header X-Real-IP $remote_addr` and passes `X-Forwarded-For`
-        # through VERBATIM — and against exactly that, reproduced with a real
-        # nginx in front of the real image, `X-Forwarded-For: 203.0.113.$i`
-        # rotating over thirty login attempts produced **zero** 429s where the
-        # control produced twenty, and a successful login wrote
-        # `198.51.100.250` into the audit trail as the address that did it.
+        # through VERBATIM. Reproduced with a real nginx in front of the real
+        # image: rotating `X-Forwarded-For: 203.0.113.$i` over thirty login
+        # attempts produced ZERO 429s where the control produced twenty, and a
+        # successful login wrote `198.51.100.250` into the chain of custody.
         #
-        # `X-Real-IP` is a single value a proxy OVERWRITES; `X-Forwarded-For` is
-        # a list a proxy may only append to. The one that cannot carry a
-        # client's contribution is the one to believe first.
-        real = _as_address(request.headers.get("x-real-ip"))
-        if real:
-            return real
-        forwarded = request.headers.get("x-forwarded-for") or ""
-        # Right to left: the nearest trusted proxy appended what it saw, and
-        # everything before that is upstream hearsay. Empty and non-address
-        # entries are skipped rather than falling through to another
-        # client-writable header — `X-Forwarded-For: 9.9.9.9,` did exactly that.
-        for hop in reversed(forwarded.split(",")):
-            address = _as_address(hop)
-            if address:
-                return address
+        # But the mirror case is just as real and the fallback did not save it.
+        # An APPEND-ONLY proxy — AWS ALB, Cloudflare, Render, Heroku, or nginx
+        # with only `proxy_add_x_forwarded_for` — sets NO `X-Real-IP`, so the
+        # client's own `X-Real-IP` arrives untouched, is believed first, and buys
+        # the same fresh rate-limit bucket and the same forged audit address.
+        # DEPLOY.md blessed both configurations.
+        #
+        # Neither ordering is safe for the other deployment, so there is no
+        # default to pick: the operator says which header their proxy writes.
+        # Unset, nothing is believed and the socket peer wins — the safe
+        # direction, and loud about it.
+        header = (settings.proxy_client_header or "").strip().lower()
+        if not header:
+            logger.warning(
+                "TRUST_PROXY_HEADERS is on but PROXY_CLIENT_HEADER is unset, so no "
+                "forwarding header is believed and the socket peer is used. Set it to "
+                "the header your proxy WRITES: 'x-real-ip' (nginx proxy_set_header) or "
+                "'x-forwarded-for' (ALB / Cloudflare / Render / nginx "
+                "proxy_add_x_forwarded_for)."
+            )
+        elif header == "x-real-ip":
+            # A single value the proxy overwrites.
+            real = _as_address(request.headers.get("x-real-ip"))
+            if real:
+                return real
+        elif header == "x-forwarded-for":
+            # Right to left: the nearest trusted proxy appended what it saw, and
+            # everything before that is upstream hearsay. Empty and non-address
+            # entries are skipped rather than falling through to another
+            # client-writable header — `X-Forwarded-For: 9.9.9.9,` did that.
+            for hop in reversed((request.headers.get("x-forwarded-for") or "").split(",")):
+                address = _as_address(hop)
+                if address:
+                    return address
+        else:
+            logger.warning(
+                "PROXY_CLIENT_HEADER=%r is not a header this understands; no "
+                "forwarding header is believed. Use 'x-real-ip' or 'x-forwarded-for'.",
+                header,
+            )
     client = request.client
     return client.host[:_MAX] if client else None

@@ -28,6 +28,28 @@ def _str(name: str, default: str = "") -> str:
     return os.environ.get(name, default).strip()
 
 
+#: What pydantic-settings accepts as false, which is what the backend parses
+#: `SOVEREIGN_MODE` with. The two processes must read one environment variable
+#: the same way or the promise splits in half between them.
+_FALSE = {"0", "off", "f", "false", "n", "no"}
+
+
+def _bool(name: str, default: bool) -> bool:
+    """A flag, parsed the way the backend parses it.
+
+    Anything unrecognised keeps the default. For a switch whose default is ON
+    and whose subject is egress, a typo must not read as "off".
+    """
+    raw = os.environ.get(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in _FALSE:
+        return False
+    if raw in {"1", "on", "t", "true", "y", "yes"}:
+        return True
+    return default
+
+
 @dataclass(frozen=True)
 class Config:
     """Everything the worker needs, resolved once at startup."""
@@ -89,6 +111,22 @@ class Config:
     #: instead of real network. Empty means "no network at all" (default).
     native_sinkhole: str = ""
 
+    # --- sovereignty --------------------------------------------------------
+    #: "Nothing leaves this deployment." Same variable and same default as the
+    #: web service's `SOVEREIGN_MODE`, because it is one promise, not two.
+    #:
+    #: It has to be read here as well: the backend's choke point governs the
+    #: backend's process, and this is a SEPARATE PROGRAM. `/api/capabilities`
+    #: listed "CAPEv2 cluster — uploads the sample file for detonation" as
+    #: Blocked while the worker, with `CAPEV2_URL` set, uploaded every
+    #: detonatable sample to it. The screen was not lying about the backend; it
+    #: was answering for a process it cannot see.
+    #:
+    #: On, the three upload engines are unavailable and say why at startup. The
+    #: engines that detonate on this host — native and Qiling — are untouched:
+    #: they send nothing anywhere, which is the whole point of shipping them.
+    sovereign_mode: bool = True
+
     # --- optional open-source sandbox integrations --------------------------
     #: A REST base URL enables the matching client. Empty disables it.
     cuckoo_url: str = ""
@@ -114,6 +152,7 @@ class Config:
             firejail_bin=_str("FIREJAIL_BIN", "firejail"),
             strace_bin=_str("STRACE_BIN", "strace"),
             native_sinkhole=_str("NATIVE_SINKHOLE"),
+            sovereign_mode=_bool("SOVEREIGN_MODE", True),
             cuckoo_url=_str("CUCKOO_URL").rstrip("/"),
             cuckoo_token=_str("CUCKOO_TOKEN"),
             capev2_url=_str("CAPEV2_URL").rstrip("/"),

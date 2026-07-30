@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -58,13 +58,20 @@ CHILD_RISK_FLOOR = 10.0
 
 @dataclass
 class _ChildBudget:
-    """How many more child jobs this submission may create, at any depth.
+    """What this submission may still spend, at any depth.
 
     One object is shared by every job in a submission's tree, which is what makes
-    the budget a property of the submission rather than of each archive.
+    these budgets a property of the submission rather than of each archive.
+
+    Two things are metered, because bounding the job count bounds neither the
+    disk nor the work: 200 child jobs each unpacking their own fresh 256 MiB is
+    about 51 GiB written to quarantine from one upload.
     """
 
+    #: Child jobs left.
     remaining: int = MAX_TOTAL_CHILD_JOBS
+    #: Bytes left to write while unpacking, shared across every archive below.
+    expansion: archives.ExpansionBudget = field(default_factory=archives.ExpansionBudget)
 
 
 def new_job(
@@ -228,7 +235,7 @@ def _archive_stage(
         return None, False
 
     try:
-        unpacked = archives.unpack(sample.path, sample.mime, password)
+        unpacked = archives.unpack(sample.path, sample.mime, password, budget.expansion)
     except archives.PasswordRequired as exc:
         # A password that did not work is an ANSWER, not a fresh prompt. Without
         # this the job simply returned to `awaiting_password` with `error` unset,

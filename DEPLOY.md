@@ -57,6 +57,7 @@ cannot write there. It used to start healthy and answer uploads with a bare
 | `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
 | `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
 | `TRUST_PROXY_HEADERS` | `false` | See below. Turn on **only** behind a proxy you control. |
+| `PROXY_CLIENT_HEADER` | *(unset)* | Which header that proxy **writes**: `x-real-ip` or `x-forwarded-for`. Required with the above. |
 | `METRICS_TOKEN` | *(unset)* | Bearer token for `/metrics`. Unset in production, `/metrics` is `404`. |
 | `METRICS_PUBLIC` | `false` | Say out loud that `/metrics` may be read by anyone. |
 
@@ -76,25 +77,35 @@ forge the header, which lets them both mislabel their own audit trail and mint a
 fresh rate-limit budget for every request. Off is the safe default; the failure
 it causes is over-counting, and the failure the other way is no counting at all.
 
-**`X-Real-IP` is believed first**, then `X-Forwarded-For` read right to left,
-and every candidate must parse as an IP address.
+**You must also name the header your proxy writes**, with
+`PROXY_CLIENT_HEADER`. There is no safe default, and this document used to bless
+both configurations while the code guessed:
 
-That ordering is not cosmetic. `X-Real-IP` is a single value a proxy
-*overwrites*; `X-Forwarded-For` is a list a proxy may only *append* to. A very
-common nginx configuration sets only `proxy_set_header X-Real-IP $remote_addr`
-and passes `X-Forwarded-For` through verbatim — and against exactly that,
-reproduced with a real nginx in front of this image, preferring the list meant a
-rotating `X-Forwarded-For` walked thirty login attempts with **zero** 429s where
-the control produced twenty, and wrote an address of the attacker's choosing
-into the hash-chained chain of custody.
+| Your proxy | Set |
+|---|---|
+| nginx with `proxy_set_header X-Real-IP $remote_addr` | `PROXY_CLIENT_HEADER=x-real-ip` |
+| nginx with `proxy_add_x_forwarded_for`, AWS ALB, Cloudflare, Render, Heroku | `PROXY_CLIENT_HEADER=x-forwarded-for` |
 
-Reading the list from the right is the other half: conventional proxies append
-the peer they saw (`proxy_add_x_forwarded_for`), so a client forging
-`X-Forwarded-For: 1.2.3.4` produces `1.2.3.4, <real client>` and the last entry
-is what the proxy actually observed.
+Only the named header is read; the other is treated as client-written text, which
+is what it is. Guessing broke both deployments in turn. `X-Real-IP` is a single
+value a proxy *overwrites*, so preferring it is correct behind the first row —
+and against the second, which sets no `X-Real-IP` at all, the client's own
+`X-Real-IP` arrives untouched and is believed. Preferring the list is wrong in
+the mirror case: reproduced with a real nginx in front of this image, a rotating
+`X-Forwarded-For` walked thirty login attempts with **zero** 429s where the
+control produced twenty, and wrote an address of the attacker's choosing into the
+hash-chained chain of custody.
 
-**Configure your proxy to set at least one of them itself.** A proxy that sets
-neither is not one this switch can be turned on behind.
+`X-Forwarded-For` is read **right to left**, because conventional proxies append
+the peer they saw, so a client forging `X-Forwarded-For: 1.2.3.4` produces
+`1.2.3.4, <real client>` and the last entry is what the proxy actually observed.
+Every candidate must parse as an IP address; anything else falls back to the
+socket peer.
+
+Left unset — or set to anything other than those two values — nothing is believed,
+the socket peer is used, and a warning naming both options is logged at startup of
+the first such request. That is the same over-counting failure as leaving the
+switch off, which is the direction to be wrong in.
 
 ### Health checks
 

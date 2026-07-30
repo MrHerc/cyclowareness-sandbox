@@ -70,6 +70,18 @@ MAX_ZIP_ENTRIES = 2_000
 #: Bytes read from a single zip entry (a .rels or body xml). Guards against a
 #: zip-bomb entry — decompression is bounded, never "read it all".
 MAX_ENTRY_BYTES = 4 * 1024 * 1024
+#: Bytes of OOXML body XML held in memory ACROSS ALL ENTRIES.
+#:
+#: `MAX_ENTRY_BYTES` bounds one entry and bounded nothing in aggregate: the
+#: walk appended every body entry to a list and truncated only after joining, so
+#: the ceiling was 2,000 x 4 MiB = 8 GiB of bytes plus their decoded strings. XML
+#: compresses about 100:1, so an 8 MB .docx of 2,000 highly-compressible parts
+#: reached it — one upload, and the process is killed for everyone on it.
+#:
+#: The budget is twice `MAX_SCAN_CHARS` because it counts bytes before decoding
+#: and the scan window counts characters after; UTF-8 body text averages well
+#: under 2 bytes/char, so this fills the window without capping it early.
+MAX_BODY_BYTES = 2 * MAX_SCAN_CHARS
 #: Bytes of a legacy OLE2 file scanned for body IOCs.
 MAX_OLE_BODY_BYTES = 8 * 1024 * 1024
 #: Per-kind IOC cap.
@@ -372,9 +384,17 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
     Returns (external_relationship_targets, concatenated_body_text, embedded_names).
     A .rels Relationship with TargetMode="External" is the remote-template /
     remote-OLE vector — no macro required. Body text feeds IOC extraction.
+
+    Body text is held under ONE aggregate budget, `MAX_BODY_BYTES`, not merely a
+    per-entry one. Only the body accumulates; a .rels entry's bytes are released
+    at the end of its iteration, so those stay bounded by `MAX_ENTRY_BYTES` alone.
     """
     external: list[dict[str, str]] = []
     body_parts: list[str] = []
+    #: What is left of MAX_BODY_BYTES. Spent by body entries and by the hyperlink
+    #: targets that also feed the window — a .rels entry can hold tens of
+    #: thousands of them, so it is not a path that can be left unmetered.
+    body_budget = MAX_BODY_BYTES
     embedded: list[str] = []
 
     # Match a whole <Relationship .../> element, then read its attributes. Single
@@ -394,9 +414,15 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                 is_body = lower.endswith(".xml") and not is_rels
                 if not (is_rels or is_body):
                     continue
+                # A body entry may read only what is left of the aggregate
+                # budget; once it is spent, the entry is not read at all rather
+                # than read and discarded.
+                want = MAX_ENTRY_BYTES if is_rels else min(MAX_ENTRY_BYTES, body_budget)
+                if want <= 0:
+                    continue
                 try:
                     with zf.open(name) as fh:
-                        raw = fh.read(MAX_ENTRY_BYTES)
+                        raw = fh.read(want)
                 except Exception:
                     continue
                 if is_rels:
@@ -414,7 +440,10 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                             # firing "high" on them would be a mass false
                             # positive. Keep the URL as an IOC, don't fire.
                             if rtype.rsplit("/", 1)[-1].lower() == "hyperlink":
-                                body_parts.append(attrs.get("target", ""))
+                                target = attrs.get("target", "")
+                                if body_budget > 0:
+                                    body_parts.append(target)
+                                    body_budget -= len(target)
                                 continue
                             external.append({
                                 "source": _clip(name, 160),
@@ -425,6 +454,7 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                                 break
                 elif is_body:
                     body_parts.append(raw.decode("utf-8", "replace"))
+                    body_budget -= len(raw)
     except Exception:
         return external, "", embedded
 

@@ -69,6 +69,20 @@ class Settings(BaseSettings):
     #: charges — so believing a forged one lets a caller both mislabel their own
     #: audit trail and mint themselves a fresh rate-limit budget per request.
     trust_proxy_headers: bool = Field(default=False)
+    #: WHICH forwarding header this deployment's proxy actually writes.
+    #:
+    #: There is no safe default and picking one silently was the bug. Believing
+    #: `X-Real-IP` first is correct behind an nginx that sets only it and passes
+    #: `X-Forwarded-For` through verbatim — and wrong behind an append-only proxy
+    #: (ALB, Cloudflare, Render, Heroku), which sets no `X-Real-IP` at all, so a
+    #: client's own header survives and it picks its own rate-limit bucket and
+    #: its own audit source address. Believing `X-Forwarded-For` first is wrong
+    #: in the mirror case, for the same reason.
+    #:
+    #: So the operator names it. Left empty with `TRUST_PROXY_HEADERS=true`, no
+    #: header is believed and the socket peer is used — the safe direction, with
+    #: a log line saying what to set.
+    proxy_client_header: str = Field(default="")
 
     # --- observability ------------------------------------------------------
     #: Bearer token a Prometheus scraper presents to read `/metrics`.

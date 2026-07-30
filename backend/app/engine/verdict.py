@@ -340,13 +340,49 @@ def classify(
         name = _ENGINE_LABELS.get(result.analyzer)
         if result.analyzer == "yara":
             # Expand each matched rule as its own detection row.
+            #
+            # A ROW IS A DETECTION ONLY IF THE ENGINE DID NOT ALREADY DEMOTE IT.
+            #
+            # `detected` was hard-coded True, so a match the YARA engine itself
+            # had marked as not-evidence still counted — including the two cases
+            # it demotes ON PURPOSE:
+            #
+            #   * `not_for = <this family>`, whose own detail says "this match is
+            #     reported but does not count as evidence";
+            #   * `_CONTAINER_RULES` on an .msi/.iso, demoted to `low` because an
+            #     installer carrying a program is what an installer IS.
+            #
+            # PuTTY's official MSI barely moved the score for exactly that reason
+            # and still landed a DETECTED row against it.
+            #
+            # The bar is MEDIUM, not the `high` the static rows use, and the
+            # difference is deliberate. A static row is a structural fact —
+            # entropy, an overlay, TLS callbacks — which every self-extracting
+            # installer trips at medium, so medium there means nothing. A YARA
+            # rule is a specific statement about specific bytes. Measured on the
+            # 88-sample fixture: 12 of its 17 YARA signals are medium, and
+            # requiring `high` cost njrat its verdict on
+            # `powershell_stealth_flags` and `js_obfuscation_eval_decode` —
+            # taking malicious from 69 to 67, through the floor. Demoted rows are
+            # exactly `info` and `low`, so that is where the line belongs.
             for sig in result.signals:
+                if sig.id == "yara.match_cap_reached":
+                    # Bookkeeping, not a match. It says how many rules fired.
+                    engines.append({
+                        "engine": "CS-YARA", "detected": False,
+                        "result": sig.title, "severity": "info",
+                    })
+                    continue
                 row = {
                     "engine": f"CS-YARA/{sig.id.split('.')[-1]}",
-                    "detected": True,
+                    "detected": (
+                        SEVERITY_ORDER.get(sig.severity, 0) >= SEVERITY_ORDER["medium"]
+                    ),
                     "result": sig.title,
                     "severity": sig.severity,
                 }
+                if not row["detected"]:
+                    row["result"] = f"{sig.title} (reported, not counted as a detection)"
                 group = _evidence_group(sig.id)
                 if group:
                     row["evidence_group"] = group

@@ -12,6 +12,13 @@ operator opts into exactly the integrations they run. All three share the same
 normalisation idea: pull the list of behavioural indicators / signatures the
 sandbox emitted, map each to a Signal with a severity, and lift network IOCs.
 
+**Every engine here uploads the sample file to another host, so every one of
+them is governed by ``SOVEREIGN_MODE``.** The web service has an egress choke
+point of its own and it cannot speak for this process: with sovereign mode on
+and ``CAPEV2_URL`` set, ``/api/capabilities`` said "CAPEv2 — Blocked" while this
+module uploaded every detonatable sample to it. The check lives in
+:class:`_HttpSandboxEngine`, on both ``available()`` and ``run()``.
+
 ``requests`` is imported lazily inside the methods so this module imports on a
 host without it (the native/qiling-only deployments do not need HTTP client
 libs installed). If a submission or poll fails, the engine returns
@@ -70,7 +77,19 @@ def _severity_from_score(score: float) -> str:
 
 
 class _HttpSandboxEngine(Engine):
-    """Shared plumbing for submit/poll REST sandboxes."""
+    """Shared plumbing for submit/poll REST sandboxes.
+
+    THIS IS THE WORKER'S EGRESS CHOKE POINT. Every engine in this module hands a
+    whole sample file to a service on another host, and every one of them reaches
+    the network through `available()` here. The backend has a choke point of its
+    own (`app/sovereignty.py`) and it governs the backend's process; this is a
+    separate program with a separate configuration, so sovereign mode meant
+    nothing on this side until it was checked here.
+    """
+
+    #: The backend's `DESTINATIONS` key for this engine, so a refusal here names
+    #: the same thing `/api/capabilities` shows the operator.
+    destination = ""
 
     def __init__(self, config) -> None:
         self.config = config
@@ -78,7 +97,32 @@ class _HttpSandboxEngine(Engine):
     def _base(self) -> str:
         raise NotImplementedError
 
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Why this engine is not being used — printed once at startup.
+
+        A silently-skipped engine and a refused one look identical in a log, and
+        that ambiguity is exactly what the sovereignty design exists to remove.
+        """
+        if self._refused_by_sovereign_mode():
+            return (
+                f"SOVEREIGN_MODE is on, so this worker will not upload samples to "
+                f"{self.name}. Nothing about a sample leaves this deployment. Set "
+                f"SOVEREIGN_MODE=false on the worker AND the web service to use it."
+            )
+        if not self._base():
+            return None  # simply not configured, which is the ordinary case
+        if _requests() is None:
+            return "requests is not installed"
+        return None
+
+    def _refused_by_sovereign_mode(self) -> bool:
+        """Configured, and forbidden. Not configured is not a refusal."""
+        return bool(self._base()) and bool(getattr(self.config, "sovereign_mode", True))
+
     def available(self) -> bool:
+        if self._refused_by_sovereign_mode():
+            return False
         return bool(self._base()) and _requests() is not None
 
     def supports(self, family: str) -> bool:
@@ -88,11 +132,29 @@ class _HttpSandboxEngine(Engine):
     def _timeout_deadline(self) -> float:
         return time.monotonic() + self.config.engine_timeout_seconds
 
+    def _sovereign_refusal(self) -> Report | None:
+        """A Report refusing to upload, or None if egress is permitted.
+
+        `available()` already keeps the agent from reaching this, so it is the
+        second lock on the same door — and the one that holds if a future caller
+        runs an engine it picked some other way. A door with one lock and a
+        promise on it is not what a sovereign deployment is buying.
+        """
+        if not self._refused_by_sovereign_mode():
+            return None
+        return Report.refused_sample(
+            self.name,
+            self.config.worker_name,
+            f"Sovereign mode is on: refused to upload this sample to {self.name} "
+            f"({self.destination}). No analysis data left this deployment.",
+        )
+
 
 class CuckooEngine(_HttpSandboxEngine):
     """Cuckoo Sandbox REST API (v2 style): /tasks/create/file, /tasks/report/{id}."""
 
     name = "cuckoo"
+    destination = "cuckoo"
 
     def _base(self) -> str:
         return self.config.cuckoo_url
@@ -103,6 +165,9 @@ class CuckooEngine(_HttpSandboxEngine):
         return {}
 
     def run(self, sample_path: str, sha256: str, family: str) -> Report:
+        refusal = self._sovereign_refusal()
+        if refusal is not None:
+            return refusal
         requests = _requests()
         if requests is None:
             return Report.unavailable(self.name, self.config.worker_name, "requests not installed")
@@ -194,6 +259,7 @@ class CapeV2Engine(_HttpSandboxEngine):
     """
 
     name = "capev2"
+    destination = "capev2"
 
     #: Terminal states. CAPE reports through several stages; only these two mean
     #: the JSON is on disk. ``completed`` means the machine finished but the
@@ -243,6 +309,9 @@ class CapeV2Engine(_HttpSandboxEngine):
         return payload.get("data", payload), None
 
     def run(self, sample_path: str, sha256: str, family: str) -> Report:
+        refusal = self._sovereign_refusal()
+        if refusal is not None:
+            return refusal
         requests = _requests()
         if requests is None:
             return Report.unavailable(self.name, self.config.worker_name, "requests not installed")
@@ -337,14 +406,20 @@ class JoeSandboxEngine(_HttpSandboxEngine):
     """Joe Sandbox Cloud/On-prem v2 API (jbxapi-style REST)."""
 
     name = "joe"
+    destination = "joesandbox"
 
     def _base(self) -> str:
         return self.config.joe_url
 
     def available(self) -> bool:
+        if self._refused_by_sovereign_mode():
+            return False
         return bool(self.config.joe_url and self.config.joe_apikey) and _requests() is not None
 
     def run(self, sample_path: str, sha256: str, family: str) -> Report:
+        refusal = self._sovereign_refusal()
+        if refusal is not None:
+            return refusal
         requests = _requests()
         if requests is None:
             return Report.unavailable(self.name, self.config.worker_name, "requests not installed")

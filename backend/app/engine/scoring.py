@@ -767,6 +767,10 @@ def assess(
     rules, rule_detail = rule_score(
         signals, family=family, dynamic_attributable=dynamic_attributable
     )
+    # The same three inputs `rule_score` just used, so the headline reasons below
+    # are ranked by what actually moved the number.
+    alone = uncorroborated(signals)
+    signed = publisher_verified(signals)
     features = extract_features(results, signals, ioc_total)
     ai, contributions = model_score(features)
     weights = get_weights()
@@ -789,9 +793,34 @@ def assess(
     #: The top three reasons, in the words the analyzers used. This is what the
     #: PDF's executive summary and the UI headline both read from, so there is
     #: exactly one answer to "why".
-    ranked = sorted(signals, key=lambda s: -SEVERITY_ORDER.get(s.severity, 0))
+    #:
+    #: RANKED BY THE SEVERITY THAT ACTUALLY SCORED, not the raw one. Sorting on
+    #: `s.severity` ignored all four demotions, so a signature-verified 7-Zip
+    #: installer whose rule score had already demoted `hardware_id_profiling` and
+    #: `reads_self` to `low` still printed them in the PDF as
+    #: "1. HIGH — Hardware ID profiling", in red, beside a `low` risk band and a
+    #: `clean` verdict. `verdict.py` fixed exactly this for `_worst` and
+    #: `_family_token`; the headline reasons were the third place it was wrong.
+    #: The reported severity is the effective one for the same reason.
+    ranked = sorted(
+        signals,
+        key=lambda s: -SEVERITY_ORDER.get(
+            effective_severity(
+                s, alone, verified_publisher=signed, family=family,
+                dynamic_attributable=dynamic_attributable,
+            ), 0
+        ),
+    )
     top = [
-        {"id": s.id, "title": s.title, "severity": s.severity, "detail": s.detail[:300]}
+        {
+            "id": s.id,
+            "title": s.title,
+            "severity": effective_severity(
+                s, alone, verified_publisher=signed, family=family,
+                dynamic_attributable=dynamic_attributable,
+            ),
+            "detail": s.detail[:300],
+        }
         for s in ranked[:3]
     ]
 
