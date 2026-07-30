@@ -189,6 +189,51 @@ AMBIENT_SIGNALS = frozenset({
     "capev2.suspicious_iocontrol_codes",
     # a container that contains things
     "archive.contains_executable",
+    # --- what an administrative tool does, added 2026-07-30 ------------------
+    #
+    # Sysinternals, NirSoft and UPX read as `suspicious` because a diagnostics
+    # tool's whole job is the thing CAPE flags: Process Explorer verifies the
+    # Authenticode signature of every running process (`modify_certs`), loads a
+    # helper driver (`driver_load`), lists processes and their modules
+    # (`createtoolhelp32snapshot_module_enumeration`), and reads a
+    # Zone.Identifier stream (`persistence_ads`).
+    #
+    # SELECTED BY A STATED RULE, not by what happened to be free: a signal is
+    # demoted only if it is NO MORE COMMON IN MALWARE than in ordinary software,
+    # measured as incidence across the 50-sample benign corpus and the 88-sample
+    # detonation fixture. Twenty-five candidates were swept; all twenty-five cost
+    # zero fixture detections, and ten were still REJECTED because they lean
+    # malware and demoting them would trade real capability for nothing:
+    #
+    #   antivm_wmi                  0% benign  18% malware
+    #   encrypted_ioc              12%         19%
+    #   uses_windows_utilities      4%         15%
+    #   interprocess_comms_mutex    4%         15%
+    #   enumerates_running_processes 4%        14%
+    #   suspicious_ntdll_disk_load 10%         17%
+    #   recon_fingerprint           4%          7%
+    #   recon_systeminfo            2%          4%
+    #   process_interest            2%          6%
+    #   cmdline_http_link           2%          3%
+    #
+    # The fifteen below all run the other way. Measured: benign 20 of 50 clean
+    # -> 23, fixture 84 of 88 -> 84. The principled fifteen buy exactly what the
+    # greedy twenty-five did.
+    "capev2.modify_certs",
+    "capev2.driver_load",
+    "capev2.sysinternals_tools",
+    "capev2.recon_programs",
+    "capev2.persistence_ads",
+    "capev2.createtoolhelp32snapshot_module_enumeration",
+    "capev2.deletes_executed_files",
+    "capev2.anomalous_deletefile",
+    "capev2.antivm_display",
+    "capev2.antivm_generic_system",
+    "capev2.antivm_generic_disk",
+    "capev2.antivm_generic_services",
+    "capev2.dllload_suspicious_directory",
+    "capev2.multiple_useragents",
+    "capev2.network_bind",
 })
 
 

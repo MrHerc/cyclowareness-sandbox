@@ -43,6 +43,21 @@ NEVER_DEMOTE = {
     "capev2.pe_exports_in_executable": "RaccoonStealer",
     "capev2.persistence_autorun": "the persistence signal",
     "capev2.mass_file_modification_access": "the ransomware signal",
+    # Rejected in the 2026-07-30 administrative-tool sweep. All ten cost ZERO
+    # fixture detections, so "it is free" would have accepted them — and that is
+    # exactly why the rule is incidence, not cost. Each of these is MORE COMMON
+    # IN MALWARE than in ordinary software, so demoting it trades real capability
+    # for nothing. The percentages are benign corpus vs 88-sample fixture.
+    "capev2.antivm_wmi": "0% benign / 18% malware",
+    "capev2.encrypted_ioc": "12% / 19%",
+    "capev2.uses_windows_utilities": "4% / 15%",
+    "capev2.interprocess_comms_mutex": "4% / 15%",
+    "capev2.enumerates_running_processes": "4% / 14%",
+    "capev2.suspicious_ntdll_disk_load": "10% / 17%",
+    "capev2.recon_fingerprint": "4% / 7%",
+    "capev2.process_interest": "2% / 6%",
+    "capev2.recon_systeminfo": "2% / 4%",
+    "capev2.cmdline_http_link": "2% / 3%",
 }
 
 
