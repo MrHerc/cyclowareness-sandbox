@@ -566,6 +566,22 @@ def reapply_to_ancestors(db: Session, job: SandboxJob) -> int:
     return updated
 
 
+def _stored_analysis(db: Session, job: SandboxJob) -> dict:
+    """The `analysis` column as it is IN THE DATABASE right now.
+
+    Not `job.analysis` -- that is the copy this session loaded, and the whole
+    point is to see a write another process made since. Read as its own
+    statement so nothing on the in-flight object is disturbed.
+    """
+    try:
+        value = db.execute(
+            select(SandboxJob.analysis).where(SandboxJob.id == job.id)
+        ).scalar_one_or_none()
+    except Exception:  # noqa: BLE001 — a merge that fails must not fail the run
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _descendants(db: Session, job: SandboxJob) -> list[SandboxJob]:
     """Every job below this one, at any depth.
 
@@ -971,7 +987,31 @@ def run(
                     "the worst thing it carries."
                 )
 
-        job.analysis = {r.analyzer: r.to_dict() for r in results}
+        # RE-READ BEFORE WRITING.
+        #
+        # `results` carries the dynamic entry as it was when this run STARTED.
+        # The worker posts reports independently, so a detonation that landed
+        # while this re-analysis was in flight is about to be overwritten by a
+        # map that predates it -- taking tiers.dynamic.ran back to false, losing
+        # the behavioural signals, and putting the job back in the queue.
+        #
+        # A merge rather than a lock, and no schema change: keep whichever
+        # dynamic entry RAN. A detonation only ever goes from "not run" to
+        # "ran", so preferring `ran` cannot discard evidence, and it does not
+        # need to know which write was newer.
+        fresh = _stored_analysis(db, job)
+        analysis = {r.analyzer: r.to_dict() for r in results}
+        for name, stored in fresh.items():
+            if not name.startswith("dynamic.") or not isinstance(stored, dict):
+                continue
+            mine = analysis.get(name)
+            if stored.get("ran") and not (isinstance(mine, dict) and mine.get("ran")):
+                analysis[name] = stored
+                logger.info(
+                    "kept a detonation that landed during re-analysis of %s (%s)",
+                    job.public_id, name,
+                )
+        job.analysis = analysis
         job.iocs = merged.to_dict()
         job.tiers = tiers
         job.score_breakdown = assessment.breakdown
