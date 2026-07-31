@@ -174,15 +174,36 @@ class VerdictResult:
         place that knows about children. It is recorded rather than silently
         applied: a reader has to be able to see that the word changed and why.
         """
+        category = _CATEGORY_FOR_VERDICT.get(verdict, self.category)
+        threat_name = ".".join(
+            [self.platform or "Generic", category or "Suspicious", self.family or "Gen"]
+        )
+        # AND THE ROWS MOVE WITH IT.
+        #
+        # `classify` stamps every row that reports a detection with the sample's
+        # name — that is its stated rule — and this method rebuilds the name
+        # without touching them. Measured on the live deployment, one panel
+        # carried both at once:
+        #
+        #     headline             Archive.Malware.PowershellDownloadCr
+        #     CS-archive-contents  Archive.Suspicious.PowershellDownloadCr
+        #
+        # Two names for one file, side by side. Only rows whose `result` IS the
+        # old name are restamped: a YARA row carries the matched rule's own
+        # description, which `classify` also leaves alone, and an `undetected`
+        # row is not reporting a name at all.
+        engines = [
+            {**row, "result": threat_name}
+            if row.get("result") == self.threat_name
+            else dict(row)
+            for row in self.engines
+        ]
         return replace(
             self,
             verdict=verdict,
-            category=_CATEGORY_FOR_VERDICT.get(verdict, self.category),
-            threat_name=".".join(
-                [self.platform or "Generic",
-                 _CATEGORY_FOR_VERDICT.get(verdict, self.category) or "Suspicious",
-                 self.family or "Gen"]
-            ),
+            category=category,
+            threat_name=threat_name,
+            engines=engines,
             raised_because=because[:300],
         )
 
