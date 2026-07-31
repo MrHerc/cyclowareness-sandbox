@@ -622,6 +622,14 @@ def _entropy_is_meaningful(sample: Sample, family: str) -> bool:
     # near 8 and says nothing about the document.
     if mime.startswith("application/vnd.openxmlformats"):
         return False
+    # A PDF is the same shape: Flate streams and embedded JPEG/JBIG2 images. Any
+    # substantial one sits near 8.00 whatever it contains. Measured across every
+    # PDF this deployment had analysed, the signal fired on five and all five
+    # were 7.93-7.98 -- NIST 800-53, NIST CSF, two malware-corpus samples and a
+    # clean addendum. It separated nothing, and it named the NIST publications
+    # `PDF.Trojan.HighEntropyOverall`.
+    if mime == "application/pdf" or family == "pdf":
+        return False
     return mime not in _ALREADY_COMPRESSED_MIMES
 
 
