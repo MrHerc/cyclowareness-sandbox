@@ -69,7 +69,19 @@ class Config:
     #: Hard wall-clock cap on a single detonation. An engine that exceeds this
     #: is killed and reported as ``ran=False`` (timed out) — a sample that hangs
     #: the worker must never hang the queue.
-    engine_timeout_seconds: int = 120
+    #:
+    #: 600, NOT 120. The old default was shorter than a detonation and therefore
+    #: guaranteed failure: measured on the reference host, CAPE task 4064 ran
+    #: 315 seconds (12:10:44 -> 12:15:59) and the worker had already given up at
+    #: 120 and filed `ran=False`. The sample detonated perfectly and the product
+    #: recorded nothing.
+    #:
+    #: The arithmetic was never going to work. CAPE's own cuckoo.conf sets
+    #: `default = 200` for the analysis and `vm_state = 300` for snapshot revert
+    #: and boot — 200 + revert + boot + processing does not fit in 120 under any
+    #: circumstances. 600 clears the observed 315 with headroom while still
+    #: bounding a wedged guest.
+    engine_timeout_seconds: int = 600
     #: How many jobs to claim per queue poll.
     queue_limit: int = 20
     #: How many detonations may be in flight at once.
@@ -82,6 +94,12 @@ class Config:
     #: and because the loop was strictly sequential before this existed: adding
     #: guests to the sandbox bought nothing at all, since the worker detonated
     #: one sample at a time regardless of how many machines were idle.
+    #:
+    #: It matters more now that the timeout is 600: at concurrency 1 a
+    #: ten-minute ceiling is six jobs an hour. Set it to the number of guests —
+    #: the reference cluster has three (cape1..cape3) — and no higher, because
+    #: CAPE queues anything beyond them and that only makes each task's
+    #: wall-clock look worse.
     max_concurrent_jobs: int = 1
     #: HTTP request timeout for talking to the backend (not the engine timeout).
     http_timeout_seconds: int = 30

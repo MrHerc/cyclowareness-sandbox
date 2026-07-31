@@ -102,7 +102,7 @@ All configuration is environment variables (see `config.py`):
 | `SANDBOX_API_URL` | no | `http://localhost:8000` | Backend base URL. |
 | `WORKER_NAME` | no | `cyclowareness-worker` | Identity stamped on every report. |
 | `POLL_INTERVAL_SECONDS` | no | `15` | Queue poll cadence. |
-| `ENGINE_TIMEOUT_SECONDS` | no | `120` | Hard wall-clock cap per detonation. |
+| `ENGINE_TIMEOUT_SECONDS` | no | `600` | Hard wall-clock cap per detonation. **Not 120** — CAPE's own analysis timeout is 200s and snapshot revert plus boot adds more; a real task measured 315s, so 120 guaranteed a timeout on a detonation that worked. |
 | `QUEUE_LIMIT` | no | `20` | Jobs claimed per poll. |
 | `FIREJAIL_BIN` / `STRACE_BIN` | no | `firejail` / `strace` | Native-engine tool paths. |
 | `NATIVE_SINKHOLE` | no | *(none)* | If set, native jails route to this sinkhole instead of `--net=none`. |
