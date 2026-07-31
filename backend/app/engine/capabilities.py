@@ -395,10 +395,35 @@ for _cap, _ids in CAPABILITY_SIGNALS.items():
         _BY_SIGNAL[_sid] = (*_BY_SIGNAL.get(_sid, ()), _cap)
 
 
+#: Tokens that say what a signal IS, so that the rest of the name says what it
+#: INSPECTED rather than what the sample can do.
+#:
+#: `antivm_network_adapters` enumerates adapters to spot a hypervisor;
+#: `antivm_generic_disk` reads the disk for the same reason. Neither is a
+#: capability to use the thing examined. Granting `network` for the first is
+#: what made a .bat running `whoami` and `ping` into `Batch.Downloader`.
+#:
+#: Measured across the 88-sample fixture: 23 ids carry one of these markers and
+#: exactly ONE granted a non-evasion capability — the adapters one, wrongly. So
+#: this costs nothing and is not a trade.
+#:
+#: `stealth` is deliberately NOT here. `stealth_network_connection` really is a
+#: connection, made quietly; the anti-* family is about LOOKING, and that is the
+#: distinction the rule rests on.
+_ANTI_ANALYSIS_MARKERS = frozenset({
+    "antivm", "antidebug", "antisandbox", "antianalysis", "antiemulation",
+    "antiav", "antidbg",
+})
+
+
 def _dynamic_capabilities(signal_id: str) -> tuple[str, ...]:
     """Capabilities for a behaviour signal produced by the dynamic tier."""
     tail = signal_id.split(".", 1)[1] if "." in signal_id else signal_id
     tokens = set(tail.split("_"))
+    if tokens & _ANTI_ANALYSIS_MARKERS:
+        # It is an anti-analysis check. The rest of the name is the subject of
+        # the check, not a capability.
+        return ("evasion",)
     found: list[str] = []
     for cap, keys in _DYNAMIC_TOKENS.items():
         for key in keys:

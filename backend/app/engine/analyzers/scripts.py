@@ -226,7 +226,19 @@ _DETECTORS: tuple[_Detector, ...] = (
         _p(
             ("schtasks", r"\bschtasks(?:\.exe)?\b"),
             ("Register-ScheduledTask", r"\b(?:register|new)-scheduledtask\b"),
-            ("Run/RunOnce registry key", r"currentversion\\run(?:once)?"),
+            # NO PATTERN FOR THE RUN KEY ITSELF. `reg query HKCU\...\Run`
+            # READS it, which is discovery; writing it is persistence, and
+            # the same string appears either way. Measured on a harmless
+            # .bat that only queried it and was accused of
+            # `Batch.Downloader.Persistence`.
+            #
+            # A first attempt kept the key and demanded a nearby `/v`, and a
+            # test caught that `reg query ... /v Foo` names a value on a read
+            # too. Nothing about the key distinguishes the two, so the key
+            # alone no longer fires. `reg add` and the `*-ItemProperty`
+            # patterns below catch the ordinary writes; `reg import` is the
+            # one they genuinely miss.
+            ("reg import", r"\breg(?:\.exe)?\s+import\b"),
             ("reg add", r"\breg(?:\.exe)?\s+add\b"),
             ("New-ItemProperty registry write", r"\bnew-itemproperty\b|\bset-itemproperty\b"),
             ("WMI event subscription", r"__eventfilter|commandlineeventconsumer|__filtertoconsumerbinding|register-wmievent|set-wmiinstance"),
