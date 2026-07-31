@@ -404,13 +404,17 @@ class CapeV2Engine(_HttpSandboxEngine):
             data = self._poll(requests, base, task_id, report)
             if data is None:
                 report.duration_ms = int((time.monotonic() - started) * 1000)
-                return Report.unavailable(
-                    self.name,
-                    self.config.worker_name,
+                reason = (
                     report.facts.get("cape_failure")
                     or f"CAPE task {task_id} did not report within "
-                    f"{self.config.engine_timeout_seconds}s",
+                    f"{self.config.engine_timeout_seconds}s"
                 )
+                # NEVER GOT A MACHINE => NEVER WILL. Re-offering it is the
+                # infinite re-detonation loop the `refused` marker exists to
+                # close; see `_task_never_started`.
+                if report.facts.pop("cape_unserviceable", False):
+                    return Report.refused_sample(self.name, self.config.worker_name, reason)
+                return Report.unavailable(self.name, self.config.worker_name, reason)
         except Exception as exc:  # network / HTTP / JSON
             return Report.unavailable(
                 self.name, self.config.worker_name, f"CAPE error: {type(exc).__name__}: {exc}"
@@ -420,6 +424,32 @@ class CapeV2Engine(_HttpSandboxEngine):
         report.ran = True
         _normalise_cuckoo(data, report, prefix="capev2")
         return report
+
+    def _task_never_started(self, requests, base: str, task_id) -> bool:
+        """Did this task fail without ever being handed a machine?
+
+        CAPE fails a task instantly when no guest matches its tags — the ARM64
+        Sysinternals builds are tagged `arm` and this cluster has only Windows
+        x64 guests. Its own record is unambiguous:
+
+            unserviceable  machine=null   started_on=null
+            really ran     machine=cape1  started_on=<timestamp>
+
+        Errs toward FALSE: if the probe cannot answer, the failure stays
+        transient and the job is retried, which is the harmless direction.
+        """
+        try:
+            view = requests.get(
+                f"{base}/tasks/view/{task_id}/",
+                headers=self._headers(),
+                timeout=self.config.http_timeout_seconds,
+            )
+            task, _err = self._unwrap(view.json())
+        except Exception:
+            return False
+        if not isinstance(task, dict):
+            return False
+        return not task.get("machine") and not task.get("started_on")
 
     def _poll(self, requests, base: str, task_id, report: Report) -> dict | None:
         deadline = self._timeout_deadline()
@@ -440,6 +470,14 @@ class CapeV2Engine(_HttpSandboxEngine):
 
             if status in self._FAILED:
                 report.facts["cape_failure"] = f"CAPE task {task_id} ended as {status}"
+                if self._task_never_started(requests, base, task_id):
+                    report.facts["cape_unserviceable"] = True
+                    report.facts["cape_failure"] = (
+                        f"CAPE task {task_id} ended as {status} without ever being "
+                        f"given an analysis machine — no guest on that cluster can "
+                        f"run this sample (architecture or platform mismatch). "
+                        f"Re-offering it would fail identically."
+                    )
                 return None
             if status in self._DONE:
                 rep = requests.get(
