@@ -189,6 +189,24 @@ def _iso(value: datetime) -> str:
     return value.isoformat(timespec="microseconds")
 
 
+def _column(value: str | None, limit: int) -> str:
+    """Clip a caller-influenced string to its column, and strip what PostgreSQL
+    will not take.
+
+    A NUL inside a text parameter makes the driver raise before the statement is
+    sent. `record()` never fails the caller's operation -- an audit table must
+    not become an outage -- so such a write was logged, counted and dropped, and
+    the ACTION went unrecorded. On `/api/auth/login` that is reachable without
+    any credential at all: one byte in the username and the failed attempt
+    leaves no row in the chain of custody.
+
+    Every column here is caller-influenced somewhere, so the guard lives in one
+    place rather than at each call site. `detail` has had `_sanitise` all along;
+    the scalars had nothing.
+    """
+    return (value or "").replace("\x00", "")[:limit]
+
+
 def _sanitise(detail: dict[str, Any] | None) -> dict[str, Any]:
     """JSON-safe, secret-free detail.
 
@@ -322,13 +340,13 @@ def record(
             prev_hash = _tail_hash(db)
             event = AuditEvent(
                 occurred_at=occurred_at,
-                tenant_id=(tenant or "default")[:64],
-                actor=actor[:128],
-                actor_method=actor_method[:16],
-                action=action[:64],
-                object_type=object_type[:32],
-                object_id=object_id[:128],
-                source_ip=(source_ip or None),
+                tenant_id=_column(tenant or "default", 64),
+                actor=_column(actor, 128),
+                actor_method=_column(actor_method, 16),
+                action=_column(action, 64),
+                object_type=_column(object_type, 32),
+                object_id=_column(object_id, 128),
+                source_ip=_column(source_ip, 45) or None,
                 outcome=outcome,
                 detail=clean,
                 prev_hash=prev_hash,

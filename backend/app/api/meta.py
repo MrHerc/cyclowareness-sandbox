@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from .. import metrics, retention, sovereignty
-from ..auth import _secure_equals, require_analyst
+from ..auth import _secure_equals, require_admin, require_analyst
 from ..config import get_settings
 from ..db import session_scope
 from ..engine import native
@@ -149,13 +149,19 @@ def capabilities():
 
 
 @router.get("/api/sovereignty/refusals")
-def sovereignty_refusals(_identity=Depends(require_analyst)):
+def sovereignty_refusals(_identity=Depends(require_admin)):
     """The refusals in full, with what each one was — for the operator.
 
     Split off `/api/capabilities` because the two answer different questions to
     different readers. "How many did you refuse" is a posture a prospect may
     read; "which URLs and which sample hashes" is analysis data belonging to the
     deployment.
+
+    `require_admin`, not `require_analyst`. An API key satisfies the latter, and
+    the refusal records carry no tenant -- so one tenant's submit-only key was
+    reading the URLs and sample hashes of every other tenant on the deployment.
+    The docstring above already names the right reader: the operator. That is
+    what `require_admin` means here, exactly as it does for `/api/admin/*`.
     """
     return sovereignty.refusals(include_detail=True)
 
