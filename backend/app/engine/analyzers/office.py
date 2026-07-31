@@ -269,7 +269,12 @@ _RE_ASC = re.compile(r"\basc[bw]?\s*\(", re.IGNORECASE)
 _RE_HEXLIT = re.compile(r"&h[0-9a-f]{2}\b", re.IGNORECASE)
 _RE_CONCAT = re.compile(r"[\"']\s*[&+]\s*[\"']")
 _RE_XOR = re.compile(r"\bxor\b", re.IGNORECASE)
-_RE_B64WORD = re.compile(r"base64|frombase64|msxml2\.domdocument|bin\.base64", re.IGNORECASE)
+#: `msxml2.domdocument` was here. Instantiating the standard MSXML DOM parser
+#: is how a VBA macro reads XML -- it is not a decoding routine, and naming it
+#: made every macro that touches XML "base64 decoding". What DOES indicate
+#: decoding is the node dataType, `bin.base64`, which is listed beside it and
+#: is what a real decoder sets.
+_RE_B64WORD = re.compile(r"base64|frombase64|bin\.base64", re.IGNORECASE)
 _RE_B64BLOB = re.compile(r"[A-Za-z0-9+/]{40,}={0,2}")
 _RE_LONGLINE = 600
 
@@ -316,7 +321,26 @@ _TLDS = (
     "au|nz|mx|ar|cl|ca|xyz|top|club|online|site|shop|store|live|link|fun|icu|dev|app|zip|"
     "mov|cloud|space|website|pw|tk|ml|ga|cf|gq|to|st|sh|is|am|fm|gg|vip|work|life|world"
 )
-_RE_DOMAIN = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9.-]{0,80}\.(?:" + _TLDS + r")\b")
+#: THE SAME MEASURED DENIAL OF SERVICE scripts.py already fixed.
+#:
+#: This was `\b[a-zA-Z0-9][a-zA-Z0-9.-]{0,80}\.(?:<100 TLDs>)\b`, whose label
+#: class INCLUDES the dot the following `\.` must then match: every start
+#: position backtracks through up to 81 lengths and retries the 100-branch
+#: alternation at every dot it lands on. An OOXML file is a ZIP of XML and XML
+#: is nothing but dotted names, so a crafted .docx is a CPU bill.
+#:
+#: Fixed the way `scripts._RE_DOMAIN` and `generic._DOMAIN_TOKEN_RE` already
+#: are: the dot leaves the label class, each label is bounded on its own, and
+#: lookarounds replace `\b` so there is exactly one way to match at any
+#: position. Linear, and it finds every domain the old one found.
+_RE_DOMAIN = re.compile(
+    r"(?<![A-Za-z0-9._-])"
+    r"[A-Za-z0-9][A-Za-z0-9-]{0,62}"
+    r"(?:\.[A-Za-z0-9][A-Za-z0-9-]{0,62})*"
+    r"\.(?:" + _TLDS + r")"
+    r"(?![A-Za-z0-9-])",
+    re.IGNORECASE,
+)
 
 #: Hosts a benign OOXML package always contains — never emitted as indicators.
 _HOST_NOISE = frozenset({
