@@ -357,6 +357,23 @@ const CHANNEL_LABELS: Record<string, string> = {
   archive_member: 'From archive',
 }
 
+/**
+ * The provenance of a job, as the backend actually recorded it.
+ *
+ * JobDetail used to print `job.source === 'url' ? 'From URL' : 'Uploaded'`,
+ * which states a provenance the backend never claimed: 877 of the 1451 jobs on
+ * the live deployment are `archive_member` — a file extracted from a submitted
+ * archive, not something anyone uploaded. That is 60% of the evidence in the
+ * system carrying a false origin, on a product whose exports feed a NIS2/DORA
+ * incident record, where provenance is the point.
+ *
+ * `CHANNEL_LABELS` already held the right words. Nothing read them.
+ */
+export function sourceLabel(value: string | null | undefined): string {
+  if (!value) return 'Unknown origin'
+  return CHANNEL_LABELS[value] ?? humanise(value)
+}
+
 function humanise(value: string): string {
   return CHANNEL_LABELS[value] ?? value.replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase())
 }

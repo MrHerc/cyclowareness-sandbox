@@ -135,7 +135,10 @@ export function Dashboard() {
           label="Needs attention"
           value={attention}
           tone={attention ? 'warning' : 'neutral'}
-          caption="malicious or suspicious"
+          // Not only those two: the API also counts a completed job that
+          // scored at or above the attention floor without reaching a verdict.
+          // Excluding it would hide the "could not classify, looks bad" case.
+          caption="flagged or unclassified above the floor"
           i={2}
         />
         <StatTile label="Analysing now" value={running} tone={running ? 'brand' : 'neutral'} caption="in the queue" i={3} />

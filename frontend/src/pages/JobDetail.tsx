@@ -26,6 +26,7 @@ import {
   StaleNotice,
   Status,
   cx,
+  sourceLabel,
   timeAgo,
 } from '../components/ui'
 import { ScoreGauge } from '../components/ScoreGauge'
@@ -214,7 +215,7 @@ export function JobDetail() {
         <span>{familyLabel(job.family)}</span>
         <span>{formatBytes(job.size_bytes)}</span>
         <span>{job.mime || 'unknown type'}</span>
-        <span>{job.source === 'url' ? 'From URL' : 'Uploaded'}</span>
+        <span>{sourceLabel(job.source)}</span>
         <span>Submitted {timeAgo(job.created_at)}</span>
         {job.submitted_by && <span>by {job.submitted_by}</span>}
       </div>
