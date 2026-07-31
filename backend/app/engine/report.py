@@ -100,7 +100,20 @@ def _duration_ms(job) -> int | None:
 #: What goes is the machine. An operator who needs to know which worker ran a
 #: job still sees it in the interface, on `/api/result`, inside their own
 #: deployment.
-_INFRASTRUCTURE_KEYS = ("worker", "hostname", "host", "worker_host", "machine", "guest_ip")
+#: Removed from every dict in the payload.
+#:
+#: `machine` is NOT here, and that is the point. `pe.py` and `elf.py` both
+#: use `facts["machine"]` for the sample's target ARCHITECTURE -- AMD64,
+#: x86-64, ARM64 -- so a blanket removal deleted a fact about the SAMPLE
+#: from export.json and from the signed evidence, because it shares a name
+#: with a fact about the infrastructure. Architecture is not incidental
+#: here: ARM64 is why CAPE had no matching guest for eleven samples, and it
+#: is the first thing an analyst checks when a detonation produced nothing.
+_INFRASTRUCTURE_KEYS = ("worker", "hostname", "host", "worker_host", "guest_ip")
+
+#: Removed only from the DYNAMIC tier, where `machine` means "which of our
+#: guests ran this" rather than "what this binary was built for".
+_DYNAMIC_ONLY_KEYS = ("machine",)
 
 
 def _infrastructure_names(job) -> tuple[str, ...]:
@@ -120,15 +133,18 @@ def _infrastructure_names(job) -> tuple[str, ...]:
     return tuple(dict.fromkeys(names))
 
 
-def _without_infrastructure(value: Any, names: tuple[str, ...] = ()) -> Any:
+def _without_infrastructure(
+    value: Any, names: tuple[str, ...] = (), *, extra_keys: tuple[str, ...] = ()
+) -> Any:
+    drop = _INFRASTRUCTURE_KEYS + extra_keys
     if isinstance(value, dict):
         return {
-            k: _without_infrastructure(v, names)
+            k: _without_infrastructure(v, names, extra_keys=extra_keys)
             for k, v in value.items()
-            if k not in _INFRASTRUCTURE_KEYS
+            if k not in drop
         }
     if isinstance(value, list):
-        return [_without_infrastructure(v, names) for v in value]
+        return [_without_infrastructure(v, names, extra_keys=extra_keys) for v in value]
     if isinstance(value, str) and names:
         # Key-based removal cannot reach a hostname built into a SENTENCE, and
         # one was: "Detonated on the capev2 worker (detonation-01)." The
@@ -411,10 +427,25 @@ def as_json(job) -> dict:
             getattr(job, "score_breakdown", None) or {}, _own_names
         ),
         "signals": _all_signals(job),
-        "analyzers": _without_infrastructure(_analysis(job), _own_names),
+        # Per analyzer, because `machine` means two different things.
+        # In `dynamic.*` it is which of OUR guests ran the sample; in `pe`
+        # and `elf` it is the sample's own target architecture, and
+        # deleting that from the evidence loses the first thing an analyst
+        # checks when a detonation produced nothing.
+        "analyzers": {
+            name: _without_infrastructure(
+                payload, _own_names,
+                extra_keys=_DYNAMIC_ONLY_KEYS if name.startswith("dynamic.") else (),
+            )
+            for name, payload in _analysis(job).items()
+        },
         "iocs": getattr(job, "iocs", None) or {},
-        "tiers": _without_infrastructure(getattr(job, "tiers", None) or {}, _own_names),
-        "tiers_summary": _without_infrastructure(_tiers_summary(job), _own_names),
+        # The tiers are where `machine` means one of OUR guests.
+        "tiers": _without_infrastructure(
+            getattr(job, "tiers", None) or {}, _own_names,
+            extra_keys=_DYNAMIC_ONLY_KEYS),
+        "tiers_summary": _without_infrastructure(
+            _tiers_summary(job), _own_names, extra_keys=_DYNAMIC_ONLY_KEYS),
         "top_reasons": _top_reasons(job),
         "archive_tree": _archive_tree(job),
         # WHEN, not just what.
@@ -649,10 +680,15 @@ def as_stix(job) -> dict:
     # A bundle is ingested by a machine and then read by a person deciding what
     # to act on, and neither could see that a tier had not run. The blind spot is
     # part of the assessment, so it travels with it.
+    # SCRUBBED, like every other export. This one built the Note from a raw
+    # `_tiers_summary`, so the detonation host's name travelled in the
+    # export most likely to be handed to a third party.
     tier_lines = [
         f"{t['tier']}: {'ran' if t.get('ran') else 'did not run'}"
         + (f" - {t['detail']}" if t.get("detail") else "")
-        for t in _tiers_summary(job)
+        for t in _without_infrastructure(
+            _tiers_summary(job), _infrastructure_names(job),
+            extra_keys=_DYNAMIC_ONLY_KEYS)
     ]
     objects.append(
         stix2.Note(
