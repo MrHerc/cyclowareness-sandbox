@@ -74,6 +74,34 @@ class _ChildBudget:
     expansion: archives.ExpansionBudget = field(default_factory=archives.ExpansionBudget)
 
 
+def db_text(value: str | None, limit: int) -> str | None:
+    """Make a caller-supplied string storable, and short enough for its column.
+
+    PostgreSQL will not accept a NUL inside a text parameter -- the driver raises
+    `ValueError` before the statement is ever sent -- so a NUL anywhere a caller
+    can reach is a 500 rather than a validation error. `?status=%00` was one of
+    these, the job-id path parameter was six more, and reproducing it against the
+    live deployment found two writes still open:
+
+        POST /api/analyze              filename with a NUL  -> 500
+        POST /api/jobs/{id}/feedback   note with a NUL      -> 500
+
+    The suite runs on SQLite, which stores a NUL happily, so none of it failed a
+    test.
+
+    Stripped, not refused. This is an analysis product: declining to analyse a
+    sample because its NAME is odd would hand an attacker a single byte that
+    avoids inspection altogether. The bytes are the evidence; the name is
+    metadata.
+
+    Only NUL. Other control characters store fine and removing them would alter
+    evidence -- a submitted filename really can contain a tab.
+    """
+    if value is None:
+        return None
+    return value.replace("\x00", "")[:limit]
+
+
 def new_job(
     db: Session,
     stored: StoredSample,
@@ -103,10 +131,12 @@ def new_job(
         )
     job = SandboxJob(
         public_id=str(uuid.uuid4()),
-        tenant_id=owner[:64],
+        tenant_id=db_text(owner, 64),
         source=source,
-        submitted_by=submitted_by,
-        original_name=original_name[:512],
+        # `submitted_by` is String(64) and was the only one of the three
+        # not clipped, so a tenant name over 53 characters overflowed it.
+        submitted_by=db_text(submitted_by, 64),
+        original_name=db_text(original_name, 512) or "",
         submitted_url=submitted_url,
         sha256=stored.sha256,
         md5=stored.md5,

@@ -636,7 +636,8 @@ def submit_feedback(
         )
     job = _job_or_404(db, public_id, identity)
     job.feedback = payload.verdict
-    job.feedback_note = (payload.note or "")[:2000] or None
+    # A NUL here was a 500: the note goes straight into a TEXT column.
+    job.feedback_note = pipeline.db_text(payload.note or "", 2000) or None
     db.commit()
     _trace(request, identity, audit.AuditAction.FEEDBACK_RECORDED, public_id=job.public_id,
            detail={"verdict": payload.verdict})
