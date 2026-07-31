@@ -225,14 +225,34 @@ def _signals(
         )
 
     if counts["open_action"] or counts["additional_actions"]:
+        # An /OpenAction that runs script is not the one that sets the initial
+        # zoom, and the difference is already in this signal's own evidence. On
+        # its own the entry is ordinary -- it is how "open at page 1, fit width"
+        # is stored -- and it fired on both NIST publications while catching
+        # nothing: of 40 real malicious PDFs it appeared on 7, and every one of
+        # those that was flagged also carried `pdf.javascript`. So it accuses
+        # only in the company of script, and otherwise stays a visible
+        # observation at `info`, which weighs 0.0 and asserts no capability.
+        with_script = bool(js_total)
         out.append(
             Signal(
                 id="pdf.open_action",
-                title="Action fires when the document is opened",
-                severity="medium",
+                title=(
+                    "Action fires when the document is opened"
+                    if with_script
+                    else "Document sets an action to run when opened"
+                ),
+                severity="medium" if with_script else "info",
                 detail=(
                     f"/OpenAction x{counts['open_action']}, /AA x{counts['additional_actions']}. "
-                    "These run without the reader clicking anything."
+                    + (
+                        "These run without the reader clicking anything, and this "
+                        "document also contains JavaScript."
+                        if with_script
+                        else "These run without the reader clicking anything. Ordinary "
+                        "documents use this to set the opening page and zoom; with no "
+                        "script present it is recorded, not counted against the file."
+                    )
                 ),
                 evidence={
                     "open_action": counts["open_action"],
@@ -330,12 +350,18 @@ def _signals(
         out.append(
             Signal(
                 id="pdf.object_stream_obfuscation",
-                title="Document structure hidden in object streams",
-                severity="low",
+                title="Document structure held in object streams",
+                # Its own detail said modern writers do this legitimately, and
+                # then charged `low` for it anyway. Measured over 40 real
+                # malicious PDFs it appeared on 8 and independently caught none,
+                # while firing on both NIST publications. `info` keeps the
+                # observation and drops the accusation.
+                severity="info",
                 detail=(
                     f"{objstm} /ObjStm container(s) against {structure['visible_obj']} directly "
-                    "visible object(s). Modern writers compress this way legitimately, but it also "
-                    "hides dictionaries from any scanner that does not inflate them."
+                    "visible object(s). Modern writers compress this way as a matter of course, "
+                    "so this is context: it tells you a scanner that does not inflate streams "
+                    "would not have seen those dictionaries. This one does."
                 ),
                 evidence={
                     "object_streams": objstm,
