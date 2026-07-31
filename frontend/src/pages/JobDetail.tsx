@@ -368,8 +368,17 @@ export function JobDetail() {
                     <div key={`${e.engine}-${i}`} className="flex items-center justify-between gap-3 py-2">
                       <span className="tech min-w-0 flex-1 truncate text-c2">{e.engine}</span>
                       {e.detected ? (
-                        <span className="flex shrink-0 items-center gap-2">
-                          <span className="text-sm font-medium text-c1">{e.result}</span>
+                        /* NOT `shrink-0` on the pair. A YARA row's result is the
+                           matched rule's description, which is wider than a phone;
+                           with the pair unable to shrink, the row grew past the
+                           viewport and pushed the whole page sideways — measured,
+                           108px of overflow at 375px. The chip keeps `shrink-0`
+                           because it is short and it is what the column is
+                           scanned for; the sentence is what yields. */
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="min-w-0 truncate text-sm font-medium text-c1" title={e.result}>
+                            {e.result}
+                          </span>
                           <Chip tone={SEVERITY_TONE[e.severity] ?? 'neutral'}>{e.severity}</Chip>
                         </span>
                       ) : (
