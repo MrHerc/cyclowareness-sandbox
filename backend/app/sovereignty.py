@@ -35,6 +35,14 @@ Three properties make this auditable rather than decorative:
 on is a guarantee that fails on the day someone forgets. The deployment that
 wants enrichment opts out explicitly with ``SOVEREIGN_MODE=false``.
 
+**A destination name cannot answer the question on its own.** `capev2` is an
+upload to somebody else's cluster or a loopback call, depending entirely on the
+URL — and the reference deployment runs CAPE at ``http://127.0.0.1:8000``.
+:func:`check` therefore takes an optional ``url`` and permits a destination that
+is inside this deployment; see :func:`destination_is_internal`, which does NOT
+resolve hostnames and so errs toward refusing. Callers with no URL are unchanged:
+the name alone still decides and still fails closed.
+
 **The one exception.** Submitting a URL for analysis *is* a request to fetch it,
 so the URL fetcher is not an exfiltration path — the operator chose the
 destination. It is still separately controllable
@@ -118,15 +126,74 @@ def allowed(destination: str) -> bool:
     return False
 
 
-def check(destination: str, *, detail: str = "") -> None:
+
+
+#: Hosts that are this machine by name. Not resolved — see `destination_is_internal`.
+_LOCAL_NAMES = ("localhost",)
+
+
+def _host_of(url: str) -> str:
+    """The bare host of a URL, without scheme, userinfo, port or path."""
+    host = (url or "").strip()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0].split("?", 1)[0]
+    host = host.rsplit("@", 1)[-1]          # userinfo
+    if host.startswith("["):                # [2001:db8::1]:8000
+        return host[1:].split("]", 1)[0]
+    if host.count(":") == 1:                # host:port
+        host = host.split(":", 1)[0]
+    return host.strip().lower()
+
+
+def destination_is_internal(url: str) -> bool:
+    """Is this URL inside the deployment, so that reaching it is not egress?
+
+    A DESTINATION NAME alone cannot answer "does data leave the building" —
+    `capev2` is an upload to another machine or a loopback call depending
+    entirely on the URL. Enforcing on the name alone refused
+    `CAPEV2_URL=http://127.0.0.1:8000`, where CAPE runs on the very same host,
+    and would have stopped the dynamic tier on the reference deployment the next
+    time its worker restarted.
+
+    A HOSTNAME IS NOT RESOLVED, deliberately. Resolution is itself a network
+    call, the answer can differ between this check and the actual request, and a
+    name that points somewhere private today can point anywhere tomorrow. Only a
+    literal private/loopback/link-local address, or `localhost`, counts as
+    internal; everything else is external, which is the direction that refuses.
+    """
+    import ipaddress
+
+    host = _host_of(url)
+    if not host:
+        return False
+    if host in _LOCAL_NAMES or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(address.is_loopback or address.is_private or address.is_link_local)
+
+
+
+def check(destination: str, *, detail: str = "", url: str = "") -> None:
     """Permit the call, or refuse it loudly.
 
     Raises :class:`OutboundRefused` when sovereign mode forbids ``destination``.
     An unknown destination is refused too: a new integration that has not been
     added to :data:`DESTINATIONS` must fail closed, because the alternative is a
     data path nobody declared.
+
+    ``url`` is the address about to be contacted, when the caller has one. A
+    destination inside this deployment — loopback, or this machine's own private
+    network — is not egress, and refusing it stopped nothing from leaving while
+    breaking the dynamic tier. Callers without a URL are unchanged: the name
+    alone still decides, and still fails closed.
     """
     if allowed(destination):
+        return
+    if url and destination != URL_FETCH and destination_is_internal(url):
         return
 
     known = DESTINATIONS.get(destination, "undeclared destination")

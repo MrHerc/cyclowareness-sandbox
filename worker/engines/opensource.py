@@ -64,6 +64,49 @@ def _requests():
         return None
 
 
+#: Hosts that are this machine by name. Not resolved — see `_is_internal`.
+_LOCAL_NAMES = ("localhost",)
+
+
+def _host_of(url: str) -> str:
+    """The bare host of a URL, without scheme, userinfo, port or path."""
+    host = (url or "").strip()
+    if "://" in host:
+        host = host.split("://", 1)[1]
+    host = host.split("/", 1)[0].split("?", 1)[0]
+    host = host.rsplit("@", 1)[-1]
+    if host.startswith("["):
+        return host[1:].split("]", 1)[0]
+    if host.count(":") == 1:
+        host = host.split(":", 1)[0]
+    return host.strip().lower()
+
+
+def _is_internal(url: str) -> bool:
+    """Is this URL inside the deployment, so that reaching it is not egress?
+
+    MUST match `app/sovereignty.destination_is_internal` exactly — the two
+    processes share no code, and `test_the_worker_keeps_the_same_promise.py`
+    asserts they agree on a table of cases.
+
+    A hostname is NOT resolved: resolution is a network call, its answer can
+    change between the check and the use, and a name that points somewhere
+    private today can point anywhere tomorrow.
+    """
+    import ipaddress
+
+    host = _host_of(url)
+    if not host:
+        return False
+    if host in _LOCAL_NAMES or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(address.is_loopback or address.is_private or address.is_link_local)
+
+
 def _severity_from_score(score: float) -> str:
     if score >= 8:
         return "critical"
@@ -117,8 +160,21 @@ class _HttpSandboxEngine(Engine):
         return None
 
     def _refused_by_sovereign_mode(self) -> bool:
-        """Configured, and forbidden. Not configured is not a refusal."""
-        return bool(self._base()) and bool(getattr(self.config, "sovereign_mode", True))
+        """Configured, forbidden, and actually off this machine.
+
+        A destination inside the deployment is not egress. The reference
+        deployment runs CAPE at `http://127.0.0.1:8000` — the same host — and
+        blocking that stopped nothing from leaving while disabling the whole
+        dynamic tier. `_is_internal` is the same rule the web service applies in
+        `app/sovereignty.destination_is_internal`, and a test pins the two to the
+        same answers.
+        """
+        base = self._base()
+        if not base:
+            return False
+        if not bool(getattr(self.config, "sovereign_mode", True)):
+            return False
+        return not _is_internal(base)
 
     def available(self) -> bool:
         if self._refused_by_sovereign_mode():

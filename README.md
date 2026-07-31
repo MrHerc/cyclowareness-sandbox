@@ -147,9 +147,11 @@ on a given deployment, and the **Integrations** page renders the matrix.
 | Joe Sandbox | open-source sandbox | dynamic | `JOE_URL` **and** `JOE_API_KEY`, on the **worker** † |
 | VirusTotal | threat intel | static | `VT_API_KEY` |
 
-† These three upload the sample file to another host, so **`SOVEREIGN_MODE`
-(default on) blocks them** — on the worker as well as on the web service, which
-are separate processes reading the same variable. Their credentials also live in
+† These three upload the sample file to wherever their URL points, so
+**`SOVEREIGN_MODE` (default on) blocks them** — on the worker as well as on the
+web service, which are separate processes reading the same variable. A
+destination inside the deployment (`127.0.0.1`, `localhost`, this machine's own
+private network) is not egress and is not blocked. Their credentials also live in
 the worker's environment, while `/api/capabilities` can only read the web
 service's; each such row says so rather than presenting a reading of the wrong
 machine as a fact.

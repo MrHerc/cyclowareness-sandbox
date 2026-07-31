@@ -31,10 +31,15 @@ from ... import sovereignty
 _DEFAULT_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
-def _refusal(destination: str, filename: str) -> dict | None:
-    """``None`` when the call may proceed, else the refusal to return as-is."""
+def _refusal(destination: str, filename: str, base_url: str = "") -> dict | None:
+    """``None`` when the call may proceed, else the refusal to return as-is.
+
+    ``base_url`` is passed on so the choke point can see that a destination is
+    inside this deployment. `CAPEV2_URL=http://127.0.0.1:8000` is CAPE on this
+    very machine; refusing that as egress stopped nothing from leaving.
+    """
     try:
-        sovereignty.check(destination, detail=f"would upload {filename!r}")
+        sovereignty.check(destination, detail=f"would upload {filename!r}", url=base_url)
     except sovereignty.OutboundRefused as refused:
         return {"ok": False, "error": "sovereign_mode_refused", "refusal": refused.reason}
     return None
@@ -54,7 +59,7 @@ def cuckoo_submit(base_url: str, token: str, file_bytes: bytes,
     """
     if not base_url or not token:
         return {"ok": False, "error": "cuckoo not configured"}
-    refused = _refusal("cuckoo", filename)
+    refused = _refusal("cuckoo", filename, base_url)
     if refused:
         return refused
 
@@ -90,7 +95,7 @@ def capev2_submit(base_url: str, token: str, file_bytes: bytes,
     """
     if not base_url or not token:
         return {"ok": False, "error": "capev2 not configured"}
-    refused = _refusal("capev2", filename)
+    refused = _refusal("capev2", filename, base_url)
     if refused:
         return refused
 
@@ -131,7 +136,7 @@ def strelka_scan(base_url: str, file_bytes: bytes,
     """
     if not base_url:
         return {"ok": False, "error": "strelka not configured"}
-    refused = _refusal("strelka", filename)
+    refused = _refusal("strelka", filename, base_url)
     if refused:
         return refused
 

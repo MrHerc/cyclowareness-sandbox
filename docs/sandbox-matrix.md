@@ -69,9 +69,16 @@ Two kinds of "configured", deliberately distinguished in
 
 ### Sovereign mode blocks all three of them
 
-`SOVEREIGN_MODE` defaults **on**, and Cuckoo, CAPEv2 and Joe all upload the sample
-file to another host. With it on they are unavailable regardless of credentials,
-and the worker says so once at startup naming the variable.
+`SOVEREIGN_MODE` defaults **on**, and Cuckoo, CAPEv2 and Joe upload the sample
+file to whatever their URL names. With it on they are unavailable regardless of
+credentials, and the worker says so once at startup naming the variable.
+
+A destination **inside this deployment is not egress** and is not blocked: `http://127.0.0.1:8000`, `localhost`, or a private address on this machine's own network. The reference deployment runs CAPE at `127.0.0.1:8000`, and refusing that stopped nothing from leaving while disabling the whole dynamic tier. A HOSTNAME is never resolved — only a literal loopback/private/link-local address counts as internal, because a name that resolves privately today can resolve anywhere tomorrow.
+
+That last point is why `/api/capabilities` can show `capev2` as Blocked while the
+worker detonates happily: the web service does not know the worker's
+`CAPEV2_URL`, so it answers on the destination name alone. Each worker-run row
+carries `configured_on_worker` and a caveat saying so.
 
 This needs the switch set on **both** processes. The web service's choke point
 (`app/sovereignty.py`) governs the web service; the worker is a separate program

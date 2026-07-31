@@ -86,7 +86,9 @@ are silently skipped, never forced.
 
 The last three hand the whole sample file to a service on another host, so
 sovereign mode — which is **on by default** — makes them unavailable whatever
-credentials are set. The worker prints the reason once at startup, naming the
+credentials are set.
+
+A destination **inside this deployment is not egress** and is not blocked: `http://127.0.0.1:8000`, `localhost`, or a private address on this machine's own network. The reference deployment runs CAPE at `127.0.0.1:8000`, and refusing that stopped nothing from leaving while disabling the whole dynamic tier. A HOSTNAME is never resolved — only a literal loopback/private/link-local address counts as internal, because a name that resolves privately today can resolve anywhere tomorrow. The worker prints the reason once at startup, naming the
 variable, rather than skipping them silently. `native` and `qiling` detonate on
 this host and send nothing anywhere, so they are untouched by it.
 
