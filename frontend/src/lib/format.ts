@@ -10,15 +10,26 @@ export function formatBytes(n: number): string {
   return `${(n / (1024 * 1024 * 1024)).toFixed(2)} GB`
 }
 
-/** Verdict word for a risk band, from the fixed 0-29/30-59/60-79/80-100 scale. */
-export function verdictWord(riskLevel: string): string {
+/**
+ * The BAND in words — never a verdict.
+ *
+ * `medium` returned **'Suspicious'**, which is a verdict, not a band. They are
+ * different statements: a band is a score bucketed into four words, a verdict is
+ * the engine's judgement after corroboration, publisher verification and the
+ * ambient rules — and a sample can be `clean` at 35 or `malicious` at 25. This
+ * is only ever shown for a job that has no verdict yet (see ScoreGauge), so
+ * borrowing the verdict vocabulary there stated a judgement nothing had made.
+ *
+ * From the fixed 0-29/30-59/60-79/80-100 scale.
+ */
+export function bandWord(riskLevel: string): string {
   switch (riskLevel) {
     case 'critical':
-      return 'Critical'
+      return 'Critical risk'
     case 'high':
       return 'High risk'
     case 'medium':
-      return 'Suspicious'
+      return 'Medium risk'
     default:
       return 'Low risk'
   }

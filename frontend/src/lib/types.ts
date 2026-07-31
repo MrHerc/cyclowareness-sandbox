@@ -224,6 +224,19 @@ export interface EngineDescriptor {
    * on engines that are refused on every single call.
    */
   blocked_by_sovereign_mode: boolean
+  /**
+   * This row's `configured` was read from the WRONG PROCESS's environment.
+   *
+   * `configured()` reads the web service's `os.environ`; cuckoo, capev2 and joe
+   * are run by the off-host worker from the worker's own environment. On a split
+   * deployment — the normal one — the two are different machines, so the status
+   * can say "not configured" for a working integration and the reverse. The two
+   * processes share only the /api/dynamic/* seam, so there is nothing to fix
+   * from here; the row states the limit instead of presenting a guess as a fact.
+   */
+  configured_on_worker?: boolean
+  /** The sentence to show when `configured_on_worker` is true. */
+  configuration_caveat?: string
   requires?: string
   notes?: string
   docs_url?: string

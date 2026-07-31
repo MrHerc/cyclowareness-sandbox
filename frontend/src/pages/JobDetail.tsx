@@ -504,7 +504,9 @@ export function JobDetail() {
                 <div className="flex items-center justify-between">
                   <span className="label text-c3">Dynamic</span>
                   <Status
-                    value={dynamicTier?.ran ? 'completed' : 'pending'}
+                    /* `queued`, not `pending`: the engine's own word, and the
+                       only one of the two STATUS_TONE now knows. */
+                    value={dynamicTier?.ran ? 'completed' : 'queued'}
                     label={dynamicTier?.ran ? `Ran (${dynamicTier.engine})` : 'Not run'}
                   />
                 </div>
@@ -671,8 +673,17 @@ export function JobDetail() {
             </Panel>
           )}
 
-          {/* Feedback */}
-          <Panel title="Analyst feedback" subtitle="Dispute the verdict — it feeds the reanalysis loop">
+          {/* Feedback.
+
+              The subtitle used to read "it feeds the reanalysis loop". It does
+              not: `job.feedback` is written by the route and read by nothing —
+              scoring, the pipeline and every export ignore it. Promising an
+              analyst that their dispute retrains the engine is how you get them
+              to stop reporting once they notice nothing changes. */}
+          <Panel
+            title="Analyst feedback"
+            subtitle="Recorded on this report and in the chain of custody. It does not change the score."
+          >
             <div className="flex flex-wrap items-center gap-3">
               <Button
                 variant={job.feedback === 'false_positive' ? 'primary' : 'secondary'}

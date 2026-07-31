@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { riskTone, verdictHeadline, verdictTone, verdictWord, type Verdict } from '../lib/format'
+import { bandWord, riskTone, verdictHeadline, verdictTone, type Verdict } from '../lib/format'
 import { useCountUp } from '../lib/useCountUp'
 
 const TONE_STROKE: Record<string, string> = {
@@ -84,7 +84,7 @@ export function ScoreGauge({
         </div>
       </div>
       <span className={`label mt-1 ${TONE_TEXT[tone]}`}>
-        {verdict ? verdictHeadline(verdict) : verdictWord(riskLevel)}
+        {verdict ? verdictHeadline(verdict) : bandWord(riskLevel)}
       </span>
     </div>
   )

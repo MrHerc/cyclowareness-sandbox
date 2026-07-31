@@ -44,6 +44,14 @@ function EngineCard({ e, i = 0, sovereign }: { e: EngineDescriptor; i?: number; 
         <Chip tone={e.tier === 'dynamic' ? 'brand' : 'info'}>{e.tier}</Chip>
       </div>
       {e.notes && <p className="text-sm mt-2 text-c2">{e.notes}</p>}
+      {/* WHOSE ENVIRONMENT THIS STATUS WAS READ FROM.
+          Shown for every worker-run engine regardless of the status above,
+          because it qualifies all of them: a green "Enabled" and a grey
+          "Available" are equally a reading of the web service's environment for
+          an engine the worker runs. */}
+      {e.configured_on_worker && e.configuration_caveat && (
+        <p className="text-xs mt-2 text-c3">{e.configuration_caveat}</p>
+      )}
       {e.configured && e.blocked_by_sovereign_mode ? (
         <p className="text-xs mt-2 text-warning">
           Credentials are present, but sovereign mode refuses this call — nothing is sent.
@@ -195,7 +203,15 @@ export function Integrations() {
                 Aggregation split: rule {caps.scoring.weights.rule} · model {caps.scoring.weights.model}. Tunable
                 under Tuning.
               </p>
-              <p className="text-xs mt-2 text-c3">AI provider: {caps.ai_provider}</p>
+              {/* NOT "AI provider: <vendor>". `ai_provider` is hard-wired to
+                  "template" because no LLM is called anywhere in this codebase,
+                  so the old line rendered "AI provider: template" — a vendor
+                  field naming a non-vendor, on the one page that exists to say
+                  what this deployment talks to. */}
+              <p className="text-xs mt-2 text-c3">
+                Narrative: written by a deterministic template. No language model is
+                called; the score never depends on one.
+              </p>
             </div>
           </div>
         </Panel>

@@ -264,16 +264,6 @@ body {
    decorates. All of it collapses under prefers-reduced-motion.
    ========================================================================== */
 
-@keyframes loop-dash {
-  to {
-    stroke-dashoffset: -24;
-  }
-}
-.loop-flow {
-  stroke-dasharray: 3 9;
-  animation: loop-dash 1.4s linear infinite;
-}
-
 @keyframes breathe {
   0%,
   100% {
@@ -370,9 +360,6 @@ body {
 .gauge-arc {
   transition: stroke-dashoffset 1.1s cubic-bezier(0.22, 1, 0.36, 1);
 }
-.meter-fill {
-  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
-}
 
 /* A quiet instrument glow behind a hero region. Brand hue, low and soft. */
 .hero-glow {
@@ -393,21 +380,6 @@ body {
   filter: blur(28px);
   opacity: 0.75;
   pointer-events: none;
-}
-
-/* Live-updating value: a brief tick when the number changes. */
-@keyframes tick {
-  0% {
-    transform: translateY(-2px);
-    opacity: 0.55;
-  }
-  100% {
-    transform: none;
-    opacity: 1;
-  }
-}
-.tick {
-  animation: tick 0.3s ease-out;
 }
 
 @media (prefers-reduced-motion: reduce) {

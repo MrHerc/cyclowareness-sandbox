@@ -25,7 +25,11 @@ export function Submit() {
   // an operator who raised MAX_SAMPLE_MB got an interface that still refused on
   // the analyst's behalf — and one who lowered it got a promise the server then
   // broke with a 413. Falls back to the shipped default while capabilities load.
-  const maxMb = caps?.max_sample_mb ?? 32
+  // NOT `?? 32`. 32 is the shipped default, not this deployment's limit, and
+  // an operator who lowered it had this page promise a size the server then
+  // refused with a 413. Until /api/capabilities answers, the limit is unknown
+  // and the page says nothing rather than guessing.
+  const maxMb = caps?.max_sample_mb ?? null
 
   function onDrop(e: DragEvent) {
     e.preventDefault()
@@ -119,7 +123,7 @@ export function Submit() {
                 ) : (
                   <div>
                     <p className="text-body text-c1">Drop a file here, or click to choose</p>
-                    <p className="text-xs mt-1 text-c3">Up to {maxMb} MB</p>
+                    {maxMb !== null && <p className="text-xs mt-1 text-c3">Up to {maxMb} MB</p>}
                   </div>
                 )}
                 <input

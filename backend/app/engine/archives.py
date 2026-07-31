@@ -23,7 +23,6 @@ from __future__ import annotations
 import os
 import zipfile
 from dataclasses import dataclass, field
-from typing import Iterator
 
 from .contracts import Signal
 from .storage import StoredSample, store_bytes
@@ -651,17 +650,3 @@ def unpack(
             )
         )
     return result
-
-
-def iter_nested(path: str, mime: str, password: str | None, depth: int = 0) -> Iterator[tuple[Member, int]]:
-    """Yield every extractable member, following nested archives to MAX_DEPTH."""
-    if depth >= MAX_DEPTH:
-        return
-    try:
-        result = unpack(path, mime, password)
-    except (PasswordRequired, Exception):
-        return
-    for member in result.extracted():
-        yield member, depth
-        if member.stored is None:
-            continue

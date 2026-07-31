@@ -8,16 +8,6 @@ export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
-/** Risk-band colours, in fixed severity order — the status palette, not the accent. */
-export function riskColors(): Record<string, string> {
-  return {
-    critical: cssVar('--color-danger'),
-    high: cssVar('--color-danger'),
-    medium: cssVar('--color-warning'),
-    low: cssVar('--color-success'),
-  }
-}
-
 /**
  * Verdict colours. Separate from `riskColors` because a verdict is not a score
  * band: a sample can be called malicious at a score of 24, and colouring it by
@@ -34,8 +24,4 @@ export function verdictColors(): Record<string, string> {
 
 export function brandColor(): string {
   return cssVar('--color-brand')
-}
-
-export function tokenColor(name: string): string {
-  return cssVar(`--color-${name}`)
 }

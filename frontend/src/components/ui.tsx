@@ -1,8 +1,6 @@
 import type { HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { useId } from 'react'
-import { CircleAlert, Loader2, RefreshCw, X } from 'lucide-react'
-import { useEscape } from '../lib/useEscape'
-import { useFocusTrap } from '../lib/useFocusTrap'
+import { CircleAlert, Loader2, RefreshCw } from 'lucide-react'
 
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ')
@@ -278,55 +276,6 @@ export function Select({
   )
 }
 
-/**
- * A row of mutually-exclusive (or multi-select) pills.
- *
- * Hand-rolled three times — for report types, lure sources and department
- * targeting — each with different padding and none with a group name, so a
- * screen reader heard an unexplained run of buttons.
- */
-export function ChoiceRow<T extends string | number>({
-  label,
-  options,
-  value,
-  onChange,
-  multiple,
-}: {
-  label: string
-  options: readonly { value: T; label: string }[]
-  value: T | T[] | null
-  onChange: (value: T) => void
-  multiple?: boolean
-}) {
-  const selected = (v: T) => (Array.isArray(value) ? value.includes(v) : value === v)
-  return (
-    <div role="group" aria-label={label}>
-      <span className="label mb-1.5 block text-c3">{label}</span>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => (
-          <button
-            key={String(o.value)}
-            type="button"
-            onClick={() => onChange(o.value)}
-            aria-pressed={selected(o.value)}
-            className={cx(
-              'rounded-control border px-2.5 py-1.5 text-sm transition-colors',
-              selected(o.value)
-                ? 'border-brand bg-brand/12 text-brand-fg'
-                : 'border-line bg-raised text-c2 hover:border-line-strong hover:text-c1',
-            )}
-          >
-            {o.label}
-          </button>
-        ))}
-      </div>
-      {multiple && Array.isArray(value) && value.length === 0 && (
-        <p className="text-xs mt-1 text-c3">Select at least one.</p>
-      )}
-    </div>
-  )
-}
-
 /* =============================================================================
    Status
 
@@ -338,47 +287,42 @@ export function ChoiceRow<T extends string | number>({
 
 type Tone = 'neutral' | 'brand' | 'info' | 'success' | 'warning' | 'danger'
 
+/**
+ * Every value this backend can actually put in a status-shaped field.
+ *
+ * It used to carry the whole lexicon of the awareness-training portal this
+ * sandbox was forked from — `clicked`, `reported`, `awaiting_training`,
+ * `pending_review`, `human_sensor`, `in_loop` — none of which any endpoint
+ * emits. A lookup keyed on a value that never arrives is a branch that cannot
+ * execute, and it tells the next reader the product has concepts it does not.
+ *
+ * Checked against the source, not guessed: `JobStatus` (models.py),
+ * `SEVERITY_ORDER` (contracts.py), `JobSource` and `Feedback`. `benign` is
+ * deliberately absent — the engine's word is `clean`, and carrying both invites
+ * a badge that agrees with neither.
+ *
+ * An unknown value is not a crash: `Status` falls back to `neutral`.
+ */
 const STATUS_TONE: Record<string, Tone> = {
-  // sandbox verdicts
+  // verdicts
   malicious: 'danger',
   suspicious: 'warning',
-  benign: 'success',
   clean: 'success',
   // severities
   critical: 'danger',
   high: 'danger',
   medium: 'warning',
   low: 'neutral',
-  // loop run
+  info: 'neutral',
+  // job status
+  queued: 'neutral',
   running: 'brand',
-  awaiting_approval: 'warning',
-  awaiting_training: 'info',
+  awaiting_password: 'warning',
   completed: 'success',
   failed: 'danger',
-  // training assignment
-  assigned: 'info',
-  in_progress: 'brand',
-  expired: 'danger',
-  // reports
-  new: 'warning',
-  in_loop: 'brand',
-  dismissed: 'neutral',
-  // modules
-  draft: 'neutral',
-  pending_review: 'warning',
-  approved: 'success',
-  rejected: 'danger',
-  // simulations
-  active: 'brand',
-  // simulated outcomes
-  clicked: 'danger',
-  reported: 'success',
-  ignored: 'neutral',
-  pending: 'neutral',
-  // threat provenance
-  human_sensor: 'brand',
-  feed: 'info',
-  manual: 'neutral',
+  // analyst feedback
+  false_positive: 'warning',
+  true_positive: 'success',
 }
 
 const TONE_CHIP: Record<Tone, string> = {
@@ -399,15 +343,18 @@ const TONE_DOT: Record<Tone, string> = {
   danger: 'bg-danger',
 }
 
-/** Human wording for a delivery channel — the single source of truth. */
+/**
+ * Human wording for the ways a sample can arrive — the single source of truth.
+ *
+ * `JobSource` has exactly three values. The rest of this table (`email`, `sms`,
+ * `qr`, `chat`, `web`) were delivery channels of the awareness-training portal;
+ * this product ingests a file, a URL, or a member found inside an archive.
+ */
 const CHANNEL_LABELS: Record<string, string> = {
-  email: 'Email',
+  upload: 'Upload',
   url: 'URL',
   file: 'File',
-  sms: 'SMS',
-  qr: 'QR code',
-  chat: 'Chat',
-  web: 'Web',
+  archive_member: 'From archive',
 }
 
 function humanise(value: string): string {
@@ -447,49 +394,6 @@ export function Chip({ children, tone = 'neutral' }: { children: ReactNode; tone
       {children}
     </span>
   )
-}
-
-export function channelLabel(value: string): string {
-  return CHANNEL_LABELS[value] ?? value
-}
-
-/**
- * Honest provenance for generated content.
- *
- * `audience="analyst"` names the engine, because the analyst approving the
- * module needs to know whether a live model or the offline generator wrote it.
- * `audience="employee"` never says "offline generator" — that is internal
- * jargon — but it also never lets canned content borrow the AI's credit.
- */
-export function Provenance({
-  source,
-  audience = 'analyst',
-}: {
-  source: string
-  audience?: 'analyst' | 'employee'
-}) {
-  const live = source === 'anthropic'
-  if (audience === 'employee') {
-    return (
-      <Chip tone={live ? 'brand' : 'info'}>
-        {live ? 'AI-built from a real threat' : 'Built from a real threat'}
-      </Chip>
-    )
-  }
-  if (live) return <Chip tone="brand">AI generated</Chip>
-  if (source === 'mock')
-    return (
-      <span
-        title="Written by the offline generator, not a live model. Review closely before approving."
-        className={cx(
-          'inline-flex items-center whitespace-nowrap rounded-chip border px-1.5 py-0.5 text-xs',
-          TONE_CHIP.warning,
-        )}
-      >
-        Offline generator
-      </span>
-    )
-  return null
 }
 
 /* =============================================================================
@@ -535,9 +439,26 @@ export function Metric({
   )
 }
 
+/**
+ * The engine's bands, not the interface's own.
+ *
+ * This used to read >=60 "High", >=40 "Elevated", else "Low". The engine's
+ * scale is `contracts.RISK_BANDS`: 0-29 low, 30-59 medium, 60-79 high, 80+
+ * critical. So 45 was `medium` to the engine and **Elevated** on screen — a band
+ * this product does not have — while 35 was `medium` to the engine and **Low**
+ * here. `critical` had no representation at all. `RiskMeter` renders on every
+ * Queue row, so the main list an analyst reads was banded by thresholds nothing
+ * else in the system uses.
+ *
+ * Keep these four numbers identical to RISK_BANDS. They are duplicated across
+ * the seam because the band of a score has to be computable without a round
+ * trip; every report also carries `risk_level` from the backend, and where that
+ * is present it is what should be shown.
+ */
 export function riskBand(score: number): { tone: Tone; text: string; bar: string; label: string } {
+  if (score >= 80) return { tone: 'danger', text: 'text-danger', bar: 'bg-danger', label: 'Critical' }
   if (score >= 60) return { tone: 'danger', text: 'text-danger', bar: 'bg-danger', label: 'High' }
-  if (score >= 40) return { tone: 'warning', text: 'text-warning', bar: 'bg-warning', label: 'Elevated' }
+  if (score >= 30) return { tone: 'warning', text: 'text-warning', bar: 'bg-warning', label: 'Medium' }
   return { tone: 'success', text: 'text-success', bar: 'bg-success', label: 'Low' }
 }
 
@@ -554,45 +475,6 @@ export function RiskMeter({ score, className }: { score: number; className?: str
       </span>
       <span className={cx('text-sm font-semibold', band.text)}>{score.toFixed(0)}</span>
     </span>
-  )
-}
-
-export function DeptTile({
-  name,
-  avgRisk,
-  employeeCount,
-  highRiskCount,
-  selected,
-  onClick,
-}: {
-  name: string
-  avgRisk: number
-  employeeCount: number
-  highRiskCount: number
-  selected?: boolean
-  onClick?: () => void
-}) {
-  const band = riskBand(avgRisk)
-  const inner = (
-    <>
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="text-sm truncate text-c2">{name}</span>
-        <span className={cx('text-h font-semibold', band.text)}>{avgRisk.toFixed(0)}</span>
-      </div>
-      <div className="mt-2 h-1 overflow-hidden rounded-full bg-sunken">
-        <div className={cx('h-full', band.bar)} style={{ width: `${Math.min(100, avgRisk)}%` }} />
-      </div>
-      <div className="text-xs mt-1.5 text-c3">
-        {employeeCount} people · {highRiskCount} high-risk
-      </div>
-    </>
-  )
-  const base = 'block w-full rounded-control border p-3 text-left transition-colors'
-  if (!onClick) return <div className={cx(base, 'border-hair bg-panel')}>{inner}</div>
-  return (
-    <button type="button" onClick={onClick} aria-pressed={selected} className={cx(base, selected ? 'border-brand bg-brand/8' : 'border-hair bg-panel hover:border-line-strong')}>
-      {inner}
-    </button>
   )
 }
 
@@ -760,96 +642,9 @@ export function Empty({ icon, children }: { icon?: ReactNode; children: ReactNod
   )
 }
 
-/** Placeholder while data loads — never fake an empty state. */
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={cx('shimmer rounded-control bg-raised', className)} aria-hidden />
-}
-
 /* =============================================================================
    Overlays
    ========================================================================== */
-
-const MODAL_SIZES = { sm: 'max-w-md', md: 'max-w-lg', lg: 'max-w-2xl' } as const
-
-export function Modal({
-  title,
-  onClose,
-  size = 'md',
-  children,
-  hideHeader,
-}: {
-  title: string
-  onClose: () => void
-  size?: keyof typeof MODAL_SIZES
-  children: ReactNode
-  hideHeader?: boolean
-}) {
-  useEscape(onClose)
-  const ref = useFocusTrap<HTMLDivElement>()
-  const titleId = useId()
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/65 p-4 backdrop-blur-[2px]" onClick={onClose}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={cx('rise w-full rounded-panel border border-line bg-panel shadow-2xl shadow-black/50', MODAL_SIZES[size])}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className={cx('flex items-center justify-between gap-3 px-5 pt-4', hideHeader && 'sr-only')}>
-          <h2 id={titleId} className="text-h">
-            {title}
-          </h2>
-          {!hideHeader && (
-            <IconButton label="Close" onClick={onClose}>
-              <X size={17} aria-hidden />
-            </IconButton>
-          )}
-        </div>
-        <div className="max-h-[75vh] overflow-y-auto px-5 pb-5 pt-4">{children}</div>
-      </div>
-    </div>
-  )
-}
-
-export function Drawer({
-  title,
-  onClose,
-  width = 'max-w-xl',
-  children,
-}: {
-  title: string
-  onClose: () => void
-  width?: string
-  children: ReactNode
-}) {
-  useEscape(onClose)
-  const ref = useFocusTrap<HTMLDivElement>()
-  const titleId = useId()
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/65 backdrop-blur-[2px]" onClick={onClose}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className={cx('flex h-full w-full flex-col border-l border-line bg-panel shadow-2xl shadow-black/50', width)}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-hair px-5 py-3">
-          <h2 id={titleId} className="text-h truncate">
-            {title}
-          </h2>
-          <IconButton label="Close" onClick={onClose}>
-            <X size={17} aria-hidden />
-          </IconButton>
-        </div>
-        <div className="flex-1 overflow-y-auto p-5">{children}</div>
-      </div>
-    </div>
-  )
-}
 
 /* =============================================================================
    Navigation
@@ -903,23 +698,6 @@ export function Tabs<T extends string>({
 /* =============================================================================
    Formatting
    ========================================================================== */
-
-export function pct(v: number | null | undefined, digits = 0): string {
-  if (v === null || v === undefined) return '—'
-  return `${(v * 100).toFixed(digits)}%`
-}
-
-/**
- * Caption for a windowed rate. When the sample is too small the caption says
- * so — with the actual n — instead of dressing a missing measurement up as a
- * healthy one.
- */
-export function metricSub(value: number | null, sample: number, windowDays: number, hint: string): string {
-  if (value === null) {
-    return sample === 0 ? `no events in the last ${windowDays} days` : `not enough data yet (n=${sample})`
-  }
-  return `last ${windowDays} days · n=${sample} · ${hint}`
-}
 
 export function timeAgo(iso: string | null | undefined): string {
   if (!iso) return '—'
