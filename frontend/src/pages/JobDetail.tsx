@@ -270,7 +270,10 @@ export function JobDetail() {
           read `low`. The tier card says "Not run", which is the same words it
           uses when no worker is attached at all. The gap in the evidence has to
           be visible next to the verdict, not one panel further down. */}
-      {job.status !== 'failed' && job.error && (
+      {/* Not while waiting for a password. That job has its own panel above,
+          which already shows this exact message, and there is no verdict
+          below to rest on anything -- the archive has not been opened. */}
+      {job.status !== 'failed' && job.status !== 'awaiting_password' && job.error && (
         <Callout tone="warning" title="This analysis is incomplete">
           {job.error} The verdict below rests on the tiers that did run.
         </Callout>

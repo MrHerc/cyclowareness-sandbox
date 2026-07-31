@@ -97,9 +97,16 @@ export function Dashboard() {
 
   const slices = VERDICT_BUCKETS.map((b) => ({ key: b.key, label: b.label, value: bucketCount(b.key) }))
 
+  // Six bars is a readable chart; silently dropping the rest is not an
+  // honest one. The remainder is counted so the caption can say so.
+  const FAMILY_BARS = 6
   const families = data.families
-    .slice(0, 6)
+    .slice(0, FAMILY_BARS)
     .map((f) => ({ label: familyLabel(f.family), count: f.count }))
+  const familiesHidden = Math.max(0, data.families.length - FAMILY_BARS)
+  const familiesHiddenCount = data.families
+    .slice(FAMILY_BARS)
+    .reduce((total, f) => total + f.count, 0)
 
   // Ordered by verdict then magnitude in SQL, for the same reason it used to be
   // ordered that way here: a malicious sample outranks a suspicious one whatever
@@ -149,14 +156,31 @@ export function Dashboard() {
           <VerdictDonut slices={slices} total={total} />
         </Panel>
 
-        <Panel title="By file type" subtitle="What is being submitted" className="rise-in">
+        {/* Six bars is a readable chart. Dropping the rest without saying so
+            misstates the shape of the traffic, so the caption counts them. */}
+        <Panel
+          title="By file type"
+          subtitle={
+            familiesHidden > 0
+              ? `What is being submitted — top ${FAMILY_BARS} of ${data.families.length}, ${familiesHiddenCount} more sample${familiesHiddenCount === 1 ? '' : 's'} not shown`
+              : 'What is being submitted'
+          }
+          className="rise-in"
+        >
           <FamilyBars data={families} />
         </Panel>
       </div>
 
+      {/* The API returns five. Saying "everything" over five rows, directly
+          under a tile counting hundreds, is two numbers on one screen that
+          cannot both be right. */}
       <Panel
         title="Needs attention"
-        subtitle="Everything the engine flagged, worst verdict first"
+        subtitle={
+          attention > topRisk.length
+            ? `The ${topRisk.length} worst of ${attention}, worst verdict first`
+            : 'Everything the engine flagged, worst verdict first'
+        }
         className="rise-in"
         actions={
           <Link to="/queue" className="text-sm inline-flex items-center gap-1 text-brand-fg hover:underline">
