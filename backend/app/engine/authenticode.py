@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import hashlib
 import struct
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -76,6 +77,16 @@ MAX_CERTS = 64
 
 # --- object identifiers -------------------------------------------------------
 OID_SPC_INDIRECT_DATA = "1.3.6.1.4.1.311.2.1.4"
+#: RFC 3161 timestamp token, carried as an unsigned attribute. The value is a
+#: complete CMS ContentInfo, not a bare time -- the timestamp is itself signed by
+#: a timestamping authority, which is why a TSA must never be a code-signing
+#: anchor (see `trust_anchors`).
+OID_TIMESTAMP_TOKEN = "1.2.840.113549.1.9.16.2.14"
+#: The older Authenticode countersignature: a SignerInfo whose signed attributes
+#: carry `signingTime`. Still present on binaries signed before RFC 3161 became
+#: the norm, and on plenty signed since.
+OID_COUNTERSIGNATURE = "1.2.840.113549.1.9.6"
+OID_SIGNING_TIME = "1.2.840.113549.1.9.5"
 OID_MESSAGE_DIGEST = "1.2.840.113549.1.9.4"
 OID_CONTENT_TYPE = "1.2.840.113549.1.9.3"
 
@@ -328,6 +339,10 @@ class SignatureResult:
     digest_algorithm: str = ""
     #: Certificate subjects from leaf upward, for the report.
     chain_subjects: tuple[str, ...] = ()
+    #: When a countersigner attested this signature existed, ISO-8601, or "" if
+    #: this engine could not read one. Absence is NOT evidence of recency, and
+    #: nothing may treat it as "signed now".
+    signed_at: str = ""
     reason: str = ""
 
     @property
@@ -356,6 +371,9 @@ class SignatureResult:
             "chain": self.chain,
             "verified": self.verified,
             "digest_algorithm": self.digest_algorithm,
+            # When a countersigner attested the signature existed. "" means no
+            # readable timestamp, which is not the same as "signed now".
+            "signed_at": self.signed_at,
             # Said out loud, every time: there is no network in this engine, so
             # a revoked certificate still verifies here.
             "revocation_checked": False,
@@ -515,6 +533,141 @@ class _SignedData:
     #: The signature itself.
     signature: bytes = b""
 
+    #: When a countersigner attested the signature existed, if it said so.
+    #: None means no readable timestamp, which is NOT the same as "signed
+    #: now" and must never be treated as one.
+    signed_at: Any = None
+
+
+def _der_time(buf: bytes, node: "_Node") -> "datetime | None":
+    """UTCTime (0x17) or GeneralizedTime (0x18) as an aware UTC datetime.
+
+    Returns None rather than raising on anything unexpected. A timestamp this
+    parser cannot read must leave the existing verdict alone -- refusing to trust
+    a binary because our own parser is limited would be a false positive
+    introduced to fix a theoretical one.
+    """
+    if node.tag not in (0x17, 0x18):
+        return None
+    text = buf[node.value:node.end].decode("ascii", "ignore").strip()
+    if not text.endswith("Z"):
+        # Local-time and offset forms are legal DER and vanishingly rare here.
+        # Reading them wrong is worse than not reading them.
+        return None
+    text = text[:-1]
+    try:
+        if node.tag == 0x17:            # YYMMDDHHMM[SS]
+            if len(text) == 10:
+                text += "00"
+            if len(text) != 12:
+                return None
+            year = int(text[:2])
+            # RFC 5280: 00-49 is 2000-2049, 50-99 is 1950-1999.
+            year += 2000 if year < 50 else 1900
+            rest = text[2:]
+        else:                            # YYYYMMDDHHMMSS[.fff]
+            text = text.split(".", 1)[0]
+            if len(text) != 14:
+                return None
+            year = int(text[:4])
+            rest = text[4:]
+        return datetime(
+            year, int(rest[0:2]), int(rest[2:4]),
+            int(rest[4:6]), int(rest[6:8]), int(rest[8:10]),
+            tzinfo=timezone.utc,
+        )
+    except (ValueError, IndexError):
+        return None
+
+
+def _timestamp_from_rfc3161(buf: bytes, value: "_Node", budget: list[int]):
+    """`genTime` out of the TSTInfo inside a timestamp token.
+
+        ContentInfo ::= SEQUENCE { contentType OID, [0] SignedData }
+        SignedData  ::= SEQUENCE { version, digestAlgorithms, encapContentInfo, ... }
+        encapContentInfo ::= SEQUENCE { eContentType OID, [0] OCTET STRING }
+        TSTInfo ::= SEQUENCE { version, policy OID, messageImprint,
+                               serialNumber, genTime GeneralizedTime, ... }
+    """
+    try:
+        top = _children(buf, value, budget)
+        if len(top) < 2 or top[1].tag != 0xA0:
+            return None
+        explicit = _children(buf, top[1], budget)
+        if not explicit or explicit[0].tag != 0x30:
+            return None
+        signed = _children(buf, explicit[0], budget)
+        if len(signed) < 3:
+            return None
+        encap = _children(buf, signed[2], budget)
+        if len(encap) < 2 or encap[1].tag != 0xA0:
+            return None
+        wrapped = _children(buf, encap[1], budget)
+        if not wrapped or wrapped[0].tag != 0x04:
+            return None
+        inner = buf[wrapped[0].value:wrapped[0].end]
+        tst = _children(inner, _read(inner, 0, len(inner)), budget)
+        for node in tst:
+            if node.tag == 0x18:
+                return _der_time(inner, node)
+    except DerError:
+        return None
+    return None
+
+
+def _timestamp_from_countersignature(buf: bytes, value: "_Node", budget: list[int]):
+    """`signingTime` out of a legacy countersignature's signed attributes."""
+    try:
+        signer = _children(buf, value, budget)
+        for field in signer:
+            if field.tag != 0xA0:
+                continue
+            for attr in _children(buf, field, budget):
+                if attr.tag != 0x30:
+                    continue
+                pair = _children(buf, attr, budget)
+                if len(pair) != 2 or pair[0].tag != 0x06 or pair[1].tag != 0x31:
+                    continue
+                if _oid(buf, pair[0]) != OID_SIGNING_TIME:
+                    continue
+                for item in _children(buf, pair[1], budget):
+                    parsed = _der_time(buf, item)
+                    if parsed is not None:
+                        return parsed
+    except DerError:
+        return None
+    return None
+
+
+def _signing_time(buf: bytes, unsigned: "_Node", budget: list[int]):
+    """When the signature was countersigned, from whichever form is present."""
+    try:
+        attributes = _children(buf, unsigned, budget)
+    except DerError:
+        return None
+    for attr in attributes:
+        if attr.tag != 0x30:
+            continue
+        try:
+            pair = _children(buf, attr, budget)
+            if len(pair) != 2 or pair[0].tag != 0x06 or pair[1].tag != 0x31:
+                continue
+            oid = _oid(buf, pair[0])
+            values = _children(buf, pair[1], budget)
+        except DerError:
+            continue
+        if not values:
+            continue
+        if oid == OID_TIMESTAMP_TOKEN:
+            found = _timestamp_from_rfc3161(buf, values[0], budget)
+            if found is not None:
+                return found
+        elif oid == OID_COUNTERSIGNATURE:
+            found = _timestamp_from_countersignature(buf, values[0], budget)
+            if found is not None:
+                return found
+    return None
+
 
 def _parse_signed_data(blob: bytes, budget: list[int]) -> _SignedData:
     """Navigate the structure rather than scanning for likely-looking bytes.
@@ -576,6 +729,7 @@ def _parse_signed_data(blob: bytes, budget: list[int]) -> _SignedData:
         return _SignedData(econtent=econtent)
 
     algorithm = ""
+    signed_at = None
     attributes = b""
     message_digest = b""
     signature = b""
@@ -587,6 +741,11 @@ def _parse_signed_data(blob: bytes, budget: list[int]) -> _SignedData:
                     algorithm = _DIGESTS.get(_oid(blob, alg[0]), "")
                 except DerError:
                     algorithm = ""
+        elif field_node.tag == 0xA1:
+            # unsignedAttrs. The countersignature timestamp lives here, and
+            # it is the difference between "expired" meaning what Windows
+            # means and meaning nothing.
+            signed_at = _signing_time(blob, field_node, budget)
         elif field_node.tag == 0xA0:
             # The signature is over these attributes re-encoded as a SET, not
             # over the [0] IMPLICIT form they appear in.
@@ -611,6 +770,7 @@ def _parse_signed_data(blob: bytes, budget: list[int]) -> _SignedData:
 
     return _SignedData(
         econtent=econtent,
+        signed_at=signed_at,
         signed_attributes=attributes,
         message_digest=message_digest,
         digest_algorithm=algorithm,
@@ -699,6 +859,49 @@ def _order_chain(certs: list) -> list:
         if len(chain) > 16:
             break
     return chain
+
+
+def _anchor_expiry(chain, anchor_name: str):
+    """When the certificate this chain anchored to stops being valid.
+
+    Returns None whenever it cannot say, and the caller treats None as "do not
+    gate". That direction is deliberate: guessing "expired" would take a waiver
+    from a file that earned one, and the entire reason expired anchors are still
+    trusted is that removing them cost thirty-two genuine Microsoft binaries.
+
+    Everything is inside the try for the same reason. An earlier version compared
+    `anchor_name in cert.subject` -- `subject` is an x509 `Name`, not a string,
+    which the rest of this module knows -- and raised TypeError on audacity.exe,
+    handbrake.exe, putty.exe and winmerge.exe. Four correctly-signed benign
+    binaries, turned from "verified" into an exception. A helper that only
+    tightens a verdict must never be able to break one.
+    """
+    if not anchor_name:
+        return None
+    try:
+        for cert in reversed(chain):
+            subject = getattr(cert, "subject", None)
+            if subject is None:
+                continue
+            text = subject if isinstance(subject, str) else subject.rfc4514_string()
+            if anchor_name not in text and text not in anchor_name:
+                continue
+
+            raw_value = getattr(cert, "not_valid_after_utc", None)
+            if raw_value is None:
+                raw_value = getattr(cert, "not_after", None)
+            if raw_value is None:
+                return None
+            if isinstance(raw_value, datetime):
+                parsed_value = raw_value
+            else:
+                parsed_value = datetime.fromisoformat(str(raw_value))
+            if parsed_value.tzinfo is None:
+                parsed_value = parsed_value.replace(tzinfo=timezone.utc)
+            return parsed_value
+    except Exception:  # noqa: BLE001 — see the docstring: never break a verdict
+        return None
+    return None
 
 
 def _links_verified(chain: list) -> int:
@@ -814,15 +1017,38 @@ def verify(data: bytes) -> SignatureResult:
     else:
         status = "unanchored"
 
+    # The countersignature timestamp, and the single decision it is allowed to
+    # make. `trust_anchors` keeps expired authorities anchored on purpose --
+    # dropping them cost 32 genuine Microsoft binaries their waiver for no real
+    # security gain -- and names this as what would properly gate them: "was
+    # this signed while the authority was valid", which is what Windows checks.
+    #
+    # So: a signature timestamped AFTER the anchoring authority expired is not
+    # verified. A signature with no readable timestamp is left exactly as it
+    # was, because refusing to trust a binary because OUR parser is limited
+    # would be a false positive invented to fix a theoretical one.
+    signed_at = parsed.signed_at
+    stamped = signed_at.isoformat() if signed_at is not None else ""
+    late = ""
+    if status == "anchored" and signed_at is not None:
+        expiry = _anchor_expiry(chain[: reach + 1], anchor)
+        if expiry is not None and signed_at > expiry:
+            status = "unanchored"
+            late = (
+                f"countersigned {signed_at.date()}, after the anchoring authority "
+                f"expired on {expiry.date()}"
+            )
+
     return SignatureResult(
         present=True,
         parsed=True,
         covers_file=covers,
         signature_valid=valid,
         chain=status,
-        anchor=anchor,
+        anchor="" if late else anchor,
         publisher=_publisher_of(leaf),
         digest_algorithm=algorithm,
         chain_subjects=subjects,
-        reason="" if covers else "the signature does not cover these bytes",
+        signed_at=stamped,
+        reason=late or ("" if covers else "the signature does not cover these bytes"),
     )
