@@ -106,7 +106,21 @@ def _verify_token(token: str, settings: Settings) -> Identity | None:
         claims = json.loads(body)
     except json.JSONDecodeError:
         return None
-    if int(claims.get("exp", 0)) < int(time.time()):
+    # A SIGNED TOKEN CAN STILL BE UNREADABLE, and that is a 401, not a crash.
+    #
+    # Probed with 25 shapes: a body that is a JSON list or string made
+    # `claims.get` an AttributeError, and an `exp` of "soon" / null / [1] made
+    # `int()` a ValueError or TypeError — five 500s out of the authentication
+    # path. Each needs the signing key, so none is remotely exploitable; what
+    # reaches them in practice is a token minted by an older build with a
+    # different claim shape, i.e. an upgrade.
+    if not isinstance(claims, dict):
+        return None
+    try:
+        expires = int(claims.get("exp", 0))
+    except (TypeError, ValueError):
+        return None
+    if expires < int(time.time()):
         return None
     subject = claims.get("sub")
     if not isinstance(subject, str) or not subject:
