@@ -344,9 +344,17 @@ score — which PostgreSQL stores, so the jobs list then failed for every analys
 until the row was deleted. `1e308` overflowed the sum to infinity and normalised
 both weights to zero, which silently took every verdict to 0.0 / low.
 
+Admin routes need an **interactive session**. `require_admin` answers 403 to an
+API key, deliberately: a submit-only credential handed to a pipeline must not be
+able to re-weight scoring for every user of the deployment.
+
 ```bash
-curl -X PUT http://localhost:8000/api/admin/weights \
-  -H "X-API-Key: demo-key" -H "Content-Type: application/json" \
+curl -X POST http://localhost:8000/api/auth/login -c cookies.txt \
+  -H "Content-Type: application/json" \
+  -d '{"username":"analyst","password":"analyst"}'
+
+curl -X PUT http://localhost:8000/api/admin/weights -b cookies.txt \
+  -H "Content-Type: application/json" \
   -d '{"rule_weight":0.7,"ai_weight":0.3}'
 ```
 
@@ -354,7 +362,7 @@ curl -X PUT http://localhost:8000/api/admin/weights \
 Restores the default `0.6 / 0.4`.
 
 ```bash
-curl -X POST http://localhost:8000/api/admin/weights/reset -H "X-API-Key: demo-key"
+curl -X POST http://localhost:8000/api/admin/weights/reset -b cookies.txt
 ```
 
 ### `GET /api/admin/retention`

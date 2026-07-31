@@ -54,7 +54,7 @@ cannot write there. It used to start healthy and answer uploads with a bare
 | Variable | Default | Notes |
 |---|---|---|
 | `SANDBOX_QUARANTINE` | in-container path | Quarantine root. Mount for persistence, and `chown` it to 10001. |
-| `MAX_SAMPLE_MB` | `32` | Rejects larger uploads and truncates URL fetches. |
+| `MAX_SAMPLE_MB` | `32` | Rejects larger uploads, and refuses a URL fetch whose content-length exceeds it. Not truncated — half an artefact analysed as if whole is a worse answer than none. Keep CAPE's `conf/web.conf` `max_sample_size` equal to it; `02-cape-repair.sh` step 5 does that from this value. |
 | `DATABASE_URL` | SQLite file | PostgreSQL in production; Alembic owns the schema. |
 | `TRUST_PROXY_HEADERS` | `false` | See below. Turn on **only** behind a proxy you control. |
 | `PROXY_CLIENT_HEADER` | *(unset)* | Which header that proxy **writes**: `x-real-ip` or `x-forwarded-for`. Required with the above. |
@@ -183,7 +183,7 @@ off-host, and post behaviour back. Never run the worker on shared infrastructure
 | Variable | Set on | Effect |
 |---|---|---|
 | `DYNAMIC_WORKER_TOKEN` | API **and** worker | The shared secret for `/api/dynamic/*`. Without it the seam returns 503 and no worker can attach. |
-| `SANDBOX_DYNAMIC_WORKER` | API only | Declares that a worker exists. Until it is `1`/`true`/`yes`, every report states the sample was not detonated — even with a worker attached and posting. |
+| `SANDBOX_DYNAMIC_WORKER` | API only | Declares that a worker is EXPECTED. It does not gate what a report says: a worker that posts a report is recorded as having detonated the sample either way. What the flag changes is whether "not detonated" reads as a finding or as this deployment simply not having a dynamic tier. |
 | `CONTAINMENT_CHECK` | worker only | A command answering "is this host safe to detonate on, right now?". Exit 0 means contained. **Set this on any host that runs real samples.** |
 
 The second is deliberately a declaration rather than a probe: claiming

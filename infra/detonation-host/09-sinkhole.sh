@@ -90,6 +90,18 @@ echo
 echo "== open the simulator to the guests, and only the simulator =="
 install -m 700 "$HERE/guest-isolation.sh" /usr/local/sbin/cyclo-guest-isolation.sh
 /usr/local/sbin/cyclo-guest-isolation.sh
+
+# And the CHEAP structural check the worker gates every batch on. DEPLOY.md
+# names this exact path for CONTAINMENT_CHECK and nothing created it, so a
+# host built by following the documentation had no containment script -- and
+# because the gate fails closed, no dynamic tier at all. Correctly, silently,
+# and for a reason nobody would think to look for.
+install -m 700 "$HERE/containment-status.sh" /usr/local/sbin/cyclo-containment-status.sh
+if /usr/local/sbin/cyclo-containment-status.sh; then
+  echo "   containment check installed and passing"
+else
+  echo "   containment check installed; it reports NOT contained (exit $?)" >&2
+fi
 echo "   firewall re-applied"
 
 echo

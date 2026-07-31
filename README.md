@@ -77,7 +77,9 @@ npm ci
 npm run dev                                           # http://localhost:5173, proxies /api
 ```
 
-Interactive API docs: <http://localhost:8000/docs>. In the demo build the analyst
+Interactive API docs: <http://localhost:8000/api/docs>, behind the analyst
+login. `/docs`, `/redoc` and `/openapi.json` are disabled: an unauthenticated
+schema tells anyone who can reach the port exactly what to try. In the demo build the analyst
 login (`analyst` / `analyst`) and the programmatic API key (`demo-key`) are
 printed at startup. `APP_ENV=production` refuses to boot on a placeholder secret
 or a default password.
@@ -143,9 +145,16 @@ on a given deployment, and the **Integrations** page renders the matrix.
 | Firejail | open-source sandbox | dynamic | worker (Linux) |
 | Cuckoo | open-source sandbox | dynamic | `CUCKOO_URL` + `CUCKOO_TOKEN`, on the **worker** † |
 | CAPEv2 | open-source sandbox | dynamic | `CAPEV2_URL` + `CAPEV2_TOKEN`, on the **worker** † |
-| Strelka | open-source sandbox | static | `STRELKA_URL` |
+| Strelka ‡ | open-source sandbox | static | `STRELKA_URL` — **not wired yet** |
 | Joe Sandbox | open-source sandbox | dynamic | `JOE_URL` **and** `JOE_API_KEY`, on the **worker** † |
 | VirusTotal | threat intel | static | `VT_API_KEY` |
+
+‡ `strelka_scan()` is written and nothing in the product calls it — the only
+caller anywhere in the tree is a test. Setting `STRELKA_URL` changes nothing
+today. Listed rather than deleted because the client is real and wiring it is a
+small job; listed with this note rather than plainly, because a capability
+table that names something the engine does not do is the kind of claim this
+product cannot afford.
 
 † These three upload the sample file to wherever their URL points, so
 **`SOVEREIGN_MODE` (default on) blocks them** — on the worker as well as on the
