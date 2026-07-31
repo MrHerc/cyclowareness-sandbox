@@ -143,7 +143,13 @@ def new_job(
         size_bytes=stored.size_bytes,
         status=JobStatus.QUEUED,
         parent_job_id=parent.id if parent else None,
-        archive_path=archive_path,
+        # The last caller-reachable string in this constructor. It is a name
+        # from inside a submitted archive, so an attacker chooses it, and a
+        # NUL here does not fail one member -- it aborts the whole archive's
+        # analysis on PostgreSQL. Text column, so the length is generous
+        # rather than absent: 4096 is far past any real path and far short of
+        # a row an archive can bloat.
+        archive_path=db_text(archive_path, 4096),
     )
     db.add(job)
     db.flush()

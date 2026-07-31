@@ -153,6 +153,7 @@ class NativeLinuxEngine(Engine):
 
             timed_out = False
             proc_rc: int | None = None
+            launcher_stderr = ""
             try:
                 proc = subprocess.run(
                     cmd,
@@ -162,6 +163,7 @@ class NativeLinuxEngine(Engine):
                     timeout=self.config.engine_timeout_seconds,
                 )
                 proc_rc = proc.returncode
+                launcher_stderr = (proc.stderr or b"").decode("utf-8", "replace")[-400:]
             except subprocess.TimeoutExpired:
                 timed_out = True
             except OSError as exc:
@@ -182,14 +184,38 @@ class NativeLinuxEngine(Engine):
         report.facts["syscall_lines"] = trace_text.count("\n")
 
         if not trace_text.strip():
+            # AN EMPTY TRACE IS NOT A QUIET SAMPLE.
+            #
+            # strace writes the syscalls a process makes, and a process that
+            # starts at all makes some -- execve at the very least. A completely
+            # empty trace file means strace never attached, which means the jail
+            # never ran the sample. Reporting that as "executed and did nothing"
+            # is absence of evidence rendered as evidence of absence, on the one
+            # engine that runs the sample's own code.
+            #
+            # `proc_rc` was captured for exactly this and never read.
+            if proc_rc not in (0, None):
+                return Report.unavailable(
+                    self.name,
+                    self.config.worker_name,
+                    "the jail did not execute the sample: launcher exited "
+                    f"{proc_rc}"
+                    + (f" ({launcher_stderr.strip()})" if launcher_stderr.strip() else ""),
+                )
+            # A clean exit with no trace is genuinely ambiguous -- the sample may
+            # have refused to run -- so it stays `ran`, but it says the exit code
+            # rather than implying the jail worked.
             report.ran = True
             report.facts["note"] = "no syscall trace captured"
             report.add_signal(
                 "native.no_trace",
                 "Sample produced no observable syscalls",
                 "info",
-                detail="Executed under the jail but strace captured nothing; the "
-                "sample may have exited immediately or refused to run.",
+                detail=(
+                    f"The jail exited {proc_rc} and strace captured nothing. The "
+                    "sample may have exited immediately or refused to run; no "
+                    "behaviour was observed either way."
+                ),
             )
             return report
 
