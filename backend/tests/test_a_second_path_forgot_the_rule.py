@@ -224,7 +224,7 @@ def test_an_interrupted_job_is_re_queued_at_startup(db) -> None:
     from app.main import _recover_interrupted_jobs
 
     job = SandboxJob(
-        public_id="stranded-1", tenant_id="default", source="upload",
+        public_id="11111111-1111-4111-8111-111111111111", tenant_id="default", source="upload",
         original_name="x.bin", sha256="c" * 64, md5="d" * 32, size_bytes=1,
         status=JobStatus.RUNNING, stage="analysing",
     )
@@ -252,7 +252,7 @@ def test_a_recovered_job_can_be_re_analysed_immediately(client, db, auth) -> Non
     from app.util import utcnow
 
     job = SandboxJob(
-        public_id="stranded-2", tenant_id="default", source="upload",
+        public_id="22222222-2222-4222-8222-222222222222", tenant_id="default", source="upload",
         original_name="y.bin", sha256="e" * 64, md5="f" * 32, size_bytes=1,
         status=JobStatus.RUNNING, stage="analysing",
         # Started seconds ago: well inside the staleness window.
@@ -275,7 +275,7 @@ def test_a_job_that_really_is_running_is_still_refused(client, db, auth) -> None
     from app.util import utcnow
 
     job = SandboxJob(
-        public_id="busy-1", tenant_id="default", source="upload",
+        public_id="33333333-3333-4333-8333-333333333333", tenant_id="default", source="upload",
         original_name="z.bin", sha256="1" * 64, md5="2" * 32, size_bytes=1,
         status=JobStatus.RUNNING, stage="analysing",
         started_at=utcnow().replace(tzinfo=None),

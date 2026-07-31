@@ -35,6 +35,7 @@ from ..engine import identify, scoring
 from ..engine.contracts import IOCs, AnalyzerResult, Signal
 from ..engine.models import JobSource, JobStatus, SandboxJob
 from ..engine.storage import quarantine_root
+from .sandbox import looks_like_public_id
 from ..schemas import DynamicReportIn, JobDetail
 
 logger = logging.getLogger("sandbox.dynamic")
@@ -233,6 +234,10 @@ def dynamic_sample(
     the endpoint is reachable only with the worker token. A production deployment
     should upgrade this to a signed, single-use URL — noted in native.py.
     """
+    # Not a UUID, no row can match — and a NUL byte here is a driver
+    # ValueError rather than a miss. See `looks_like_public_id`.
+    if not looks_like_public_id(public_id):
+        raise HTTPException(status_code=404, detail="Job not found")
     job = db.execute(
         select(SandboxJob).where(SandboxJob.public_id == public_id)
     ).scalar_one_or_none()
@@ -406,6 +411,10 @@ def ingest_report(
     because it arrives in the same Signal vocabulary. The score can only move —
     behaviour is evidence the static tier did not have.
     """
+    # Not a UUID, no row can match — and a NUL byte here is a driver
+    # ValueError rather than a miss. See `looks_like_public_id`.
+    if not looks_like_public_id(public_id):
+        raise HTTPException(status_code=404, detail="Job not found")
     job = db.execute(
         select(SandboxJob).where(SandboxJob.public_id == public_id)
     ).scalar_one_or_none()

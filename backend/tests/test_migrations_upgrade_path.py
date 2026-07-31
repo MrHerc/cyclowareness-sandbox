@@ -38,6 +38,16 @@ POST_BASELINE_COLUMNS = (
 )
 
 
+#: Ids a PREVIOUS RELEASE would have written. They are UUIDs because that
+#: is what every release has ever minted — `git log -S 'public_id=' --all`
+#: shows one generator, `str(uuid.uuid4())`, and all 1074 ids in the live
+#: database parse as UUIDs. The fixture used to invent `legacy-job-2`, which
+#: no release could produce, and that hid the missing validation on the path
+#: parameter (a NUL byte there was a 500 on six routes).
+_LEGACY_1 = "55555555-5555-4555-8555-555555555551"
+_LEGACY_2 = "55555555-5555-4555-8555-555555555552"
+
+
 def _build_previous_release_schema(engine: sa.Engine) -> None:
     """Exactly what ``create_all()`` produced before those columns existed.
 
@@ -151,7 +161,7 @@ def test_previous_release_database_reproduces_the_reported_failure(temp_engine):
 
 def test_init_db_upgrades_a_previous_release_database(temp_engine):
     _build_previous_release_schema(temp_engine)
-    _insert_legacy_job(temp_engine, "legacy-job-1")
+    _insert_legacy_job(temp_engine, _LEGACY_1)
 
     app_db.init_db()
 
@@ -163,7 +173,7 @@ def test_init_db_upgrades_a_previous_release_database(temp_engine):
     session = sessionmaker(bind=temp_engine)()
     try:
         job = session.execute(
-            sa.select(SandboxJob).where(SandboxJob.public_id == "legacy-job-1")
+            sa.select(SandboxJob).where(SandboxJob.public_id == _LEGACY_1)
         ).scalar_one()
         assert job.original_name == "invoice.doc"
         assert job.final_score == 4.0
@@ -177,7 +187,7 @@ def test_init_db_upgrades_a_previous_release_database(temp_engine):
 def test_api_serves_a_previous_release_database_after_boot(temp_engine):
     """End to end: the routes that returned 500 now answer, over the old data."""
     _build_previous_release_schema(temp_engine)
-    _insert_legacy_job(temp_engine, "legacy-job-2")
+    _insert_legacy_job(temp_engine, _LEGACY_2)
 
     # The lifespan runs init_db(), which is the upgrade an operator gets for free.
     with TestClient(app) as client:
@@ -191,9 +201,9 @@ def test_api_serves_a_previous_release_database_after_boot(temp_engine):
 
         listing = client.get("/api/jobs", headers=headers)
         assert listing.status_code == 200, listing.text
-        assert "legacy-job-2" in [job["public_id"] for job in listing.json()["items"]]
+        assert _LEGACY_2 in [job["public_id"] for job in listing.json()["items"]]
 
-        detail = client.get("/api/result/legacy-job-2", headers=headers)
+        detail = client.get(f"/api/result/{_LEGACY_2}", headers=headers)
         assert detail.status_code == 200, detail.text
 
 
@@ -204,7 +214,7 @@ def test_current_release_database_without_alembic_is_adopted_in_place(temp_engin
     app_db.Base.metadata.create_all(temp_engine)
     session = sessionmaker(bind=temp_engine)()
     try:
-        session.add(SandboxJob(public_id="adopted-job", original_name="invoice.doc"))
+        session.add(SandboxJob(public_id="44444444-4444-4444-8444-444444444444", original_name="invoice.doc"))
         session.commit()
     finally:
         session.close()

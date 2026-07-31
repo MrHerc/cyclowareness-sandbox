@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import math
+import uuid
 from datetime import datetime, timedelta, timezone
 import re
 from urllib.parse import quote
@@ -127,6 +128,27 @@ def _attachment(original_name: str | None, fallback: str, suffix: str) -> str:
     return f"attachment; filename=\"sandbox-{stem}{suffix}\"; filename*=UTF-8''{encoded}"
 
 
+def looks_like_public_id(value: str) -> bool:
+    """Could this string possibly be a job's public id?
+
+    `public_id` is `str(uuid.uuid4())`, so anything that is not a UUID cannot
+    match a row. This is not a sanitiser bolted on the front — it is the truth
+    about the column, and it saves handing the database a value it will refuse.
+
+    It refuses one specific thing loudly: a NUL byte. PostgreSQL's driver raises
+    `ValueError` on a NUL inside a text parameter, so `GET /api/result/%00` was a
+    500 on six routes including the report page — the same class as the
+    `?status=%00` incident this codebase already carries a note about.
+    """
+    if not value or len(value) > 64 or "\x00" in value:
+        return False
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
+
+
 def _job_or_404(db: Session, public_id: str, identity: Identity) -> SandboxJob:
     """The one door to a single job — and therefore the whole isolation boundary.
 
@@ -139,6 +161,10 @@ def _job_or_404(db: Session, public_id: str, identity: Identity) -> SandboxJob:
     leak — a competitor could learn how much a rival is analysing without ever
     reading a report.
     """
+    if not looks_like_public_id(public_id):
+        # Not a UUID, so no row can match. 404 for the same reason as below —
+        # and without putting a value the driver rejects into a query.
+        raise HTTPException(status_code=404, detail="Analysis job not found")
     job = db.execute(
         select(SandboxJob)
         .where(SandboxJob.public_id == public_id)
