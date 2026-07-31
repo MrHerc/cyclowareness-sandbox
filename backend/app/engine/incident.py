@@ -182,6 +182,46 @@ def _unlawful_or_malicious_act(job) -> dict[str, Any]:
     }
 
 
+def _points_inside(value: str) -> bool:
+    """Is this indicator an address belonging to the sandbox itself?
+
+    Loopback, link-local and RFC1918 are this deployment and its guest network.
+    An indicator pointing at them is the sandbox observing itself, and it must
+    not read as the artifact reaching another jurisdiction.
+
+    Anything unparseable is treated as OUTWARD. A hostname we cannot resolve
+    here could be anywhere, and the safe direction for a regulatory record is to
+    keep it in the count rather than quietly drop it.
+    """
+    import ipaddress
+    import re as _re
+    from urllib.parse import urlsplit
+
+    text = (value or "").strip()
+    if not text:
+        return False
+    host = text
+    if "://" in text:
+        host = urlsplit(text).hostname or ""
+    elif "@" in text:
+        host = text.rsplit("@", 1)[-1]
+    host = host.strip("[]").split(":")[0]
+    if not host:
+        return False
+    if host in ("localhost", "localhost.localdomain"):
+        return True
+    if not _re.fullmatch(r"[0-9a-fA-F:.]+", host):
+        return False
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(
+        address.is_loopback or address.is_private or address.is_link_local
+        or address.is_unspecified
+    )
+
+
 def _cross_border(job) -> dict[str, Any]:
     """NIS2 Article 23(4)(a) / 23(6): could the incident have cross-border impact?
 
@@ -191,10 +231,25 @@ def _cross_border(job) -> dict[str, Any]:
     """
     iocs = getattr(job, "iocs", None) or {}
     external = []
+    internal = []
     for kind in ("urls", "domains", "ips", "emails"):
-        values = iocs.get(kind) or []
-        if values:
-            external.append({"kind": kind, "count": len(values)})
+        values = [str(v) for v in (iocs.get(kind) or [])]
+        if not values:
+            continue
+        # OUR OWN ADDRESSES ARE NOT ANOTHER COUNTRY.
+        #
+        # The guest network is 192.168.122.x and the deployment answers on
+        # loopback, so a detonation that talked only to our own sinkhole put
+        # exactly those in the IOCs -- and this record then told a regulator that
+        # cross-border impact "cannot be excluded on the evidence".
+        #
+        # `sovereignty.destination_is_internal` already draws this line on the
+        # egress side, for the same reason.
+        outward = [v for v in values if not _points_inside(v)]
+        if outward:
+            external.append({"kind": kind, "count": len(outward)})
+        if len(outward) != len(values):
+            internal.append({"kind": kind, "count": len(values) - len(outward)})
 
     signal_ids = {str(s.get("id", "")) for s in report_mod._all_signals(job)}
     reaches_out = bool(external) or any(
@@ -204,6 +259,10 @@ def _cross_border(job) -> dict[str, Any]:
     return {
         "answer": "undetermined",
         "indicators_of_external_reach": external,
+        # Reported rather than dropped: the analysis saw them, and a record that
+        # silently omits an indicator is its own kind of wrong. They simply do
+        # not, on their own, assert that anything left the entity.
+        "indicators_inside_this_deployment": internal,
         "artifact_reaches_outside_the_entity": reaches_out,
         "basis": (
             "The artifact carries indicators pointing outside the entity, so cross-border "

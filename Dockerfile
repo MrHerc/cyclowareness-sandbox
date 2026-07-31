@@ -84,9 +84,16 @@ COPY backend/ ./
 COPY --from=frontend /frontend/dist ./frontend_dist
 
 # Run as a non-root user; the quarantine dir is owned by it and mounted noexec.
+#
+# `/data` is created here for the same reason. docker-compose mounts a named
+# volume there for the SQLite database, and Docker gives a fresh volume the
+# ownership of the image's directory at that path — so a path the image never
+# creates arrives root-owned and unwritable by uid 10001. That made
+# `docker compose up --build`, the first command in both README.md and
+# DEPLOY.md, fail on a clean machine.
 RUN useradd --create-home --uid 10001 sandbox \
-    && mkdir -p /var/lib/sandbox/quarantine \
-    && chown -R sandbox:sandbox /app /var/lib/sandbox
+    && mkdir -p /var/lib/sandbox/quarantine /data \
+    && chown -R sandbox:sandbox /app /var/lib/sandbox /data
 USER sandbox
 
 EXPOSE 8000
