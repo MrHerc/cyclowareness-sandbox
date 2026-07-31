@@ -130,7 +130,13 @@ _DETECTORS: tuple[_Detector, ...] = (
         "Base64-encoded command",
         "high",
         _p(
-            ("powershell -EncodedCommand / -enc / -e", r"-e(?:nc(?:odedcommand)?)?\s+[A-Za-z0-9+/=]{20,}"),
+            # `-e` really is PowerShell shorthand for -EncodedCommand, so it
+            # stays -- but it has to be POWERSHELL's -e. The bare flag plus 20
+            # characters from a class containing / and = matched
+            # `grep -e abcdefghij0123456789xy`, and `sed -e`, and `docker run -e`.
+            ("Base64 -EncodedCommand", r"-enc(?:odedcommand)?\s+[A-Za-z0-9+/=]{20,}"),
+            ("powershell -e <base64>",
+             r"(?:powershell|pwsh)(?:\.exe)?[^\n]{0,200}?\s-e\s+[A-Za-z0-9+/=]{40,}"),
             ("[Convert]::FromBase64String", r"frombase64string"),
             ("JavaScript atob()", r"\batob\s*\("),
             ("base64 --decode", r"\bbase64(?:\.exe)?\s+(?:-d|-D|--decode)\b"),
@@ -158,7 +164,10 @@ _DETECTORS: tuple[_Detector, ...] = (
             ("WinHttp.WinHttpRequest", r"winhttp\.winhttprequest"),
             ("ADODB.Stream write-to-disk", r"adodb\.stream"),
             ("python urllib/requests", r"urllib\.request|\brequests\.get\s*\(|\burlretrieve\s*\("),
-            ("Start-Process", r"\bstart-process\b"),
+            # `Start-Process` was here. It starts a LOCAL program, and this
+            # detector is titled "Remote payload retrieval" and asserts both
+            # `network` and `execution`. It moved to script.dynamic_execution,
+            # which asserts execution alone and is the true statement.
         ),
     ),
     _Detector(
@@ -170,7 +179,11 @@ _DETECTORS: tuple[_Detector, ...] = (
             ("eval()", r"\beval\s*\("),
             ("new Function()", r"\bnew\s+function\s*\(|\bfunction\s*\(\s*['\"]"),
             ("VBScript ExecuteGlobal", r"\bexecuteglobal\b"),
-            ("VBScript Execute", r"\bexecute\s*\("),
+            # `(?<![.\w])` for the reason spelled out eleven lines below:
+            # without it every `db.execute(...)`, `cursor.execute(...)` and
+            # `session.execute(...)` on earth is "Runtime code evaluation".
+            ("VBScript Execute", r"(?<![.\w])execute\s*\("),
+            ("Start-Process", r"\bstart-process\b"),
             ("[ScriptBlock]::Create", r"\[scriptblock\]\s*::\s*create"),
             ("WScript.Shell Run", r"wscript\.shell"),
         ),
@@ -187,7 +200,10 @@ _DETECTORS: tuple[_Detector, ...] = (
         "AMSI / ETW tampering",
         "critical",
         _p(
-            ("AMSI reference", r"\bamsi\w{0,20}"),
+            # A bare `amsi` mention was here at `critical`. It matched any
+            # document that DISCUSSES AMSI -- a security note, a detection
+            # rule, a blog post saved as .ps1. The specific patterns below
+            # are the tamper evidence and they are unchanged.
             ("amsiInitFailed patch", r"amsiinitfailed"),
             ("AmsiScanBuffer patch", r"amsiscanbuffer"),
             ("EtwEventWrite patch", r"etweventwrite"),
@@ -258,7 +274,15 @@ _DETECTORS: tuple[_Detector, ...] = (
             ("SAM/SECURITY hive export", r"reg(?:\.exe)?\s+save[^\n]{0,60}\b(?:sam|system|security)\b"),
             ("NTDS.dit", r"\bntds\.dit\b"),
             ("DPAPI", r"\bdpapi\b|cryptunprotectdata"),
-            ("Browser credential store", r"login\s?data|\bvaultcmd\b|\blazagne\b"),
+            # `Login Data` is a Chrome profile FILE and is spelled with a
+            # space. `\s?` made the space optional, so every `loginData`
+            # identifier in every JavaScript file was "Credential theft" at
+            # `critical`. The space is required now, and the Windows profile
+            # path form is accepted beside it so the real artefact still hits.
+            ("Browser credential store",
+             r"\blogin data\b"
+             r"|user data[\\/][^\\/\n]{0,40}[\\/]login data"
+             r"|\bvaultcmd\b|\blazagne\b"),
         ),
     ),
     _Detector(

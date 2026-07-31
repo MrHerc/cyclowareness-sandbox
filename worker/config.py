@@ -161,7 +161,12 @@ class Config:
             worker_token=_str("DYNAMIC_WORKER_TOKEN"),
             worker_name=_str("WORKER_NAME", "cyclowareness-worker"),
             poll_interval_seconds=_int("POLL_INTERVAL_SECONDS", 15),
-            engine_timeout_seconds=_int("ENGINE_TIMEOUT_SECONDS", 120),
+            # 600, matching the field default at the top of this file, the comment
+            # that explains why 120 is a guaranteed false timeout, and
+            # worker/README.md. `from_env` is the ONLY constructor main()
+            # uses, so the 600 up there was dead code and every worker ran
+            # at 120 unless an operator happened to set the variable.
+            engine_timeout_seconds=_int("ENGINE_TIMEOUT_SECONDS", 600),
             queue_limit=_int("QUEUE_LIMIT", 20),
             max_concurrent_jobs=max(1, _int("MAX_CONCURRENT_JOBS", 1)),
             http_timeout_seconds=_int("HTTP_TIMEOUT_SECONDS", 30),

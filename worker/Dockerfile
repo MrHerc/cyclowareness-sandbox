@@ -53,6 +53,6 @@ ENV PYTHONUNBUFFERED=1 \
     SANDBOX_API_URL=http://localhost:8000 \
     WORKER_NAME=cyclowareness-worker \
     POLL_INTERVAL_SECONDS=15 \
-    ENGINE_TIMEOUT_SECONDS=120
+    ENGINE_TIMEOUT_SECONDS=600
 
 ENTRYPOINT ["./docker-entrypoint.sh"]
