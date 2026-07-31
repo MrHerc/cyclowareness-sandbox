@@ -323,6 +323,11 @@ class CapeV2Engine(_HttpSandboxEngine):
     #: ``{"error": true, "error_value": "Task is still being analyzed"}``.
     _DONE = {"reported"}
     _FAILED = {"failed_analysis", "failed_processing", "failed_reporting", "banned"}
+    #: Failures that are a property of the SAMPLE, so the next attempt produces
+    #: exactly the same answer. `failed_analysis` is deliberately absent: it can
+    #: also mean a guest crashed mid-run, which is worth retrying, and it is
+    #: separated by whether a machine was ever assigned (see `_poll`).
+    _TERMINAL = {"failed_processing", "failed_reporting", "banned"}
 
     def _base(self) -> str:
         """The API root, tolerating a URL configured with or without /apiv2."""
@@ -471,12 +476,31 @@ class CapeV2Engine(_HttpSandboxEngine):
             if status in self._FAILED:
                 report.facts["cape_failure"] = f"CAPE task {task_id} ended as {status}"
                 if self._task_never_started(requests, base, task_id):
+                    # No guest could take it: architecture or platform mismatch.
+                    # There is no behavioural evidence and there never will be.
                     report.facts["cape_unserviceable"] = True
                     report.facts["cape_failure"] = (
                         f"CAPE task {task_id} ended as {status} without ever being "
                         f"given an analysis machine — no guest on that cluster can "
                         f"run this sample (architecture or platform mismatch). "
                         f"Re-offering it would fail identically."
+                    )
+                elif status in self._TERMINAL:
+                    # It DID run. The sandbox observed the sample and could not
+                    # write the observation down — measured here as a process
+                    # tree deep enough to exhaust Python's recursion limit in
+                    # CAPE's own JSON reporter. That is the sample's shape, so it
+                    # is the same on every attempt, and each attempt costs a
+                    # five-minute guest slot.
+                    report.facts["cape_unserviceable"] = True
+                    report.facts["cape_failure"] = (
+                        f"CAPE task {task_id} ran to completion on an analysis "
+                        f"machine and then ended as {status}: the sandbox observed "
+                        f"this sample but could not produce a report from it. That "
+                        f"is a property of the sample, so re-offering it would fail "
+                        f"identically. The behaviour was seen and is not recorded "
+                        f"here — treat the dynamic tier as absent for this sample, "
+                        f"not as having found nothing."
                     )
                 return None
             if status in self._DONE:

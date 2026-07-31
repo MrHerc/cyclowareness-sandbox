@@ -159,3 +159,74 @@ def test_the_refusal_marker_is_what_stops_the_loop() -> None:
 
     job.tiers = {"dynamic": {"ran": False, "refused": True}}
     assert not _needs_dynamic(job)
+
+
+# --- the second terminal case: it ran, and the report cannot be built --------
+
+RAN_THEN_REPORTING_FAILED = {
+    "id": 4144, "status": "failed_reporting", "machine": "cape3",
+    "started_on": "2026-07-31 14:14:24", "platform": "windows",
+}
+
+
+def test_a_report_that_cannot_be_built_is_also_terminal(cape, monkeypatch, tmp_path) -> None:
+    """Established by experiment, not assumption.
+
+    A trivial .bat on the same cluster produced status `reported` and a
+    528,827-byte report, so CAPE's reporting works. `sample_050.dll` completes
+    its analysis on a guest every time and then fails with
+    `JsonDump: Recursion limit reached` — its process tree is deep enough to
+    exhaust Python's recursion limit, which is a property of the SAMPLE.
+    Raising `analysis_call_limit` and enabling `loop_detection` did not touch
+    it, because the depth is structural rather than a call count.
+
+    Each retry costs a five-minute guest slot for an identical answer.
+    """
+    import engines.opensource as mod  # type: ignore
+
+    sys.path.insert(0, str(WORKER))
+    try:
+        fake = _Requests(status="failed_reporting", view=RAN_THEN_REPORTING_FAILED)
+        monkeypatch.setattr(mod, "_requests", lambda: fake)
+        sample = tmp_path / "sample_050.dll"
+        sample.write_bytes(b"MZ" + b"\0" * 64)
+        report = cape.run(str(sample), "b" * 64, "pe")
+    finally:
+        sys.path.remove(str(WORKER))
+
+    assert report.refused is True
+    reason = report.unavailable_reason or ""
+    # The two terminal cases mean opposite things about the evidence and must
+    # not be described with the same sentence.
+    assert "ran to completion" in reason
+    assert "not as having found nothing" in reason
+
+
+def test_a_guest_that_crashed_mid_run_is_still_retried(cape, monkeypatch, tmp_path) -> None:
+    """`failed_analysis` WITH a machine is a crash, not the sample's shape."""
+    import engines.opensource as mod  # type: ignore
+
+    sys.path.insert(0, str(WORKER))
+    try:
+        fake = _Requests(status="failed_analysis", view=REALLY_RAN_THEN_FAILED)
+        monkeypatch.setattr(mod, "_requests", lambda: fake)
+        sample = tmp_path / "x.exe"
+        sample.write_bytes(b"MZ")
+        report = cape.run(str(sample), "c" * 64, "pe")
+    finally:
+        sys.path.remove(str(WORKER))
+
+    assert report.refused is False, "a crashed guest may well work next time"
+
+
+def test_the_terminal_set_excludes_failed_analysis() -> None:
+    """It is the one status that means both things, so it is decided by whether
+    a machine was ever assigned, never by the word alone."""
+    sys.path.insert(0, str(WORKER))
+    try:
+        from engines.opensource import CapeV2Engine  # type: ignore
+
+        assert "failed_analysis" not in CapeV2Engine._TERMINAL
+        assert {"failed_processing", "failed_reporting", "banned"} <= CapeV2Engine._TERMINAL
+    finally:
+        sys.path.remove(str(WORKER))
