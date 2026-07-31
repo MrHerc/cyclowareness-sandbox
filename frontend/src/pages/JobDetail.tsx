@@ -328,6 +328,12 @@ export function JobDetail() {
                       detection engines flagged this sample.
                       {detection?.category ? ` Classified as ${detection.category} on ${detection.platform}.` : ''}
                     </p>
+                    {/* WHERE THE VERDICT CAME FROM, when it was not this file's
+                        own. Without it a zip reads as though the zip were the
+                        malware, and the analyst cannot tell which member to open. */}
+                    {detection?.raised_because && (
+                      <p className="text-sm mt-2 text-c3">{detection.raised_because}</p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -410,6 +416,11 @@ export function JobDetail() {
                     <Chip tone={SEVERITY_TONE[impact.severity] ?? 'neutral'}>{impact.severity}</Chip>
                   </div>
                   <p className="tech text-c3">{impact.vector}</p>
+                  {/* A container has no capabilities of its own, so its rating is
+                      the worst member's. Say whose, or 7.5 reads as this file's. */}
+                  {impact.raised_because && (
+                    <p className="text-sm text-c3">{impact.raised_because}</p>
+                  )}
                   <div className="flex flex-wrap gap-1.5">
                     {Object.entries(impact.metrics || {}).map(([m, v]) => (
                       <Chip key={m} tone="neutral">

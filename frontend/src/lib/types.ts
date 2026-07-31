@@ -35,6 +35,17 @@ export interface VerdictT {
   category: string
   family: string
   engines: EngineDetection[]
+  /**
+   * Set when a CONTAINER inherited this verdict from something inside it.
+   *
+   * A container has almost no signals of its own — carrying files is not a
+   * capability — so the pipeline raises it to the worst member's verdict and
+   * records the reason instead of applying it silently. `raised_to()` says why
+   * in its own docstring: "a reader has to be able to see that the word changed
+   * and why." The API has always sent this; the report used to drop it, so a
+   * zip read as though the zip itself were the malware.
+   */
+  raised_because?: string
 }
 
 /**
@@ -51,6 +62,9 @@ export interface ImpactT {
   metrics: Record<string, string>
   rationale: { metric: string; value: string; why: string }[]
   disclaimer?: string
+  /** Set when a container adopted this rating from the member it inherited its
+   *  verdict from. Same reason as `VerdictT.raised_because`. */
+  raised_because?: string
 }
 
 export interface MitreTechnique {
