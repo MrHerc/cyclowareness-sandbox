@@ -98,7 +98,15 @@ def verify(
     how much activity the other tenants generate. `require_admin` keeps that to
     an interactive session; an API key cannot reach it.
     """
-    return audit.verify_chain(db)
+    result = audit.verify_chain(db)
+    # The chain proves internal consistency. Internal consistency is what an
+    # attacker with UPDATE can restore, so the answer is incomplete without
+    # the signed anchors -- see `audit.verify_checkpoints`.
+    result["anchor"] = audit.verify_checkpoints(db)
+    if result.get("ok") and result["anchor"].get("broken_at") is not None:
+        result["ok"] = False
+        result["reason"] = result["anchor"]["reason"]
+    return result
 
 
 @router.get("/export")

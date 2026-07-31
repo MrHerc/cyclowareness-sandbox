@@ -36,7 +36,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, Integer, String, func, select
+from sqlalchemy import JSON, DateTime, Integer, String, Text, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -45,6 +45,12 @@ from .db import Base, session_scope
 from .util import utcnow
 
 logger = logging.getLogger("sandbox.audit")
+
+#: How many events may rest on the chain alone before another signature is
+#: written. One per event would double the write cost of every audited action;
+#: one per day would leave a day of events unanchored. Fifty bounds the gap to
+#: a handful of actions for one Ed25519 signature, which is microseconds.
+CHECKPOINT_EVERY = 50
 
 #: The ``prev_hash`` of the first event. A real hash never collides with it, so
 #: "this row claims to be the genesis" is unforgeable in the same way every
@@ -332,6 +338,13 @@ def record(
             # The session does not expire on commit, so the flushed id and every
             # attribute stay readable on the returned, detached event.
             db.commit()
+            # Anchor on a cadence rather than on a schedule nobody runs. Inside
+            # the try because a checkpoint that fails must not fail the analyst's
+            # action either -- `checkpoint` never raises, but obtaining the id
+            # after a commit can, and the rule here is that audit bookkeeping is
+            # never the reason an upload is refused.
+            if event.id and event.id % CHECKPOINT_EVERY == 0:
+                checkpoint(db)
             return event
         except IntegrityError:
             db.rollback()
@@ -437,6 +450,286 @@ def _verdict(
         "broken_at": broken_at,
         "reason": reason,
         "verified_at": _iso(utcnow()),
+    }
+
+
+class AuditCheckpoint(Base):
+    """A signed statement about the chain at one moment.
+
+    The chain proves it has not been edited *inconsistently*. This proves it has
+    not been edited at all, up to the point it covers -- because reproducing a
+    checkpoint means producing an Ed25519 signature, and the key for that is on
+    the host filesystem rather than in this table.
+
+    Chained to each other through ``prev_checkpoint_hash`` for the same reason
+    the events are: otherwise the cheapest attack is to delete the checkpoints.
+    """
+
+    __tablename__ = "audit_checkpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    #: The event this checkpoint speaks for. 0 with the genesis hash when the
+    #: chain is empty -- "nothing had happened yet" is a claim worth signing.
+    head_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    head_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    #: Rebuilding a shorter chain that ends on the same hash is not possible, but
+    #: the count makes a wholesale rebuild fail on arithmetic as well as on
+    #: cryptography, and it is the figure a human can check at a glance.
+    event_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    prev_checkpoint_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    checkpoint_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+
+    #: Base64 Ed25519 over ``checkpoint_hash``, and the key that produced it, so
+    #: a verifier can tell "signed by a key we no longer trust" from "forged".
+    signature: Mapped[str] = mapped_column(Text, nullable=False)
+    key_id: Mapped[str] = mapped_column(String(128), nullable=False)
+
+
+def _checkpoint_canonical(
+    *,
+    created_at: datetime,
+    head_id: int,
+    head_hash: str,
+    event_count: int,
+    prev_checkpoint_hash: str,
+) -> bytes:
+    """The exact bytes a checkpoint_hash covers.
+
+    Same shape and the same reasoning as ``_canonical``: sorted keys, no
+    whitespace, reproducible by a third party holding nothing but the table and
+    this function.
+    """
+    return json.dumps(
+        {
+            "created_at": _iso(created_at),
+            "head_id": head_id,
+            "head_hash": head_hash,
+            "event_count": event_count,
+            "prev_checkpoint_hash": prev_checkpoint_hash,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def _checkpoint_tail(db: Session) -> str:
+    last = db.execute(
+        select(AuditCheckpoint.checkpoint_hash)
+        .order_by(AuditCheckpoint.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return last or GENESIS_HASH
+
+
+def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:
+    """Sign the current head of the chain. Returns what it wrote, or why it did not.
+
+    Never raises. An anchor that fails is a gap in the evidence, but refusing an
+    analyst's action because the anchor could not be written turns a bookkeeping
+    problem into an outage -- the same rule ``record()`` follows.
+    """
+    from .engine import attestation
+
+    if settings is None:
+        from .config import get_settings
+
+        settings = get_settings()
+
+    private_key, reason = attestation.deployment_key(settings)
+    if private_key is None:
+        # Said plainly and counted. "No checkpoint" and "checkpoint passing" must
+        # never look the same to whoever reads this later.
+        logger.warning("audit checkpoint skipped: %s", reason)
+        return {"written": False, "reason": reason}
+
+    head = db.execute(
+        select(AuditEvent.id, AuditEvent.entry_hash)
+        .order_by(AuditEvent.id.desc())
+        .limit(1)
+    ).first()
+    head_id = int(head[0]) if head else 0
+    head_hash = head[1] if head else GENESIS_HASH
+    count = int(db.execute(select(func.count(AuditEvent.id))).scalar_one() or 0)
+
+    created = utcnow()
+    prev = _checkpoint_tail(db)
+    digest = hashlib.sha256(
+        _checkpoint_canonical(
+            created_at=created,
+            head_id=head_id,
+            head_hash=head_hash,
+            event_count=count,
+            prev_checkpoint_hash=prev,
+        )
+    ).hexdigest()
+
+    public_key = attestation.public_key_b64(private_key)
+    row = AuditCheckpoint(
+        created_at=created,
+        head_id=head_id,
+        head_hash=head_hash,
+        event_count=count,
+        prev_checkpoint_hash=prev,
+        checkpoint_hash=digest,
+        signature=attestation.sign(digest.encode("ascii"), private_key),
+        key_id=attestation.key_id(public_key),
+    )
+    try:
+        db.add(row)
+        db.commit()
+    except IntegrityError:
+        # Two appenders raced; the unique index refused the fork. The other one
+        # wrote a checkpoint covering at least as much, so there is nothing to do.
+        db.rollback()
+        return {"written": False, "reason": "a concurrent checkpoint won the race"}
+    except Exception as exc:  # noqa: BLE001
+        db.rollback()
+        logger.error("audit checkpoint failed to write: %s", exc)
+        return {"written": False, "reason": f"{type(exc).__name__}"}
+
+    return {
+        "written": True,
+        "id": row.id,
+        "head_id": head_id,
+        "head_hash": head_hash,
+        "event_count": count,
+        "checkpoint_hash": digest,
+        "key_id": row.key_id,
+        "created_at": _iso(created),
+    }
+
+
+def verify_checkpoints(db: Session, *, settings=None) -> dict[str, Any]:
+    """Do the signed anchors still describe this chain?
+
+    Three separate questions, and they fail differently on purpose:
+
+    * the signature -- a re-chained table cannot reproduce it without the key;
+    * the checkpoint chain -- deleting an anchor breaks ``prev_checkpoint_hash``;
+    * the claim itself -- does the event at ``head_id`` still hash to
+      ``head_hash``, and are there still ``event_count`` events at or before it?
+
+    An unsigned deployment reports ``anchored: False`` with the reason. That is
+    not a failure of the chain; it is the absence of an anchor, and the two must
+    not read the same.
+    """
+    from .engine import attestation
+
+    if settings is None:
+        from .config import get_settings
+
+        settings = get_settings()
+
+    rows = list(db.execute(select(AuditCheckpoint).order_by(AuditCheckpoint.id)).scalars())
+    if not rows:
+        return {
+            "anchored": False,
+            "checkpoints": 0,
+            "reason": "no checkpoint has been written yet",
+        }
+
+    info = attestation.public_key_info(settings)
+    public_key = (info or {}).get("public_key") or ""
+    if not public_key:
+        return {
+            "anchored": False,
+            "checkpoints": len(rows),
+            "reason": (
+                "checkpoints exist but this deployment has no public key to check "
+                "them against, so they prove nothing here"
+            ),
+        }
+
+    previous = GENESIS_HASH
+    for row in rows:
+        if row.prev_checkpoint_hash != previous:
+            return _checkpoint_failure(
+                rows, row, "a checkpoint was deleted, inserted or re-ordered"
+            )
+
+        recomputed = hashlib.sha256(
+            _checkpoint_canonical(
+                created_at=row.created_at,
+                head_id=row.head_id,
+                head_hash=row.head_hash,
+                event_count=row.event_count,
+                prev_checkpoint_hash=row.prev_checkpoint_hash,
+            )
+        ).hexdigest()
+        if recomputed != row.checkpoint_hash:
+            return _checkpoint_failure(rows, row, "a checkpoint's own fields were edited")
+
+        if not attestation.verify(row.checkpoint_hash.encode("ascii"), row.signature, public_key):
+            return _checkpoint_failure(
+                rows,
+                row,
+                "a checkpoint's signature does not verify — it was forged, or it "
+                "was signed by a different key than this deployment now holds",
+            )
+
+        # And the claim. This is the part a re-chained table fails.
+        if row.head_id:
+            stored = db.execute(
+                select(AuditEvent.entry_hash).where(AuditEvent.id == row.head_id)
+            ).scalar_one_or_none()
+            if stored is None:
+                return _checkpoint_failure(
+                    rows, row, f"event {row.head_id} named by a checkpoint is gone"
+                )
+            if stored != row.head_hash:
+                return _checkpoint_failure(
+                    rows,
+                    row,
+                    f"event {row.head_id} no longer hashes to what the checkpoint "
+                    "signed — the chain was rewritten after this anchor",
+                )
+        counted = int(
+            db.execute(
+                select(func.count(AuditEvent.id)).where(AuditEvent.id <= row.head_id)
+            ).scalar_one()
+            or 0
+        )
+        if counted != row.event_count:
+            return _checkpoint_failure(
+                rows,
+                row,
+                f"{counted} events at or before {row.head_id}, the checkpoint "
+                f"signed {row.event_count} — rows were added or removed",
+            )
+        previous = row.checkpoint_hash
+
+    return {
+        "anchored": True,
+        "checkpoints": len(rows),
+        "latest_head_id": rows[-1].head_id,
+        "latest_checkpoint_at": _iso(rows[-1].created_at),
+        "key_id": rows[-1].key_id,
+        "broken_at": None,
+        "reason": None,
+        # Stated, not implied: this is what the anchor does and does not cover.
+        "covers": (
+            "Every event up to the latest checkpoint is anchored to a signature "
+            "this database cannot produce. Events after it rely on the chain "
+            "alone. An attacker holding the signing key can forge both."
+        ),
+    }
+
+
+def _checkpoint_failure(rows, row, reason: str) -> dict[str, Any]:
+    return {
+        "anchored": False,
+        "checkpoints": len(rows),
+        "broken_at": row.id,
+        "head_id": row.head_id,
+        "reason": reason,
     }
 
 
