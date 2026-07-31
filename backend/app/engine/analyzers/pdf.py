@@ -81,6 +81,14 @@ _KEYWORDS: tuple[tuple[str, bytes], ...] = (
     ("goto_remote", rb"/GoToR" + _TAIL),
 )
 
+#: A launch action is a dictionary, not a word. ISO 32000-1 spells it
+#: `<< /Type /Action /S /Launch /F (...) >>` -- `/S` is the key that makes
+#: it an action at all. Matching the bare keyword rated a security paper
+#: that merely NAMES the action `critical`, because /Launch was counted in
+#: the inflated streams where a document's rendered text lives.
+_RE_LAUNCH_ACTION = re.compile(
+    rb"/S\s{0,8}/Launch" + _TAIL + rb"|/Launch" + _TAIL + rb"[^<>]{0,64}?/S\s{0,8}/Launch"
+)
 _RE_OBJ = re.compile(rb"\b\d{1,10}\s+\d{1,5}\s+obj\b")
 _RE_ENDOBJ = re.compile(rb"\bendobj\b")
 _RE_STREAM = re.compile(rb"\bstream\r?\n")
@@ -122,7 +130,8 @@ def analyze(sample: Sample) -> AnalyzerResult:
     # original survives into the decoded copy — one buffer covers both spellings.
     surface = _decode_name_escapes(data)
     inflated, stream_stats = _inflate_streams(data)
-    structure = _structure_facts(data, surface, inflated)
+    scan_truncated = len(data) >= MAX_SCAN_BYTES and sample.size_bytes > MAX_SCAN_BYTES
+    structure = _structure_facts(data, surface, inflated, truncated=scan_truncated)
 
     buffers: tuple[tuple[str, bytes], ...] = (
         ("file", surface),
@@ -135,6 +144,13 @@ def analyze(sample: Sample) -> AnalyzerResult:
         for _, buf in buffers:
             if buf:
                 counts[key] += _bounded_count(rx, buf)
+
+    # The keyword count stays a fact -- a document naming /Launch is still
+    # worth being able to see -- but only the dictionary form accuses.
+    counts["launch_keyword"] = counts["launch"]
+    counts["launch"] = sum(
+        _bounded_count(_RE_LAUNCH_ACTION, buf) for _, buf in buffers if buf
+    )
 
     meta = _pdfminer_pass(sample.path, sample.size_bytes)
 
@@ -177,7 +193,7 @@ def analyze(sample: Sample) -> AnalyzerResult:
         "streams_inflated": stream_stats,
         "text_chars": len(text),
         "text_pages_read": meta.get("pages_read", 0),
-        "scan_truncated": len(data) >= MAX_SCAN_BYTES and sample.size_bytes > MAX_SCAN_BYTES,
+        "scan_truncated": scan_truncated,
         "pdfminer_ok": meta.get("ok", False),
         "pdfminer_error": meta.get("error"),
     }
@@ -288,8 +304,9 @@ def _signals(
                 title="/Launch action present",
                 severity="critical",
                 detail=(
-                    f"/Launch x{counts['launch']} — the document asks the reader to start an "
-                    "external program or file. There is no benign authoring tool that emits this."
+                    f"/S /Launch x{counts['launch']} — the document asks the reader to "
+                    "start an external program or file. There is no benign authoring tool "
+                    "that emits this."
                 ),
                 evidence={"count": counts["launch"], "targets": facts["embedded_file_names"][:10]},
             )
@@ -372,6 +389,12 @@ def _signals(
         )
 
     reasons = list(structure["broken"])
+    if facts.get("scan_truncated"):
+        # Not a reason to accuse -- a reason to say how far we looked.
+        facts["parse_note"] = (
+            "Only the first %d bytes were scanned; checks that depend on the "
+            "end of the file were skipped." % MAX_SCAN_BYTES
+        )
     if not meta.get("ok") and not meta.get("encrypted") and meta.get("error"):
         reasons.append(f"pdfminer: {meta['error']}")
     if reasons:
@@ -509,7 +532,8 @@ def _inflate_streams(data: bytes) -> tuple[bytes, dict[str, int]]:
     }
 
 
-def _structure_facts(data: bytes, surface: bytes, inflated: bytes) -> dict[str, Any]:
+def _structure_facts(data: bytes, surface: bytes, inflated: bytes,
+                     truncated: bool = False) -> dict[str, Any]:
     version_match = _RE_VERSION.search(data[:1024])
     header_at_start = data[:5] == b"%PDF-" or data[:1024].find(b"%PDF-") in range(0, 1024)
 
@@ -525,9 +549,16 @@ def _structure_facts(data: bytes, surface: bytes, inflated: bytes) -> dict[str, 
         broken.append("%PDF header is not at offset 0")
     if visible_obj == 0 and b"/ObjStm" not in surface:
         broken.append("no indirect objects found")
-    if b"startxref" not in data[-4096:] and b"startxref" not in data:
+    # `startxref` is the last thing in a PDF by construction -- it is the
+    # pointer to the xref table and the format puts it at the end. When the
+    # read stopped at MAX_SCAN_BYTES the end was never seen, so its absence
+    # is a fact about our limit, not about the document. Claiming otherwise
+    # told an analyst that every well-formed PDF over 16 MiB was malformed.
+    if not truncated and b"startxref" not in data[-4096:] and b"startxref" not in data:
         broken.append("no startxref")
-    if visible_obj and endobj == 0:
+    if not truncated and visible_obj and endobj == 0:
+        # Same reasoning: the closing `endobj` of the last object read is
+        # beyond a truncated buffer as often as not.
         broken.append("objects open but never close (no endobj)")
 
     return {
