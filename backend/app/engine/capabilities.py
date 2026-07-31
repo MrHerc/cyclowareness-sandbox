@@ -55,11 +55,27 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     # The sample reads secrets or personal data.
     "credential": frozenset({
         "script.credential_access",
+        # THE GROUPS THAT ARE ACTUALLY ABOUT PERSONAL DATA.
+        #
+        # `apk.dangerous_permission` used to be one id for eight groups --
+        # SMS, call log and contacts, boot persistence, silent install,
+        # screen overlay, microphone, camera, location -- and every one of
+        # them asserted "reads secrets or personal data". Asking to start
+        # at boot is not reading anything.
+        "apk.dangerous_permission.sms",
+        "apk.dangerous_permission.call_log_and_contacts",
+        "apk.dangerous_permission.microphone",
+        "apk.dangerous_permission.camera",
+        "apk.dangerous_permission.location",
+        # The bare id stays so rows assessed before the split keep the
+        # capability they were given rather than quietly losing it.
         "apk.dangerous_permission",
     }),
     # The sample survives a reboot / re-runs itself.
     "persistence": frozenset({
         "script.persistence",
+        # Where boot persistence belongs, rather than under `credential`.
+        "apk.dangerous_permission.boot_persistence",
         "diskimage.autorun",
     }),
     # The sample hides from analysis or disables defences.

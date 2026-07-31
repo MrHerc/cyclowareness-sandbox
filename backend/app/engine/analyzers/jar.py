@@ -274,6 +274,18 @@ def _analyze_zip(sample: Sample) -> AnalyzerResult:
     def has_all(*tokens: str) -> bool:
         return all(t in haystack for t in tokens)
 
+    # The constant-pool entries as themselves, before they were joined.
+    #
+    # A substring test over the joined text cannot tell a method NAMED
+    # `exec` from one named `execute`, and `Executor`/`ExecutorService` is
+    # in essentially every server-side JAR. Membership in this set is the
+    # difference between a reference to the method and a word that starts
+    # the same way.
+    pool = set(collected)
+
+    def has_entry(*tokens: str) -> bool:
+        return all(t in pool for t in tokens)
+
     def has_any(*tokens: str) -> bool:
         return any(t in haystack for t in tokens)
 
@@ -306,7 +318,12 @@ def _analyze_zip(sample: Sample) -> AnalyzerResult:
         )
 
     # --- Runtime.exec / ProcessBuilder (high) ---------------------------------
-    if has_all("java/lang/Runtime", "exec") or "java/lang/ProcessBuilder" in haystack:
+    # `has_entry`, not `has_all`: the second token has to BE the method
+    # name. As a substring it matched `execute`, `Executor` and
+    # `ExecutorService`, while `java/lang/Runtime` is present in any JAR
+    # that calls `getRuntime().availableProcessors()` -- so the pair fired
+    # `high` on ordinary software with a thread pool.
+    if has_entry("java/lang/Runtime", "exec") or "java/lang/ProcessBuilder" in pool:
         matched = [
             t for t in ("java/lang/Runtime", "java/lang/ProcessBuilder")
             if t in haystack

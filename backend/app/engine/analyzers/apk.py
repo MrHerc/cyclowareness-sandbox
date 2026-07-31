@@ -469,7 +469,12 @@ def _analyze(sample: Sample) -> AnalyzerResult:
         present = sorted(p for p in permissions if _permission_tail(p) in set(tails))
         signals.append(
             Signal(
-                id="apk.dangerous_permission",
+                # The GROUP is part of the id. One id for eight unrelated
+                # groups meant the capability map could not tell "reads your
+                # contacts" from "starts at boot", and listed all of them
+                # under `credential`.
+                id="apk.dangerous_permission." + re.sub(
+                    r"[^a-z0-9]+", "_", label.lower()).strip("_"),
                 title=f"Dangerous permission group requested: {label}",
                 severity="high",
                 detail=(

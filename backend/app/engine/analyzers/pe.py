@@ -149,9 +149,27 @@ _CAPABILITIES: tuple[tuple[str, str, str, int, tuple[str, ...]], ...] = (
          "httpopenrequest", "httpsendrequest", "urldownloadtofile",
          "wsastartup", "wsasocket", "wsaconnect", "gethostbyname",
          "getaddrinfo", "inet_addr", "ftpputfile", "ftpgetfile",
-         "dnsquery", "socket", "connect", "send", "recv"),
+         "dnsquery"),
     ),
 )
+
+#: Names matched EXACTLY rather than as prefixes.
+#:
+#: `send`, `connect`, `recv` and `socket` are Winsock functions whose names are
+#: complete. Listed among the prefixes they swallowed `SendMessageW`,
+#: `SendMessageA`, `SendInput`, `SendDlgItemMessageA`, `SendNotifyMessageW` and
+#: `ConnectNamedPipe` -- and `SendMessage` is in essentially every Windows GUI
+#: program, so with `min_hits = 1` almost anything with a window was credited
+#: with "Network / download capability".
+#:
+#: The prefix style is right for the rest: it is what makes one entry cover the
+#: A/W/Ex variants. These are simply not prefixes.
+_EXACT_IMPORTS: dict[str, frozenset[str]] = {
+    "network": frozenset({
+        "socket", "connect", "send", "sendto", "recv", "recvfrom",
+        "accept", "bind", "listen", "closesocket", "shutdown",
+    }),
+}
 
 # `persistence` deliberately keeps RegCreateKey, which is common in benign
 # software; it never fires alone at high severity, and the matched APIs travel
@@ -873,9 +891,10 @@ def _analyze_parsed(
     normalized = [n.lower() for n in _imported_names(pe_obj)]
     present: dict[str, list[str]] = {}
     for group, title, _severity, min_hits, patterns in _CAPABILITIES:
+        exact = _EXACT_IMPORTS.get(group, frozenset())
         matched = _dedup(
             name for name in normalized
-            if any(name.startswith(p) for p in patterns)
+            if name in exact or any(name.startswith(p) for p in patterns)
         )
         if len(matched) >= min_hits:
             present[group] = sorted(matched)
