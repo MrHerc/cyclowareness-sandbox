@@ -428,6 +428,138 @@ BLIND_SPOT_SIGNALS = frozenset(
 )
 
 
+def reapply_container_inheritance(db: Session, job: SandboxJob) -> bool:
+    """Re-derive a container's score, verdict and rating from what is inside it.
+
+    Post-hoc and idempotent: it reads persisted rows and rewrites the container's
+    own fields, so it is safe to call at any time and returns True only when
+    something actually changed.
+
+    Three claims, the same three `pipeline.run` makes at static time:
+
+    * a container is at least as dangerous as the worst thing anywhere inside it,
+      because each layer of zipping roughly halves a score and two layers took a
+      68-point dropper to 1.7;
+    * it carries the VERDICT of the worst member, ranked by verdict first and
+      score second -- ranking by score alone let improving one member make the
+      container look worse;
+    * it adopts that member's impact rating rather than recomputing one, because
+      a container has no capabilities of its own and recomputing yields 0.0 next
+      to a malicious verdict.
+
+    It never lowers anything. A container that was independently assessed worse
+    than its contents keeps its own assessment.
+    """
+    descendants = _descendants(db, job)
+    if not descendants:
+        return False
+
+    changed = False
+
+    worst = max(descendants, key=lambda d: d.final_score or 0.0, default=None)
+    worst_score = (worst.final_score or 0.0) if worst is not None else 0.0
+    if worst is not None and worst_score > (job.final_score or 0.0):
+        breakdown = dict(job.score_breakdown or {})
+        breakdown["contents_floor"] = {
+            "computed_score": job.final_score,
+            "descendant_score": worst_score,
+            "descendant": worst.archive_path or worst.original_name,
+            "sha256": worst.sha256,
+            "reason": (
+                "The score was raised to that of the worst file found inside this "
+                "container. A container cannot be safer than its contents."
+            ),
+        }
+        job.score_breakdown = breakdown
+        job.final_score = worst_score
+        job.risk_level = risk_level(worst_score)
+        changed = True
+
+    worst_by_verdict = max(
+        descendants,
+        key=lambda d: (
+            _VERDICT_RANK.get((d.verdict or {}).get("verdict"), 0),
+            d.final_score or 0.0,
+        ),
+        default=None,
+    )
+    if worst_by_verdict is None:
+        return changed
+
+    worst_verdict = (worst_by_verdict.verdict or {}).get("verdict")
+    current = (job.verdict or {}).get("verdict")
+    if worst_verdict not in _VERDICT_RANK:
+        return changed
+    if _VERDICT_RANK.get(current, 0) >= _VERDICT_RANK[worst_verdict]:
+        return changed
+
+    named = worst_by_verdict.original_name or (worst_by_verdict.sha256 or "")[:16]
+    because = (
+        f"{named} inside this container was assessed {worst_verdict}. A container "
+        "carries the verdict of the worst thing found in it."
+    )
+
+    # VerdictResult has no from_dict; rebuild it from the stored fields so
+    # `raised_to` can do its job -- which includes restamping the engine rows
+    # that carried the OLD threat name, the defect that once showed two names
+    # for one file side by side.
+    from .verdict import VerdictResult
+
+    stored = job.verdict or {}
+    raised = VerdictResult(
+        verdict=stored.get("verdict", "clean"),
+        threat_name=stored.get("threat_name", ""),
+        detection_ratio=stored.get("detection_ratio", ""),
+        detected=int(stored.get("detected") or 0),
+        total_engines=int(stored.get("total_engines") or 0),
+        platform=stored.get("platform", ""),
+        category=stored.get("category", ""),
+        family=stored.get("family", ""),
+        engines=list(stored.get("engines") or []),
+        raised_because=stored.get("raised_because", ""),
+    ).raised_to(worst_verdict, because=because)
+    job.verdict = raised.to_dict()
+    changed = True
+
+    # The rating is adopted, not recomputed: it was measured from that file's
+    # signals, and recomputing from the container's own signals is exactly what
+    # produced "Malicious, 62.9" beside "Impact: 0.0 - no capability".
+    inherited = worst_by_verdict.impact or {}
+    if inherited.get("severity") not in (None, "", "none"):
+        adopted = dict(inherited)
+        adopted["raised_because"] = (
+            f"This rating belongs to {named}, found inside this container. A "
+            "container has no capabilities of its own, so it is rated by the worst "
+            "thing it carries."
+        )
+        job.impact = adopted
+
+    return changed
+
+
+def reapply_to_ancestors(db: Session, job: SandboxJob) -> int:
+    """Walk up from a job that just changed and re-derive every container above it.
+
+    Nested archives are why this is a walk rather than one step: a zip inside a
+    zip has to carry the verdict up both levels.
+
+    `pipeline.run` is deliberately NOT called on the ancestors -- that would
+    re-unpack the container and reset its `completed_at`, which is evidence.
+    """
+    updated = 0
+    seen: set[int] = set()
+    parent_id = job.parent_job_id
+    while parent_id is not None and parent_id not in seen:
+        seen.add(parent_id)
+        ancestor = db.get(SandboxJob, parent_id)
+        if ancestor is None:
+            break
+        if reapply_container_inheritance(db, ancestor):
+            updated += 1
+        parent_id = ancestor.parent_job_id
+    return updated
+
+
 def _descendants(db: Session, job: SandboxJob) -> list[SandboxJob]:
     """Every job below this one, at any depth.
 

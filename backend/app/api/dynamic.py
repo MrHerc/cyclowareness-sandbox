@@ -577,6 +577,30 @@ def ingest_report(
     job.impact = impact_res.to_dict()
     job.verdict = verdict_res.to_dict()
     job.mitre = mitre_mod.map_techniques(all_signals)
+
+    # AND THE CONTAINER ABOVE IT.
+    #
+    # pipeline.run enforces "a container carries the verdict of the worst thing
+    # found in it" once, at static time. This path re-scored only the job the
+    # report was posted for, so an archive member that detonated to malicious
+    # left its zip reading the pre-detonation verdict for ever. That is not
+    # cosmetic: /api/jobs and /api/jobs/stats both scope to parent_job_id IS
+    # NULL, so the queue, the tiles and the donut see ONLY the container -- a
+    # detonation-confirmed malicious sample counted as suspicious and absent
+    # from the malicious total. Measured before the fix: 64 live jobs scored
+    # below a detonated child.
+    #
+    # Not pipeline.run on the ancestor: that would re-unpack the container and
+    # reset its completed_at, which is evidence.
+    from ..engine import pipeline as pipeline_mod
+
+    raised_ancestors = pipeline_mod.reapply_to_ancestors(db, job)
+    if raised_ancestors:
+        logger.info(
+            "detonation of %s raised %d container(s) above it",
+            job.public_id, raised_ancestors,
+        )
+
     db.commit()
     db.refresh(job)
 
