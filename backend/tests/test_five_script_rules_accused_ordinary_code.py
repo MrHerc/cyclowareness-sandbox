@@ -119,7 +119,7 @@ def test_real_remote_retrieval_still_fires() -> None:
     "# AMSI integration notes for reviewers",
 ])
 def test_naming_amsi_is_not_tampering(text) -> None:
-    """The bare `amsi\w{0,20}` fired on any mention. It is gone.
+    r"""The bare `\bamsi\w{0,20}` fired on any mention. It is gone.
 
     Deliberately NOT asserted here: a script containing the literal
     `amsiScanBuffer` or `amsiInitFailed` still fires, and should. Those are the

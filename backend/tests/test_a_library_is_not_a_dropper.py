@@ -198,18 +198,33 @@ def test_the_source_has_no_invisible_control_characters() -> None:
     """
     import pathlib
 
-    root = pathlib.Path(scripts.__file__).resolve().parents[2]
+    # THE WHOLE TREE, not just the engine.
+    #
+    # This used to root at `parents[2]` of the analyzer, which is `backend/app`.
+    # A `\b` then went through a heredoc into a TEST docstring and became a real
+    # 0x08 BACKSPACE, and this sweep did not cover the directory it was in.
+    # Python noticed only because the `\w` that survived raised a SyntaxWarning;
+    # had the pattern been `\bamsi` alone, nothing anywhere would have said a
+    # word. The engine is not the only place a regex lives.
+    root = pathlib.Path(scripts.__file__).resolve().parents[3]
     allowed = {9, 10, 13}
+    suffixes = (
+        "*.py", "*.yar", "*.ts", "*.tsx", "*.md", "*.sh", "*.yml", "*.yaml",
+        "*.json", "*.toml", "*.cfg", "*.ini", "*.css",
+    )
+    skip = {"__pycache__", "node_modules", ".git", "dist", ".venv", ".wvenv"}
     offenders = []
-    for path in sorted(root.rglob("*.py")) + sorted(root.rglob("*.yar")):
-        if "__pycache__" in path.parts:
-            continue
-        data = path.read_bytes()
-        for index, byte in enumerate(data):
-            if byte < 32 and byte not in allowed:
-                line = data[:index].count(b"\n") + 1
-                offenders.append(f"{path.relative_to(root)}:{line} byte 0x{byte:02x}")
-                break
+    for suffix in suffixes:
+        for path in sorted(root.rglob(suffix)):
+            if skip & set(path.parts):
+                continue
+            data = path.read_bytes()
+            for index, byte in enumerate(data):
+                if byte < 32 and byte not in allowed:
+                    line = data[:index].count(b"\n") + 1
+                    offenders.append(
+                        f"{path.relative_to(root)}:{line} byte 0x{byte:02x}")
+                    break
     assert not offenders, offenders
 
 

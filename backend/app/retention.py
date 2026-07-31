@@ -194,14 +194,50 @@ def sweep(db: Session, *, actor: str = "system") -> SweepResult:
             for job in db.execute(select(SandboxJob)).scalars()
             if job.created_at and _aware(job.created_at) < cutoff
         ]
-        # Children first: an archive member points at its parent, and deleting
-        # the parent out from under it would orphan the row.
-        doomed.sort(key=lambda j: j.parent_job_id is None)
+        # DEEPEST FIRST, not merely children-before-roots.
+        #
+        # An archive member points at its parent, so a parent deleted first
+        # orphans the row. Sorting on `parent_job_id is None` orders one level
+        # correctly and two levels by luck: a zip inside a zip is BOTH a child
+        # and a parent, and nothing put it after its own children. On PostgreSQL
+        # that is a foreign-key violation that aborts the entire sweep.
+        depth_of: dict[int, int] = {}
+
+        def _depth(job: SandboxJob) -> int:
+            seen: set[int] = set()
+            depth, cursor = 0, job
+            while cursor is not None and cursor.parent_job_id is not None:
+                if cursor.id in seen:
+                    break                      # a cycle cannot happen, but a
+                seen.add(cursor.id)            # sweep must not hang if it does
+                cursor = db.get(SandboxJob, cursor.parent_job_id)
+                depth += 1
+            return depth
+
         for job in doomed:
-            try:
-                _unlink(job.sha256)
-            except OSError:
-                pass
+            depth_of[job.id] = _depth(job)
+        doomed.sort(key=lambda j: depth_of.get(j.id, 0), reverse=True)
+
+        # Which hashes will still be needed once this sweep finishes. The sample
+        # sweep above checks exactly this before unlinking; this one did not, so
+        # purging an old report took the bytes of a NEWER job with identical
+        # content -- a job that then went on reporting sample_deleted_at = NULL
+        # over a file that was gone.
+        doomed_ids = {j.id for j in doomed}
+        still_needed = {
+            row.sha256
+            for row in db.execute(select(SandboxJob)).scalars()
+            if row.sha256 and row.id not in doomed_ids and row.sample_deleted_at is None
+        }
+
+        for job in doomed:
+            if job.sha256 and job.sha256 not in still_needed:
+                try:
+                    _unlink(job.sha256)
+                except OSError:
+                    pass
+            elif job.sha256:
+                result.samples_retained_shared += 1
             public_id, sha256, tenant = job.public_id, job.sha256, job.tenant_id
             db.delete(job)
             result.reports_deleted += 1
