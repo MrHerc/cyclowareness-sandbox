@@ -38,7 +38,8 @@ SUPPORTED_EXTENSIONS = [
 ]
 
 
-@router.api_route("/api/health", methods=["GET", "HEAD"])
+@router.get("/api/health", operation_id="health_get")
+@router.head("/api/health", operation_id="health_head")
 def health(response: Response):
     """Is this process actually able to serve?
 
@@ -54,6 +55,13 @@ def health(response: Response):
 
     HEAD as well as GET: many uptime probes and load balancers send HEAD, and
     FastAPI does not add it to a GET route, so they were getting 405.
+
+    Two decorators rather than one ``api_route(methods=["GET", "HEAD"])``. That
+    form is a single route carrying two methods, and FastAPI derives one
+    operation id for it, so the schema shipped ``health_api_health_get`` twice --
+    a duplicate operationId is a collision in any generated client. The ids are
+    written out rather than derived, because the derived pair differed only by a
+    suffix that the duplicate proved is not always applied.
     """
     settings = get_settings()
     database = "ok"
