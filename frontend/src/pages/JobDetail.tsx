@@ -142,7 +142,13 @@ export function JobDetail() {
   const model = job.score_breakdown?.model
   const rule = job.score_breakdown?.rule
   const iocEntries = Object.entries(job.iocs || {}).filter(([, v]) => v && v.length)
-  const yaraHits = (job.analysis?.yara?.ran && job.analysis.yara.signals) || []
+  // THREE STATES, NOT TWO. The analyzer either ran and matched, ran and matched
+  // nothing, or did not run at all — and this used to collapse the last two into
+  // "0 rules matched", which reads as a clean bill of health from a scan that
+  // never happened. `yaraResult` keeps the distinction; `yaraRan` is the gate.
+  const yaraResult = job.analysis?.yara
+  const yaraRan = Boolean(yaraResult?.ran)
+  const yaraHits = (yaraRan && yaraResult?.signals) || []
   const filename = job.original_name || 'sample'
   // All three are absent on jobs analysed before the verdict engine shipped.
   const verdict = verdictOf(job)
@@ -608,8 +614,21 @@ export function JobDetail() {
 
           {/* YARA + IOCs */}
           <div className="grid gap-6 lg:grid-cols-2">
-            <Panel title="YARA matches" subtitle={`${yaraHits.length} rule${yaraHits.length === 1 ? '' : 's'} matched`}>
-              {yaraHits.length === 0 ? (
+            <Panel
+              title="YARA matches"
+              subtitle={
+                yaraRan
+                  ? `${yaraHits.length} rule${yaraHits.length === 1 ? '' : 's'} matched`
+                  : 'Not run on this sample'
+              }
+            >
+              {!yaraRan ? (
+                <p className="text-sm text-warning">
+                  YARA did not run, so this sample has not been checked against the
+                  rule set — treat it as unscanned, not as clean.
+                  {yaraResult?.unavailable_reason ? ` Reason: ${yaraResult.unavailable_reason}` : ''}
+                </p>
+              ) : yaraHits.length === 0 ? (
                 <p className="text-sm text-c2">No YARA rules matched.</p>
               ) : (
                 <div className="space-y-2">
@@ -664,7 +683,12 @@ export function JobDetail() {
                     </div>
                     <div className="flex items-center gap-3">
                       <Status value={c.status} />
-                      <span className="tabular-nums text-sm font-semibold text-c1">{c.final_score.toFixed(0)}</span>
+                      {/* A member that has not completed carries the column
+                          default, and a bold "0" beside its name reads as
+                          "analysed, harmless". Queue.tsx already guards this. */}
+                      <span className="tabular-nums text-sm font-semibold text-c1">
+                        {c.status === 'completed' ? c.final_score.toFixed(0) : '—'}
+                      </span>
                       <ChevronRight size={16} className="text-c3" aria-hidden />
                     </div>
                   </Link>
