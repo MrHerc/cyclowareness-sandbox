@@ -228,7 +228,22 @@ class Agent:
 
         engine = self._choose_engine(family)
         if engine is None:
-            log.info("no available engine supports family '%s' for %s; skipping", family, public_id)
+            # SAY SO. A silent return leaves the job eligible, so the backend
+            # serves it again on the next poll and, the queue being
+            # oldest-first, serves it first -- a family no engine supports
+            # permanently occupies the head of the queue.
+            #
+            # `refused_sample`, not `unavailable`: this is declined, not
+            # delayed. `_report_blocked` reserves `unavailable` for a
+            # transient host problem, where the job SHOULD stay eligible.
+            reason = (
+                f"no engine on this worker supports family '{family}'"
+            )
+            log.info("%s (%s); refusing so it leaves the queue", reason, public_id)
+            self._deliver(
+                public_id,
+                Report.refused_sample("none", self.config.worker_name, reason),
+            )
             return
 
         log.info("job %s family=%s -> engine %s", public_id, family, engine.name)

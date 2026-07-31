@@ -151,6 +151,9 @@ def test_the_refusal_marker_is_what_stops_the_loop() -> None:
         mime = "application/x-dosexec"
         original_name = "procexp64a.exe"
         archive_path = None
+        # `_needs_dynamic` reads this; a stub without it models a row that
+        # cannot exist.
+        sample_deleted_at = None
         status = JobStatus.COMPLETED
         tiers = {"dynamic": {"ran": False, "refused": False}}
 

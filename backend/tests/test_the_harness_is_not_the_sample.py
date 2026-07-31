@@ -49,16 +49,24 @@ from app.engine.models import JobStatus
 
 
 class _Job:
-    """The four fields `_needs_dynamic` reads."""
+    """The fields `_needs_dynamic` reads.
+
+    `sample_deleted_at` belongs here even though every case below leaves it
+    None: a stub missing a column the predicate reads does not model a row, it
+    models a row that cannot exist -- and when the predicate learned to check
+    retention, fifty-one tests failed on AttributeError rather than on anything
+    about detonation.
+    """
 
     def __init__(self, name, family="script", mime="text/plain",
-                 status=JobStatus.COMPLETED, tiers=None):
+                 status=JobStatus.COMPLETED, tiers=None, sample_deleted_at=None):
         self.original_name = name
         self.archive_path = None
         self.family = family
         self.mime = mime
         self.status = status
         self.tiers = tiers or {"dynamic": {"ran": False}}
+        self.sample_deleted_at = sample_deleted_at
 
 
 #: Every extension measured being detonated on the host that Windows will not run.

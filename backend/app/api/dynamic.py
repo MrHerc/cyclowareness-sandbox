@@ -111,6 +111,13 @@ def _needs_dynamic(job: SandboxJob) -> bool:
         return False
     if job.status != JobStatus.COMPLETED or job.family not in _DYNAMIC_FAMILIES:
         return False
+    # The bytes are gone, so there is nothing to detonate. Retention purges
+    # the quarantined file and leaves the row, which still reads "detonation
+    # has not run" -- so without this the worker is offered a job it can
+    # never complete on every poll, and the queue being oldest-first, it is
+    # offered FIRST.
+    if job.sample_deleted_at is not None:
+        return False
     # DO NOT SPEND A GUEST ON A FILE THAT CANNOT RUN.
     #
     # `identify()` puts every `text/*` mime in family `script`, so this predicate

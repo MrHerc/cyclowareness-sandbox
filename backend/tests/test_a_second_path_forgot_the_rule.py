@@ -37,6 +37,9 @@ def test_one_definition_of_whether_the_behaviour_is_the_samples() -> None:
         archive_path = None
         status = JobStatus.COMPLETED
         tiers: dict = {}
+        # `_needs_dynamic` reads this; a stub without it models a
+        # row that cannot exist.
+        sample_deleted_at = None
 
     inert = _J()
     assert not _dynamic_is_attributable(inert)
