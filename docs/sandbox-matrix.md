@@ -39,7 +39,7 @@ samples. `/api/capabilities` reports the live `configured` state for each.
 | **Cuckoo Sandbox** | opensource-sandbox | dynamic | Separate Cuckoo cluster | `CUCKOO_URL`, `CUCKOO_TOKEN` | Full dynamic detonation in isolated guest VMs via REST; report ingested + re-scored | Enabled by pointing at a reachable instance |
 | **CAPE Sandbox** | opensource-sandbox | dynamic | Separate CAPEv2 cluster | `CAPEV2_URL`, `CAPEV2_TOKEN` | Config + unpacked-payload extraction (Cuckoo descendant) via REST; report ingested + re-scored | Enabled by pointing at a reachable instance |
 | **Strelka file scanning** | opensource-sandbox | static | Separate Strelka cluster | `STRELKA_URL` | Scalable file-scan/enrichment (YARA, unpackers, metadata). **Does not execute** the sample | Enabled by pointing at a reachable frontend |
-| **Joe Sandbox (community)** | opensource-sandbox | dynamic | Hosted Joe service | `JOE_API_KEY` | Deep dynamic detonation + behavioural reporting via Web API; community tier is rate-limited | Enabled with a community API key |
+| **Joe Sandbox (community)** | opensource-sandbox | dynamic | Hosted Joe service | `JOE_URL` **and** `JOE_API_KEY`, on the **worker** | Deep dynamic detonation + behavioural reporting via Web API; community tier is rate-limited | Enabled with a community API key |
 | **VirusTotal reputation** | threat-intel | static | VirusTotal API | `VT_API_KEY` | SHA-256 hash-reputation lookup — uploads nothing, does not detonate. Unknown hash stays unknown, never "clean" | Enabled with an API key |
 
 That is **eight** integrated engines across the two tiers (native + emulator +
@@ -51,12 +51,33 @@ which satisfies the "6+ sandboxes" bonus.
 Two kinds of "configured", deliberately distinguished in
 [`integrations/base.py`](../backend/app/engine/integrations/base.py):
 
-- **Engines the web service talks to directly** (VirusTotal, Cuckoo, CAPEv2,
-  Strelka, Joe) are `configured` when *their own* credentials/URLs are present in
-  the environment.
+- **Engines the web service talks to directly** (VirusTotal, Strelka) are
+  `configured` when *their own* credentials/URLs are present in the environment.
 - **Worker-resident engines** (native, Qiling, firejail) have no env vars of
   their own on the web service — it never reaches them. For those, `configured`
   means *a worker can attach at all*, i.e. `DYNAMIC_WORKER_TOKEN` is set.
+- **Engines the WORKER talks to** (Cuckoo, CAPEv2, Joe) are the awkward case, and
+  this document used to get it wrong by listing them in the first group. Their
+  credentials live in the **worker's** environment; `configured()` reads the *web
+  service's*. On a split deployment — the normal one, where the detonation host is
+  a separate machine — this row therefore reports on a process that is not the one
+  running the engine. It can say "not configured" for a working integration and
+  the reverse. There is no fix from the web service's side (the two share only the
+  `/api/dynamic/*` seam), so each such row carries
+  `configured_on_worker: true` and a `configuration_caveat` saying so, rather than
+  presenting a reading of the wrong machine as a fact.
+
+### Sovereign mode blocks all three of them
+
+`SOVEREIGN_MODE` defaults **on**, and Cuckoo, CAPEv2 and Joe all upload the sample
+file to another host. With it on they are unavailable regardless of credentials,
+and the worker says so once at startup naming the variable.
+
+This needs the switch set on **both** processes. The web service's choke point
+(`app/sovereignty.py`) governs the web service; the worker is a separate program
+and reads the same `SOVEREIGN_MODE` in `worker/engines/opensource.py`. Until it
+did, `/api/capabilities` showed these three as Blocked while a worker with
+`CAPEV2_URL` set uploaded every detonatable sample.
 
 `configured` is therefore a statement about this deployment, never about a
 licence. Qiling in particular needs one more thing the token cannot supply: the

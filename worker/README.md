@@ -80,9 +80,15 @@ are silently skipped, never forced.
 |--------|----------------|----------------|
 | native | `elf`, `script` | `firejail` **and** `strace` on PATH |
 | qiling | `pe`, `elf` | `qiling` installed **by you** (not shipped) **and** a rootfs present |
-| cuckoo | pe/elf/script/office/pdf | `CUCKOO_URL` set |
-| capev2 | pe/elf/script/office/pdf | `CAPEV2_URL` set |
-| joe | pe/elf/script/office/pdf | `JOE_URL` **and** `JOE_APIKEY` set |
+| cuckoo | pe/elf/script/office/pdf | `CUCKOO_URL` set **and `SOVEREIGN_MODE=false`** |
+| capev2 | pe/elf/script/office/pdf | `CAPEV2_URL` set **and `SOVEREIGN_MODE=false`** |
+| joe | pe/elf/script/office/pdf | `JOE_URL` **and** `JOE_API_KEY` set **and `SOVEREIGN_MODE=false`** |
+
+The last three hand the whole sample file to a service on another host, so
+sovereign mode — which is **on by default** — makes them unavailable whatever
+credentials are set. The worker prints the reason once at startup, naming the
+variable, rather than skipping them silently. `native` and `qiling` detonate on
+this host and send nothing anywhere, so they are untouched by it.
 
 ## Configuration
 
@@ -101,7 +107,12 @@ All configuration is environment variables (see `config.py`):
 | `QILING_ROOTFS` | no | `/opt/qiling/rootfs` | Base dir of emulated-OS filesystems. |
 | `CUCKOO_URL` / `CUCKOO_TOKEN` | no | — | Cuckoo REST base + optional bearer token. |
 | `CAPEV2_URL` / `CAPEV2_TOKEN` | no | — | CAPEv2 REST base + optional token. |
-| `JOE_URL` / `JOE_APIKEY` | no | — | Joe Sandbox API base + key. |
+| `JOE_URL` / `JOE_API_KEY` | no | — | Joe Sandbox API base + key. `JOE_APIKEY` is also accepted, but `JOE_API_KEY` is the documented spelling and the one the backend's matrix checks. |
+| `SOVEREIGN_MODE` | no | **`true`** | "Nothing leaves this deployment." Same variable and default as the web service, because it is one promise, not two — and this is a **separate process**, so the backend's choke point cannot speak for it. On, the three upload engines above are unavailable. A value it does not recognise keeps the default: a typo on a switch that governs egress must not read as "off". |
+| `MAX_CONCURRENT_JOBS` | no | `1` | Detonations in flight at once. Set it to the number of analysis machines the sandbox has and no higher — the guests are the scarce resource. The default is 1 because that is what a single-guest install can honour. |
+| `HTTP_TIMEOUT_SECONDS` | no | `30` | Timeout for talking to the **backend** (not the engine timeout). |
+| `CONTAINMENT_CHECK` | no | *(none)* | A command answering "is this host safe to detonate on, right now?" — exit 0 means contained, anything else refuses the batch. `infra/detonation-host/containment-status.sh` is the reference implementation. Empty disables the gate, which is correct for a deployment that does not detonate at all; the worker says so once at startup, because "no gate configured" and "gate passing" must never look the same in a log. |
+| `CONTAINMENT_CHECK_TIMEOUT_SECONDS` | no | `15` | Short by design — the check reads a ruleset, it does not talk to a guest. A gate that hangs is a gate that gets removed. |
 
 ## Running
 

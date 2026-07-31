@@ -139,7 +139,7 @@ the operator's to provide.
 | **Behaviour graph** | +3 | `timeline` in [`DynamicReportIn`](../backend/app/schemas.py) + `job.dynamic.timeline`; worker emits ordered `{t_ms, kind, detail}` events via [`Report.add_event`](../worker/engines/base.py) | Wire format live; populated when a worker detonates. |
 | **REST `/analyze` + `/result`** | +2 | [`POST /api/analyze`](api.md), [`GET /api/result/{id}`](api.md) | Live, API-key authenticated. |
 | **6+ sandboxes** | +5 | [`integrations/__init__.py`](../backend/app/engine/integrations/__init__.py) — 8 engines cataloged | 8 ≥ 6; each env-gated, honestly reported by `/api/capabilities`. |
-| **Minimal-AI authorship** | +10 | Scoring is an **own** rule + expert-weighted model; the optional LLM only writes prose narrative and **never** touches the numeric verdict ([`config.py`](../backend/app/config.py) `ai_provider`) | The score comes from the engine's own model whether or not an API key is set. |
+| **Minimal-AI authorship** | +10 | Scoring is an **own** rule + expert-weighted model. **No LLM is called anywhere in this codebase** — `ai_provider` ([`config.py`](../backend/app/config.py)) returns `template` unconditionally and the narrative is written by a deterministic template | Stronger than the claim this row used to make. There is no model in the path at all, so there is nothing for one to influence. Enforced by `test_sovereignty_and_incident.py::test_no_llm_call_exists_to_advertise`. |
 
 ### Honest caveats
 

@@ -141,11 +141,18 @@ on a given deployment, and the **Integrations** page renders the matrix.
 | Native engine | in-house | dynamic | worker + `DYNAMIC_WORKER_TOKEN` |
 | Qiling | emulator | dynamic | worker, **operator installs `qiling` themselves** (GPL-2.0, not shipped) |
 | Firejail | open-source sandbox | dynamic | worker (Linux) |
-| Cuckoo | open-source sandbox | dynamic | `CUCKOO_URL` |
-| CAPEv2 | open-source sandbox | dynamic | `CAPEV2_URL` |
+| Cuckoo | open-source sandbox | dynamic | `CUCKOO_URL` + `CUCKOO_TOKEN`, on the **worker** † |
+| CAPEv2 | open-source sandbox | dynamic | `CAPEV2_URL` + `CAPEV2_TOKEN`, on the **worker** † |
 | Strelka | open-source sandbox | static | `STRELKA_URL` |
-| Joe Sandbox | open-source sandbox | dynamic | `JOE_API_KEY` |
+| Joe Sandbox | open-source sandbox | dynamic | `JOE_URL` **and** `JOE_API_KEY`, on the **worker** † |
 | VirusTotal | threat intel | static | `VT_API_KEY` |
+
+† These three upload the sample file to another host, so **`SOVEREIGN_MODE`
+(default on) blocks them** — on the worker as well as on the web service, which
+are separate processes reading the same variable. Their credentials also live in
+the worker's environment, while `/api/capabilities` can only read the web
+service's; each such row says so rather than presenting a reading of the wrong
+machine as a fact.
 
 Details and current status: [`docs/sandbox-matrix.md`](docs/sandbox-matrix.md).
 
