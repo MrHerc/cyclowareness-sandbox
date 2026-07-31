@@ -81,8 +81,26 @@ _RULES: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
      "T1429", "Audio Capture", "Collection"),
     (("accessibility_abuse", "device_admin", "uac_bypass", "request_install"),
      "T1626", "Abuse Elevation Control Mechanism", "Privilege Escalation"),
-    (("getdeviceid", "getinstalledpackages", "systeminfo", "enumerate", "discovery"),
-     "T1426", "System Information Discovery", "Discovery"),
+    # SPLIT BY PLATFORM. This was one rule ending in `T1426`, which is System
+    # Information Discovery in ATT&CK for **Mobile**; the Enterprise technique of
+    # the same name is T1082. `getdeviceid` and `getinstalledpackages` are
+    # Android APIs, so the rule was written for the APK analyzer — but
+    # `systeminfo`, `enumerate` and `discovery` are generic, so every Windows and
+    # Linux discovery signal was filed under a mobile ID. A report naming a real
+    # technique is making a checkable claim, and anyone who looked T1426 up found
+    # a mobile technique attached to a PE file.
+    (("getdeviceid", "getinstalledpackages", "getsubscriberid", "getsimserial"),
+     "T1426", "System Information Discovery (Mobile)", "Discovery"),
+    (("systeminfo", "enumerate", "discovery", "reconnaissance", "hardware_id",
+      "computer_name", "mount_points"),
+     "T1082", "System Information Discovery", "Discovery"),
+    # Packing had no rule at all, while `packer_entropy` fires 41 times and
+    # `packer_unknown_pe_section_name` 34 times across the 88-sample fixture. It
+    # is the one unambiguous entry among the 136 unmapped ids — the signal says
+    # the file is packed, and that is the technique. The rest stay unmapped on
+    # purpose; this module is conservative by design.
+    (("packer", "upx", "themida", "vmprotect", "software_packing"),
+     "T1027.002", "Obfuscated Files or Information: Software Packing", "Defense Evasion"),
     (("autorun.inf", "removable"),
      "T1091", "Replication Through Removable Media", "Lateral Movement"),
     (("ransom", "encrypt_files", "delete_shadow", "wiper"),
@@ -92,11 +110,46 @@ _RULES: tuple[tuple[tuple[str, ...], str, str, str], ...] = (
 )
 
 
+#: Signals whose NAME says they are an anti-analysis check. The rest of the name
+#: is what the check LOOKED AT, not what the sample did with it.
+#:
+#: `capev2.antivm_network_adapters` contains the substring `network`, and the
+#: T1071 key list contains `network`, so "checks adapter addresses to detect a
+#: virtual network interface" was filed under **Command and Control** — the
+#: tactic an analyst opens to find out who the sample talked to. The capability
+#: model short-circuits the same marker to `evasion`; without this the report
+#: contradicts itself on one page.
+#:
+#: T1497 is the honest answer and this table already carried it; the substring
+#: pass simply matched first.
+_ANTI_ANALYSIS = ("antivm", "antidebug", "antisandbox", "antianalysis",
+                  "antiemulation", "antiav", "antidbg")
+_ANTI_TECHNIQUE = ("T1497", "Virtualization/Sandbox Evasion", "Defense Evasion")
+
+
+def _is_anti_analysis(signal: Signal) -> bool:
+    """Does the signal ID declare itself an anti-analysis check?
+
+    Read from the ID's own tokens, never from the title — a title is prose and
+    routinely says "possible anti-debug" about something else entirely.
+    """
+    tail = signal.id.split(".", 1)[-1]
+    return any(token in _ANTI_ANALYSIS for token in tail.split("_"))
+
+
 def map_techniques(signals: Iterable[Signal]) -> list[dict[str, Any]]:
     """Return the ATT&CK techniques the signals map to, with their evidence."""
     signals = list(signals)
     found: dict[str, dict[str, Any]] = {}
     for signal in signals:
+        if _is_anti_analysis(signal):
+            tid, name, tactic = _ANTI_TECHNIQUE
+            entry = found.setdefault(
+                tid, {"technique_id": tid, "name": name, "tactic": tactic, "evidence": []}
+            )
+            if signal.id not in entry["evidence"]:
+                entry["evidence"].append(signal.id)
+            continue
         hay = f"{signal.id} {signal.title}".lower()
         for keys, tid, name, tactic in _RULES:
             if any(k in hay for k in keys):

@@ -127,3 +127,48 @@ def test_reading_the_run_key_is_not_persistence(source) -> None:
 def test_writing_it_still_is(source) -> None:
     """The detection this rule exists for must survive."""
     assert "script.persistence" in _via_detectors(source), source
+
+
+# --- and the ATT&CK panel, which had the same mistake ------------------------
+
+
+def _tech(sid):
+    from app.engine.mitre import map_techniques
+    return {t["technique_id"] for t in map_techniques([_sig(sid)])}
+
+
+def test_an_antivm_check_is_evasion_in_the_attack_panel_too() -> None:
+    """The capability model short-circuits an anti-* marker to evasion. The
+    technique table had to as well, or the same report says no network
+    capability and a Command-and-Control technique on one page."""
+    assert _tech("capev2.antivm_network_adapters") == {"T1497"}
+    assert _tech("capev2.antidebug_setunhandledexceptionfilter") == {"T1497"}
+
+
+def test_a_real_network_signal_is_still_c2() -> None:
+    assert "T1071" in _tech("capev2.network_http_request")
+
+
+def test_a_windows_sample_is_not_filed_under_a_mobile_technique() -> None:
+    """T1426 is System Information Discovery in ATT&CK for **Mobile**; the
+    Enterprise technique of the same name is T1082.
+
+    One rule mixed two Android APIs with three generic words, so every Windows
+    and Linux discovery signal landed on the mobile ID. A report naming a real
+    technique is making a checkable claim, and anyone who looked T1426 up found
+    a mobile technique attached to a PE file.
+    """
+    assert _tech("capev2.systeminfo_enumeration") == {"T1082"}
+    assert _tech("capev2.hardware_id_profiling") == {"T1082"}
+    assert "T1426" not in _tech("capev2.discovery_process_list")
+
+
+def test_an_android_signal_still_gets_the_mobile_technique() -> None:
+    assert _tech("apk.getdeviceid") == {"T1426"}
+
+
+def test_packing_is_mapped_at_all() -> None:
+    """There was no rule for it, while  fires 41 times and
+     34 times across the 88-sample fixture."""
+    assert _tech("capev2.packer_entropy") == {"T1027.002"}
+    assert _tech("pe.packer_upx") == {"T1027.002"}
