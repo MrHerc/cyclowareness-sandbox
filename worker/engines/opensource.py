@@ -26,12 +26,15 @@ libs installed). If a submission or poll fails, the engine returns
 """
 from __future__ import annotations
 
+import logging
 import os
 import time
 from typing import Any
 
 from . import baseline
 from .base import Engine, Report
+
+log = logging.getLogger("worker.opensource")
 
 
 def _submission_name(sample_path: str, sha256: str) -> str:
@@ -421,8 +424,21 @@ class CapeV2Engine(_HttpSandboxEngine):
                     return Report.refused_sample(self.name, self.config.worker_name, reason)
                 return Report.unavailable(self.name, self.config.worker_name, reason)
         except Exception as exc:  # network / HTTP / JSON
+            # THE TYPE, NOT THE MESSAGE.
+            #
+            # An httpx or requests exception carries the URL it was calling --
+            # the detonation host's address and port. The backend copies this
+            # string into tiers.dynamic.detail and renders it into the exported
+            # PDF, which is the exact publication report._without_infrastructure
+            # exists to prevent, from a path it cannot reach because the
+            # sentence is composed here on the worker.
+            #
+            # The type says what went wrong; the address says where we are, and
+            # the operator can read that in the worker log.
+            log.warning("CAPE call failed: %s", exc)
             return Report.unavailable(
-                self.name, self.config.worker_name, f"CAPE error: {type(exc).__name__}: {exc}"
+                self.name, self.config.worker_name,
+                f"could not reach the external sandbox ({type(exc).__name__})",
             )
 
         report.duration_ms = int((time.monotonic() - started) * 1000)

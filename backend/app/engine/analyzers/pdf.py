@@ -305,8 +305,10 @@ def _signals(
                 severity="critical",
                 detail=(
                     f"/S /Launch x{counts['launch']} — the document asks the reader to "
-                    "start an external program or file. There is no benign authoring tool "
-                    "that emits this."
+                    "start an external program or file. Readers block this by default. "
+                    "Acrobat can emit one from its Link and Bookmark editors, so it is "
+                    "not unique to malware — but it is rare in a document that arrived "
+                    "unsolicited, and it is how a PDF starts a program."
                 ),
                 evidence={"count": counts["launch"], "targets": facts["embedded_file_names"][:10]},
             )
