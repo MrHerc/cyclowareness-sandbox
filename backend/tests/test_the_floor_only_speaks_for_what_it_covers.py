@@ -23,17 +23,21 @@ One of those two malware PDFs also reported `capev2.completed` with no flagged
 behaviour, so "the malware sample scores like the NIST document" may partly be a
 statement about the sample.
 
-What this test does is keep the gap visible. It does not tune anything: with no
-covered samples of a type there is no measurement to tune against, and changing
-detection behaviour on a type the floor cannot see is how a regression ships
-quietly. The remaining PDF signals -- `pdf.open_action`, `pdf.uri_action`,
-`pdf.object_stream_obfuscation`, `generic.suspicious_tld` -- are structural facts
-about ordinary documents, and they are still enough to reach `suspicious` and to
-name a document `PDF.Trojan.OpenAction`. That is **open**, recorded here rather
-than hidden, in the same spirit as the `MAX_BENIGN_CIR` note about WinMerge.
+What this test does is keep the gap visible.
 
-Fixing it needs PDF samples in the corpus first. That is the next piece of work,
-not a number to adjust.
+UPDATE, same day: the measurement was then taken rather than deferred. Forty real
+malicious PDFs were pulled from MalwareBazaar and put through the deployed
+engine, and the structural signals were demoted on that evidence -- see
+`test_a_document_that_opens_is_not_a_trojan.py`. NIST 800-53 now re-analyses to
+`clean` at 6.4 and the malicious side is unchanged at six of forty.
+
+The corpus itself is still at pdf 0, so this record stands. What the exercise
+showed is the thing worth carrying: 34 of those 40 are link lures with nothing in
+their bytes to find, so no amount of parser tuning reaches them. Static detection
+on PDFs is close to its ceiling; the rest belongs to the detonation tier and to
+URL reputation. `infra/detonation-host/fetch-malware-corpus.py` now asks for every
+supported type, so the next corpus build carries PDFs and this file's numbers get
+updated with them.
 """
 from __future__ import annotations
 

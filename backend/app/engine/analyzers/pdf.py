@@ -349,7 +349,7 @@ def _signals(
     if objstm >= 3 or (objstm and structure["visible_obj"] <= 10):
         out.append(
             Signal(
-                id="pdf.object_stream_obfuscation",
+                id="pdf.object_streams",
                 title="Document structure held in object streams",
                 # Its own detail said modern writers do this legitimately, and
                 # then charged `low` for it anyway. Measured over 40 real

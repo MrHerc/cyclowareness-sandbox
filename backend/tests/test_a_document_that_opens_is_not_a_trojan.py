@@ -9,7 +9,7 @@ deployed engine. Static tier:
     signal                          flagged   missed
     pdf.uri_action                        3       31
     pdf.open_action                       3        4
-    pdf.object_stream_obfuscation         2        6
+    pdf.object_streams                    2        6
     pdf.javascript                        3        0
     generic.extension_mismatch            3        0
 
@@ -20,8 +20,10 @@ signal also carried `pdf.javascript`**, so no structural signal ever
 independently caught anything.
 
 Against that, NIST 800-53 reached `suspicious` at 14.1 on `open_action` +
-`uri_action` + `object_stream_obfuscation` + `suspicious_tld` and nothing else --
-a higher score than nearly every genuine malicious PDF in the set.
+`uri_action` + object streams + `suspicious_tld` and nothing else -- a higher
+score than nearly every genuine malicious PDF in the set. After this change it
+re-analyses to `clean` at 6.4, and the malicious side is unchanged: the same six,
+three by `pdf.javascript` and three by `generic.extension_mismatch`.
 
 A structural discriminator was looked for before any severity was touched, and
 there is not one. All forty malicious samples are 1-2 pages, which looks decisive
@@ -113,7 +115,7 @@ def test_object_streams_are_context_not_accusation(tmp_path) -> None:
         b"%d 0 obj<</Type/ObjStm/N 4>>stream\nx\nendstream endobj\n" % n
         for n in range(1, 6)
     ) + b"trailer<</Root 1 0 R>>\n%%EOF\n"
-    signal = _signals(tmp_path, body).get("pdf.object_stream_obfuscation")
+    signal = _signals(tmp_path, body).get("pdf.object_streams")
     if signal is not None:
         assert signal.severity == "info", signal.severity
 
@@ -123,6 +125,50 @@ def test_the_detail_text_no_longer_contradicts_the_severity() -> None:
     source = (
         __import__("pathlib").Path(pdf_analyzer.__file__).read_text(encoding="utf-8")
     )
-    block = source[source.index("pdf.object_stream_obfuscation"):]
+    block = source[source.index("pdf.object_streams"):]
     block = block[: block.index("evidence=")]
     assert 'severity="info"' in block, block[:400]
+
+
+def test_object_streams_no_longer_assert_an_attack_technique(tmp_path) -> None:
+    """`info` was not enough on its own, and this is the part that proved it.
+
+    Demoting the signal stopped it scoring and stopped it granting a capability,
+    because `capabilities.detect` refuses anything below `low`. But
+    `mitre.map_techniques` has NO severity gate -- it matches on
+    `f"{signal.id} {signal.title}"` -- so the word `obfuscation` inside the id
+    kept asserting T1027 "Obfuscated Files or Information". Verified on the live
+    deployment after the demotion:
+
+        benign_027.pdf  verdict=clean  score=6.4  capabilities: (none)
+              MITRE T1027  <- pdf.object_stream_obfuscation
+
+    A clean verdict, no capabilities, and an ATT&CK technique saying the document
+    hides itself. So the id changed too.
+
+    A blanket severity gate on `map_techniques` was measured and rejected: it
+    would drop 362 techniques across the deployment, 28 on MALICIOUS samples --
+    T1105 from `pe.imports.network`, T1056.001 from `pe.imports.keylogging`,
+    T1055 from `pe.imports.process_injection`. Weak evidence, but real ATT&CK
+    context on a confirmed sample.
+    """
+    from app.engine.mitre import map_techniques
+
+    body = b"%PDF-1.7\n" + b"".join(
+        b"%d 0 obj<</Type/ObjStm/N 4>>stream\nx\nendstream endobj\n" % n
+        for n in range(1, 6)
+    ) + b"trailer<</Root 1 0 R>>\n%%EOF\n"
+    signals = list(_signals(tmp_path, body).values())
+    techniques = [t["technique_id"] for t in map_techniques(signals)]
+    assert "T1027" not in techniques, (
+        f"object streams still assert Obfuscated Files or Information: {techniques}"
+    )
+
+
+def test_object_streams_are_not_an_evasion_capability() -> None:
+    """It was listed under `evasion`, next to VBA stomping and packer sections."""
+    from app.engine.capabilities import CAPABILITY_SIGNALS
+
+    evasion = CAPABILITY_SIGNALS["evasion"]
+    assert "pdf.object_streams" not in evasion
+    assert "pdf.object_stream_obfuscation" not in evasion, "the old id, too"

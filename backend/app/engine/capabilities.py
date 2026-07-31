@@ -67,7 +67,10 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
         "pe.packer_section_name",
         "elf.packed",
         "office.macro_obfuscation", "office.vba_stomping",
-        "pdf.object_stream_obfuscation",
+        # `pdf.object_streams` was here. Object streams are how every PDF
+        # 1.5+ writer stores its structure, and the signal that reports them
+        # is `info`. It asserted T1027 through the word "obfuscation" in its
+        # own former id, on documents whose verdict was clean.
         "jar.obfuscated",
         "script.obfuscation_high", "script.defense_evasion",
         "script.amsi_or_etw_tamper", "script.hidden_window", "script.decoded_layer",
