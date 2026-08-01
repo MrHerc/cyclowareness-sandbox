@@ -59,6 +59,21 @@ DEV_ROOTS = ["pytest", "pytest-asyncio", "pytest-cov", "coverage"]
 #: runs.
 TOOLCHAIN_EXCLUDED = {"pip", "setuptools", "wheel", "pkg-resources", "distribute"}
 
+#: Resolved by the lock, then deleted from the image before it ships.
+#:
+#: `pcodedmp` is GPL-3.0-or-later and a hard dependency of `oletools`, so it
+#: arrives with any install of the lock — and `Dockerfile` runs
+#: `pip uninstall -y pcodedmp` in the same layer, so it is not in the artifact.
+#: The SBOM describes the ARTIFACT, and listing a GPL component the customer
+#: never receives hands a procurement scanner the exact finding the removal
+#: exists to avoid. It also made `test_sbom_lists_the_really_installed_versions`
+#: fail inside our own image, where the removal has happened, while passing in
+#: CI, where it has not.
+#:
+#: Anything added here must actually be removed by the Dockerfile. The pairing
+#: is asserted by `test_the_sbom_describes_the_image_not_the_lockfile`.
+REMOVED_FROM_IMAGE = {"pcodedmp"}
+
 #: uvicorn[standard] extras that are genuinely installed and used in production.
 UVICORN_EXTRAS = {
     "httptools", "watchfiles", "websockets", "python-dotenv", "pyyaml",
@@ -166,6 +181,8 @@ def collect() -> tuple[list[dict], list[str]]:
     for key in sorted(DISTS):
         if key in TOOLCHAIN_EXCLUDED:
             continue  # the installer, not an ingredient — see TOOLCHAIN_EXCLUDED
+        if key in REMOVED_FROM_IMAGE:
+            continue  # in the closure, deleted from the artifact — see above
         if key not in runtime and key not in optional and key not in dev:
             continue  # outside the declared closure: another project's package
         meta = DISTS[key].metadata

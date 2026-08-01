@@ -248,3 +248,71 @@ def test_notices_disclose_every_copyleft_component_in_the_sbom() -> None:
     # And the two positions that are decisions rather than facts.
     assert "pcodedmp" in notices and "GPL-3.0" in notices
     assert "Qiling" in notices and "not shipped" in notices.lower()
+
+
+def test_the_sbom_describes_the_image_not_the_lockfile() -> None:
+    """`pcodedmp` was in the SBOM and not in the artifact.
+
+    `Dockerfile` has always run `pip uninstall -y pcodedmp` right after
+    installing the lock — it is GPL-3.0-or-later, a hard dependency of
+    `oletools`, and nothing here imports it. But `sbom.json` was generated from
+    the resolved closure, so it went on listing a GPL component that no customer
+    ever receives, and `THIRD_PARTY_NOTICES.md` described the removal as
+    something an operator *could* do rather than something the build *does*.
+
+    A compliance document that overstates what ships hands a procurement scanner
+    exactly the finding the removal exists to avoid. It also split the suite:
+    `test_sbom_lists_the_really_installed_versions` passed in CI, which installs
+    the lock, and failed inside our own image, where the uninstall has happened.
+
+    The pairing is what this asserts. Anything named in `REMOVED_FROM_IMAGE`
+    must really be removed by the Dockerfile, and must really be gone from the
+    SBOM — otherwise the exclusion is just a way to hide a component.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "generate_sbom", REPO / "scripts" / "generate_sbom.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except SystemExit:
+        pass  # it does its work at import; the constant is what we want
+
+    removed = set(getattr(module, "REMOVED_FROM_IMAGE", ()))
+    assert removed, "REMOVED_FROM_IMAGE disappeared from the generator"
+
+    sbom = json.loads(SBOM.read_text(encoding="utf-8"))
+    listed = {_norm(c["name"]) for c in sbom["components"]}
+    dockerfile = (REPO / "Dockerfile").read_text(encoding="utf-8")
+    lock = (REPO / "backend" / "requirements.lock.txt").read_text(encoding="utf-8")
+
+    for name in removed:
+        assert _norm(name) not in listed, (
+            f"{name} is excluded from the SBOM as removed-from-image, but it is "
+            "still listed as a component"
+        )
+        assert f"pip uninstall -y {name}" in dockerfile, (
+            f"{name} is excluded from the SBOM as removed-from-image, but the "
+            "Dockerfile does not remove it — that is not an exclusion, it is a "
+            "component being hidden"
+        )
+        # It must still be a real, declared dependency; excluding something the
+        # closure never had would mean the generator is simply wrong about it.
+        assert name in lock, f"{name} is not in requirements.lock.txt"
+
+
+def test_the_notices_do_not_call_the_removal_optional() -> None:
+    """The wording is the finding. "Operators who want it absent can uninstall"
+    described as a choice something the build already did unconditionally."""
+    import re as _re
+
+    for path in (NOTICES, REPO / "docs" / "licensing.md"):
+        # Whitespace-normalised: a prose assertion that breaks when a paragraph
+        # is re-wrapped teaches people to stop re-wrapping paragraphs.
+        text = _re.sub(r"\s+", " ", path.read_text(encoding="utf-8").lower())
+        assert "removed from the image" in text, (
+            f"{path.name} must say the build removes pcodedmp, not that an "
+            "operator may"
+        )

@@ -770,34 +770,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:pypi/pcodedmp@1.2.6",
-      "name": "pcodedmp",
-      "version": "1.2.6",
-      "purl": "pkg:pypi/pcodedmp@1.2.6",
-      "scope": "required",
-      "licenses": [
-        {
-          "license": {
-            "id": "GPL-3.0-or-later"
-          }
-        }
-      ],
-      "externalReferences": [
-        {
-          "type": "website",
-          "url": "https://github.com/bontchev/pcodedmp"
-        }
-      ],
-      "description": "A VBA p-code disassembler",
-      "properties": [
-        {
-          "name": "cyclowareness:copyleft",
-          "value": "strong-copyleft"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:pypi/pdfminer-six@20260107",
       "name": "pdfminer.six",
       "version": "20260107",

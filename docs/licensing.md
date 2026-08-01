@@ -105,25 +105,39 @@ any of them, and no LGPL obligation propagates to this product.
 File-level copyleft on the CA bundle, used unmodified. The obligation attaches
 only to modified MPL-licensed files; there are none.
 
-### 3. GPL-3.0 — `pcodedmp`, present but never imported
+### 3. GPL-3.0 — `pcodedmp`, resolved by the lock and removed from the image
 
-**Flagged deliberately, because a scanner will find it and ask.**
+**Flagged deliberately, because a scanner will look for it.**
 
 `oletools` (BSD-2-Clause, our Office analyzer's parser) declares `pcodedmp` as a
-hard, non-optional dependency, so `pip install -r requirements.txt` fetches it.
-`pcodedmp` is GPL-3.0-or-later.
+hard, non-optional dependency, so `pip install -r requirements.lock.txt` fetches
+it. `pcodedmp` is GPL-3.0-or-later.
 
-Our position:
+**The image does not ship it.** `Dockerfile` runs `pip uninstall -y pcodedmp`
+immediately after the install, in the same layer, so no GPL bytes reach a
+customer's disk. This is not a suggestion an operator may follow — it is what
+the build does, unconditionally, and `sbom.json` describes the image rather than
+the dependency closure, so `pcodedmp` is not listed as a component.
+
+    This paragraph used to read "operators who want it absent can
+    `pip uninstall -y pcodedmp`", describing as optional something the build had
+    already been doing for months — while the SBOM went on listing a GPL
+    component the artifact did not contain. A compliance document that overstates
+    what ships hands a procurement scanner exactly the finding the removal was
+    meant to avoid.
+
+Why removing it is free:
 
 - **Cyclowareness Sandbox never imports it.** `olevba`'s only use of `pcodedmp`
   is inside `extract_pcode()`, and `backend/app/engine/analyzers/office.py` does
-  not call that method. Nothing in the pipeline reaches GPL code at runtime.
-- Its presence in an image is **mere aggregation** — an unrelated program that
-  happens to sit in the same `site-packages` — not linking, and it therefore
-  carries no obligation onto this product.
-- **If your policy forbids GPL bytes on disk at all**, the mitigation is one
-  line and costs nothing: `pip uninstall -y pcodedmp` after installing
-  requirements. The Office analyzer is unaffected; the suite stays green.
+  not call that method. Nothing in the pipeline reaches GPL code at runtime, so
+  the uninstall changes no behaviour; the suite stays green.
+- Had it stayed, its presence would have been **mere aggregation** — an
+  unrelated program in the same `site-packages`, not linking. Removing it means
+  the argument never has to be made.
+
+If you install from `requirements.lock.txt` directly rather than using the
+image, `pcodedmp` WILL be on disk and you should repeat the uninstall.
 
 ### 4. GPL-2.0 — `qiling`, deliberately not shipped
 

@@ -55,13 +55,16 @@ Position on each class:
   chooses PostgreSQL.
 - **MPL-2.0** (`certifi`) — file-level copyleft. Used unmodified; the obligation
   attaches only to modified MPL files, of which there are none.
-- **GPL-3.0-or-later** (`pcodedmp`) — **flagged.** `pcodedmp` is a hard
-  (non-extra) dependency of `oletools`, so `pip install -r requirements.txt`
-  fetches it. Cyclowareness Sandbox **never imports it**: `olevba`'s only use of
-  `pcodedmp` is inside `extract_pcode()`, which the Office analyzer does not
-  call. Its presence in an image is mere aggregation, not linking. Operators who
-  want it absent entirely can `pip uninstall -y pcodedmp` after install — the
-  Office analyzer is unaffected. See [`docs/licensing.md`](docs/licensing.md).
+- **GPL-3.0-or-later** (`pcodedmp`) — **resolved by the lock, removed from the
+  image.** `pcodedmp` is a hard (non-extra) dependency of `oletools`, so
+  installing the lock fetches it. `Dockerfile` then runs
+  `pip uninstall -y pcodedmp` in the same layer, so **no GPL bytes ship**, and
+  it is therefore not listed as a component above. Cyclowareness Sandbox never
+  imports it — `olevba`'s only use of `pcodedmp` is inside `extract_pcode()`,
+  which the Office analyzer does not call — so removing it changes nothing.
+  Installing from `requirements.lock.txt` directly rather than using the image
+  puts it on disk; repeat the uninstall there. See
+  [`docs/licensing.md`](docs/licensing.md).
 
 ## Not shipped, on purpose
 
