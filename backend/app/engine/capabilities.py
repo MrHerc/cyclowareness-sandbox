@@ -38,6 +38,11 @@ _MIN_SEVERITY = SEVERITY_ORDER["low"]
 CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     # The sample can cause code to run.
     "execution": frozenset({
+        # `\objupdate` makes the embedded object update — that is, run —
+        # when the document opens. Word does not emit it.
+        "rtf.object_auto_executes",
+        # A shortcut whose arguments are a hidden, encoded PowerShell.
+        "lnk.command_line_attack",
         "office.autoexec_macro", "office.xlm_macro", "office.dde_field", "office.vba_present",
         "pdf.launch_action", "pdf.open_action", "pdf.javascript",
         "jar.runtime_exec",
@@ -48,6 +53,8 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     }),
     # The sample actively reaches out. Passive URLs in strings are NOT this.
     "network": frozenset({
+        # An OLE2Link moniker fetches the object when the document opens.
+        "rtf.remote_object_link",
         "office.remote_template",
         "pdf.submit_form",
         "script.download_and_execute",
@@ -132,6 +139,14 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     "dropper": frozenset({
         "generic.embedded_executable",
         "pdf.embedded_file", "office.embedded_object",
+        # A document whose largest part is another document. Three of the
+        # five malicious .docx measured here were wrappers around a
+        # multi-megabyte RTF.
+        "office.carries_a_document",
+        "rtf.embedded_executable", "rtf.embedded_ole_package",
+        # A shortcut is a pointer. One carrying tens of kilobytes is
+        # carrying a payload that its command line reassembles.
+        "lnk.oversized_for_a_shortcut",
     }),
     # The sample abuses elevation / device-administration controls.
     "privilege": frozenset({
@@ -140,18 +155,31 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     # The sample disguises what it is.
     "deception": frozenset({
         "generic.extension_mismatch",
+        # A document icon on a shortcut that runs a shell.
+        "lnk.icon_disguise",
         "archive.double_extension",
         "generic.double_extension",
         "diskimage.suspicious_filename",
         "generic.punycode_or_lookalike_domain",
         "archive.path_traversal",
     }),
-    #: Deliberately empty: no analyzer produces evidence of destructive or
-    #: exploitation behaviour today. Claiming either from static evidence we do
-    #: not have is exactly the dishonesty this engine refuses. They stay as keys
-    #: so the dynamic tier can populate them once a sample is actually detonated.
+    #: `destruction` and `discovery` stay deliberately empty: no analyzer
+    #: produces static evidence of either, and claiming one from evidence we do
+    #: not have is exactly the dishonesty this engine refuses. They remain as
+    #: keys so the dynamic tier can populate them from a real detonation.
     "destruction": frozenset(),
-    "exploit": frozenset(),
+    #: `exploit` is no longer empty, and the bar for adding to it is the one
+    #: the note above sets: evidence we actually have.
+    #:
+    #: CLSID {0002CE02-0000-0000-C000-000000000046} is Microsoft Equation
+    #: Editor — the component behind CVE-2017-11882 and CVE-2018-0802, retired
+    #: by Microsoft in 2018. A document that embeds it in 2026 is not doing
+    #: mathematics. It is also HIGH_CONSEQUENCE, so it needs corroboration
+    #: before it accuses on its own, which is the right treatment for the
+    #: strongest claim the RTF analyzer can make.
+    "exploit": frozenset({
+        "rtf.equation_editor_object",
+    }),
     "discovery": frozenset(),
 }
 
