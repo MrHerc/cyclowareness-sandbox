@@ -101,7 +101,7 @@ def test_ooxml_body_text_is_capped_across_every_entry(tmp_path) -> None:
     path = tmp_path / "big.docx"
     path.write_bytes(_zip_of(entries))
 
-    _external, body, _embedded = office._ooxml_relationships_and_body(str(path))
+    _external, body, *_rest = office._ooxml_relationships_and_body(str(path))
 
     # 40 x ~900 KB is 36 MB of body text; the aggregate budget is 2 MB.
     assert len(body) <= office.MAX_BODY_BYTES, len(body)
@@ -122,7 +122,7 @@ def test_the_body_budget_does_not_stop_the_relationship_walk(tmp_path) -> None:
     path = tmp_path / "late.docx"
     path.write_bytes(_zip_of(entries))
 
-    external, body, _embedded = office._ooxml_relationships_and_body(str(path))
+    external, body, *_rest = office._ooxml_relationships_and_body(str(path))
 
     assert len(body) <= office.MAX_BODY_BYTES
     assert any("evil.example" in row["target"] for row in external), external
@@ -135,7 +135,7 @@ def test_a_short_document_still_gets_all_of_its_text(tmp_path) -> None:
         "word/document.xml": b"<w:t>contact http://example.com/x for the invoice</w:t>",
     }))
 
-    _external, body, _embedded = office._ooxml_relationships_and_body(str(path))
+    _external, body, *_rest = office._ooxml_relationships_and_body(str(path))
     assert "http://example.com/x" in body
 
 
@@ -152,7 +152,7 @@ def test_hyperlink_targets_are_charged_to_the_body_budget(tmp_path) -> None:
         "word/_rels/document.xml.rels": b"<Relationships>" + link * 4000 + b"</Relationships>",
     }))
 
-    _external, body, _embedded = office._ooxml_relationships_and_body(str(path))
+    _external, body, *_rest = office._ooxml_relationships_and_body(str(path))
     # 4,000 x ~1.5 KB is ~6 MB of targets against a 2 MB budget.
     assert len(body) <= office.MAX_BODY_BYTES + 2000, len(body)
 
