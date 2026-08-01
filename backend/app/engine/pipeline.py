@@ -567,16 +567,22 @@ def reapply_to_ancestors(db: Session, job: SandboxJob) -> int:
 
 
 def _stored_analysis(db: Session, job: SandboxJob) -> dict:
-    """The `analysis` column as it is IN THE DATABASE right now.
+    """The `analysis` column as the database now holds it.
 
-    Not `job.analysis` -- that is the copy this session loaded, and the whole
-    point is to see a write another process made since. Read as its own
-    statement so nothing on the in-flight object is disturbed.
+    Not `job.analysis`: that is the copy this session loaded, and the point is to
+    see a write another process made since.
+
+    `expire` then read, in THIS session and THIS transaction. Two earlier
+    attempts were order-dependent and both for the same reason -- reading around
+    the session rather than through it. A plain `select` on `db` can be served
+    after SQLAlchemy has already flushed the stale object, and a separate
+    connection is not guaranteed to see this transaction's view at all on
+    SQLite. Expiring the attribute forces one fresh SELECT through the session's
+    own connection, which is the only read that is correct on both backends.
     """
     try:
-        value = db.execute(
-            select(SandboxJob.analysis).where(SandboxJob.id == job.id)
-        ).scalar_one_or_none()
+        db.expire(job, ["analysis"])
+        value = job.analysis
     except Exception:  # noqa: BLE001 — a merge that fails must not fail the run
         return {}
     return value if isinstance(value, dict) else {}
@@ -999,9 +1005,8 @@ def run(
         # dynamic entry RAN. A detonation only ever goes from "not run" to
         # "ran", so preferring `ran` cannot discard evidence, and it does not
         # need to know which write was newer.
-        fresh = _stored_analysis(db, job)
         analysis = {r.analyzer: r.to_dict() for r in results}
-        for name, stored in fresh.items():
+        for name, stored in _stored_analysis(db, job).items():
             if not name.startswith("dynamic.") or not isinstance(stored, dict):
                 continue
             mine = analysis.get(name)
