@@ -54,6 +54,15 @@ _MAGIC: tuple[tuple[bytes, str, str, tuple[str, ...]], ...] = (
     (b"GIF8", "image/gif", "GIF image", (".gif",)),
     (b"\xff\xd8\xff", "image/jpeg", "JPEG image", (".jpg", ".jpeg")),
     (b"#!", "text/x-script", "script with a shebang", (".sh", ".py", ".pl")),
+    # RTF and LNK were already being RECOGNISED — by libmagic, which returned
+    # `application/rtf` and "Windows shortcut file" — and then dropped on the
+    # floor because `_family_for` had no case for them. Owning the magic here
+    # makes the MIME ours rather than whichever libmagic the host ships.
+    (b"{\\rtf", "application/rtf", "Rich Text Format document", (".rtf", ".doc")),
+    # MS-SHLLINK: HeaderSize 0x4C then {00021401-…}, first three fields
+    # little-endian.
+    (b"L\x00\x00\x00\x01\x14\x02\x00", "application/x-ms-shortcut",
+     "Windows shortcut", (".lnk",)),
 )
 
 #: Offset-based magic that is not at byte 0.
@@ -301,6 +310,11 @@ def _family_for(mime: str, claimed: str) -> str:
         return "elf"
     if mime == "application/pdf":
         return "pdf"
+    # Both were falling through to `unknown`, which selects no analyzer at all.
+    if mime in ("application/rtf", "text/rtf"):
+        return "rtf"
+    if mime == "application/x-ms-shortcut":
+        return "lnk"
     if mime.startswith("application/vnd.openxmlformats") or mime == "application/x-ole-storage":
         return "office"
     if mime in (

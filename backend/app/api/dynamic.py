@@ -43,7 +43,9 @@ logger = logging.getLogger("sandbox.dynamic")
 router = APIRouter(prefix="/api/dynamic", tags=["dynamic"])
 
 #: Families a dynamic worker can meaningfully detonate/emulate.
-_DYNAMIC_FAMILIES = {"pe", "elf", "script", "office", "pdf"}
+#: An RTF exploit and a LNK command line are exactly what a detonation shows,
+#: and both families were absent — so nine real samples were never offered.
+_DYNAMIC_FAMILIES = {"pe", "elf", "script", "office", "pdf", "rtf", "lnk"}
 
 #: THIS SEAM IS DEPLOYMENT-WIDE, NOT TENANT-SCOPED, ON PURPOSE.
 #:

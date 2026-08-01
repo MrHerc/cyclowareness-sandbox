@@ -55,7 +55,13 @@ def test_apk_permissions_and_apis(db):
     assert job.family == "apk"
     assert job.status == "completed"
     assert "apk.accessibility_abuse" in fired  # the critical one
-    assert "apk.dangerous_permission" in fired
+    # The id carries its GROUP now. One id for eight unrelated groups meant
+    # the capability map could not tell "reads your contacts" from "starts at
+    # boot", and listed all of them under `credential`.
+    groups = {i for i in fired if i.startswith("apk.dangerous_permission.")}
+    assert "apk.dangerous_permission.sms" in groups, groups
+    assert "apk.dangerous_permission.boot_persistence" in groups, groups
+    assert "apk.dangerous_permission" not in fired, "the bare id is no longer emitted"
     assert "apk.suspicious_api" in fired
     assert "apk.multiple_dex" in fired
     assert job.final_score >= 60  # this combination is high-risk

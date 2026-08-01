@@ -34,6 +34,9 @@ SUPPORTED_EXTENSIONS = [
     ".exe", ".dll", ".sys", ".ps1", ".js", ".vbs", ".bat", ".cmd",
     ".py", ".sh", ".hta", ".elf", ".bin", ".so", ".jar", ".apk",
     ".zip", ".rar", ".7z", ".iso", ".img", ".pdf",
+    # The two formats attackers moved to when macros were blocked. Both were
+    # accepted and analysed as `unknown` — recognised, then ignored.
+    ".rtf", ".lnk",
     ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
 ]
 
