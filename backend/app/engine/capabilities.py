@@ -144,7 +144,15 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
     # document case above by another route.
     "dropper": frozenset({
         "generic.embedded_executable",
-        "pdf.embedded_file", "office.embedded_object",
+        # `pdf.embedded_file` was here, and it asserted `dropper` on the mere
+        # presence of an /EmbeddedFile entry. Measured over 45 malicious PDFs
+        # and 20 ordinary documents: 0 of the malicious carry one and 10 of the
+        # ordinary ones do — every fillable IRS form on the list, because that
+        # is where a form keeps its own XFA data. Ten accusations, no catches.
+        # The attachment is still reported; the capability moved to the case
+        # that can support one.
+        "pdf.embedded_executable",
+        "office.embedded_object",
         # A document whose largest part is another document. Three of the
         # five malicious .docx measured here were wrappers around a
         # multi-megabyte RTF.
@@ -163,6 +171,17 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
         "generic.extension_mismatch",
         # A document icon on a shortcut that runs a shell.
         "lnk.icon_disguise",
+        # A page whose entire surface is one link, and a page that tells the
+        # reader it cannot be displayed here so they should open it in a
+        # browser. Both are the document lying about what it is.
+        #
+        # `pdf.page_renders_no_text` is deliberately NOT here. A poster whose
+        # text was flattened to outlines on export renders nothing either, and
+        # the benign corpus contains no such document — so there is no evidence
+        # for the stronger claim, and it stays a `medium` that contributes to
+        # the score without asserting intent.
+        "pdf.page_is_one_click_target",
+        "pdf.reader_incompatible_lure",
         "archive.double_extension",
         "generic.double_extension",
         "diskimage.suspicious_filename",

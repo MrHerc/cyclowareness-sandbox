@@ -135,11 +135,28 @@ def test_a_container_is_not_a_dropper_for_being_a_container(client, auth, tmp_pa
 
 def test_a_document_carrying_a_program_still_is_a_dropper() -> None:
     """The other half, asserted directly so the exemption cannot widen into
-    'nothing is ever a dropper'."""
+    'nothing is ever a dropper'.
+
+    The PDF id changed and the claim did not. This guard used to name
+    `pdf.embedded_file`, which fired on the presence of any /EmbeddedFile entry
+    — and measured over 45 malicious PDFs and 20 ordinary documents, that is 0
+    catches against 10 accusations, every one of them a fillable IRS form
+    carrying the XFA data the form is made of.
+
+    So the analyzer now splits the observation from the accusation, and the
+    accusation kept the wording this test was always written around: "a PROGRAM
+    inside one is there to be run by someone who thought they were opening a
+    document". `pdf.embedded_executable` is that program. The attachment with
+    an ordinary name is still reported, at `info`, asserting nothing.
+    """
     from app.engine import capabilities
 
     dropper = capabilities.CAPABILITY_SIGNALS["dropper"]
-    assert "pdf.embedded_file" in dropper
+    assert "pdf.embedded_executable" in dropper
+    assert "pdf.embedded_file" not in dropper, (
+        "the mere presence of an attachment is not a dropper -- it was measured "
+        "at ten false accusations and zero catches"
+    )
     assert "office.embedded_object" in dropper
     assert "generic.embedded_executable" in dropper
     assert "diskimage.embedded_executable" not in dropper
