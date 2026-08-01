@@ -402,6 +402,15 @@ def _extract_iocs(text: str) -> IOCs:
 
 # --- OOXML structural checks (zip) --------------------------------------------
 
+#: Formats that are documents or programs in their own right. A part with one
+#: of these extensions, inside an OOXML package, is a carried payload -- Word
+#: does not produce them as part of saving a document.
+_CARRIED_FORMATS = (
+    ".rtf", ".doc", ".docm", ".xls", ".xlsm", ".ppt", ".pptm",
+    ".exe", ".dll", ".scr", ".hta", ".lnk", ".js", ".vbs", ".ps1", ".jar",
+)
+
+
 def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str, list[str]]:
     """Walk the OOXML zip WITHOUT extracting to disk.
 
@@ -420,6 +429,8 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
     #: thousands of them, so it is not a path that can be left unmetered.
     body_budget = MAX_BODY_BYTES
     embedded: list[str] = []
+    carried: list[str] = []
+    unreadable: list[str] = []
 
     # Match a whole <Relationship .../> element, then read its attributes. Single
     # negated-class quantifier — no nested repetition, so no catastrophic case.
@@ -434,6 +445,14 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                 if "/embeddings/" in lower or lower.startswith("word/embeddings") \
                         or "oleobject" in lower or lower.endswith(".bin") and "embed" in lower:
                     embedded.append(_clip(name, 160))
+                # A DOCUMENT INSIDE A DOCUMENT, outside the embeddings folder.
+                #
+                # Formbook's largest part is `word/Noyv.rtf` at 5.1 MB and the
+                # two WeedHack samples are the same shape. The .docx is a
+                # wrapper; the RTF carries the exploit. Nothing above sees it,
+                # because the path is not under /embeddings/.
+                if lower.endswith(_CARRIED_FORMATS):
+                    carried.append(_clip(name, 160))
                 is_rels = lower.endswith(".rels")
                 is_body = lower.endswith(".xml") and not is_rels
                 if not (is_rels or is_body):
@@ -448,6 +467,12 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                     with zf.open(name) as fh:
                         raw = fh.read(want)
                 except Exception:
+                    # NOT a bare `continue`. Both SideWinder samples have a
+                    # `word/_rels/document.xml.rels` that will not open, inside
+                    # an archive whose every other part is perfect. Word is
+                    # tolerant and reads it; tools are not, which is the point.
+                    # Swallowing it lost the technique.
+                    unreadable.append(_clip(name, 160))
                     continue
                 if is_rels:
                     for match in rel_re.finditer(raw):
@@ -480,9 +505,9 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                     body_parts.append(raw.decode("utf-8", "replace"))
                     body_budget -= len(raw)
     except Exception:
-        return external, "", embedded
+        return external, "", embedded, carried, unreadable
 
-    return external, "\n".join(body_parts)[:MAX_SCAN_CHARS], embedded
+    return external, "\n".join(body_parts)[:MAX_SCAN_CHARS], embedded, carried, unreadable
 
 
 def _ole_embedded_and_body(path: str, raw: bytes) -> tuple[list[str], bool]:
@@ -788,7 +813,8 @@ def analyze(sample: Sample) -> AnalyzerResult:
         embedded: list[str] = []
         body_text = ""
         if is_ooxml:
-            external_rels, body_text, embedded = _ooxml_relationships_and_body(sample.path)
+            (external_rels, body_text, embedded,
+         carried, unreadable_parts) = _ooxml_relationships_and_body(sample.path)
         else:
             try:
                 raw = sample.read(MAX_OLE_BODY_BYTES)
@@ -817,6 +843,35 @@ def analyze(sample: Sample) -> AnalyzerResult:
             # the target URLs are indicators in their own right
             iocs = iocs.merge(_extract_iocs(
                 "\n".join(r["target"] for r in external_rels)
+            ))
+
+        if carried:
+            signals.append(Signal(
+                id="office.carries_a_document",
+                title="Document contains another document",
+                severity="high",
+                detail=(
+                    "An OOXML package holds these parts: " + ", ".join(carried[:6]) +
+                    ". Word does not produce them as part of saving a document. Three "
+                    "of the five malicious .docx measured on this engine were wrappers "
+                    "whose largest part was a multi-megabyte RTF — the .docx is the "
+                    "envelope and the carried file is the payload."
+                ),
+                evidence={"parts": carried[:16]},
+            ))
+
+        if unreadable_parts:
+            signals.append(Signal(
+                id="office.part_unreadable",
+                title="A part of the package will not open",
+                severity="medium",
+                detail=(
+                    "These parts could not be read: " + ", ".join(unreadable_parts[:6]) +
+                    ". Word is tolerant of a malformed part and reads it anyway; tools "
+                    "are not, which is why damaging exactly one relationship inside an "
+                    "otherwise perfect archive is a technique rather than an accident."
+                ),
+                evidence={"parts": unreadable_parts[:16]},
             ))
 
         if embedded:
