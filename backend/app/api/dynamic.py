@@ -556,6 +556,26 @@ def ingest_report(
     # / `low` with `error = NULL`, which is how all eight of them read.
     if report.refused:
         job.error = report.unavailable_reason
+    else:
+        # AND CLEARED WHEN THE HOLE IS FILLED.
+        #
+        # It was only ever written, never cleared, so a job refused once kept
+        # the refusal string for ever — including after a later run detonated it
+        # successfully. The report would then carry a completed detonation with
+        # 54 signals beside `error: "CAPE refused the sample: Linux binaries
+        # analysis isn't enabled"`, one record contradicting itself, in the
+        # artifact this product signs. Live right now: 46 jobs hold that string,
+        # 31 of them ELF, and a refused job can be re-detonated by public_id
+        # today — `_needs_dynamic` gates only the QUEUE, not
+        # `/api/dynamic/report/{public_id}`.
+        #
+        # Safe to clear unconditionally here: this endpoint is only reached for
+        # a job the queue offered or a worker was pointed at, and both require
+        # `status == COMPLETED` (see the queue filter and `_needs_dynamic`). A
+        # job whose STATIC analysis failed is `FAILED`, never `COMPLETED`, so
+        # the only thing `job.error` can hold at this point is a previous
+        # refusal.
+        job.error = None
     job.score_breakdown = assessment.breakdown
     job.rule_score = assessment.rule_score
     job.ai_score = assessment.ai_score

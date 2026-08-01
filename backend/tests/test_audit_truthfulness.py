@@ -133,6 +133,56 @@ def test_a_refused_report_is_recorded_too(client, auth) -> None:
     assert "Linux binaries" in (events[-1].detail.get("unavailable_reason") or "")
 
 
+def test_a_later_detonation_clears_the_refusal_it_replaces(client, auth) -> None:
+    """One record must not contradict itself.
+
+    `job.error` was written when a report came back refused and never cleared,
+    so a sample refused once carried the refusal string for ever — including
+    after a later run detonated it successfully. The report then read as a
+    completed detonation, with signals and a raised verdict, beside
+    `error: "CAPE refused the sample: Linux binaries analysis isn't enabled"`.
+
+    Reachable today, not hypothetical: 46 jobs on the live deployment hold that
+    string, 31 of them ELF, and `_needs_dynamic` gates only the QUEUE —
+    `POST /api/dynamic/report/{public_id}` accepts a second report for a job
+    that was already refused, with no code change at all.
+    """
+    public_id = _submit(client, auth, "iot2.elf", b"\x7fELF" + b"\x01" * 4096)
+    _poll_until_done(client, auth, public_id)
+
+    refusal = "CAPE refused the sample: Linux binaries analysis isn't enabled"
+    client.post(
+        f"/api/dynamic/report/{public_id}",
+        json={
+            "engine": "capev2", "worker": "detonation-01", "ran": False,
+            "unavailable_reason": refusal, "refused": True,
+            "signals": [], "facts": {}, "iocs": {}, "duration_ms": 11, "timeline": [],
+        },
+        headers={"X-Worker-Token": WORKER_TOKEN},
+    )
+    detail = client.get(f"/api/result/{public_id}", headers=auth).json()
+    assert refusal in (detail.get("error") or ""), "the refusal must be recorded"
+
+    # The same sample, run again on a worker that CAN detonate it.
+    client.post(
+        f"/api/dynamic/report/{public_id}",
+        json={
+            "engine": "capev2", "worker": "detonation-01", "ran": True,
+            "unavailable_reason": None, "refused": False,
+            "signals": [{"id": "capev2.deletes_files", "title": "removed files",
+                         "severity": "low", "detail": "", "evidence": {}}],
+            "facts": {}, "iocs": {}, "duration_ms": 90_000, "timeline": [],
+        },
+        headers={"X-Worker-Token": WORKER_TOKEN},
+    )
+    detail = client.get(f"/api/result/{public_id}", headers=auth).json()
+    assert not detail.get("error"), (
+        "a completed detonation still carrying the refusal it replaced: "
+        f"{detail.get('error')!r}"
+    )
+    assert (detail.get("tiers") or {}).get("dynamic", {}).get("ran") is True
+
+
 def test_the_chain_still_verifies_after_all_of_this(client, auth) -> None:
     db = session_scope()
     try:
