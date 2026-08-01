@@ -86,9 +86,24 @@ def test_an_unconfirmed_anchor_takes_the_whole_store_back_to_bootstrapped(monkey
 
 def test_an_operator_supplied_list_is_still_the_operators_claim(monkeypatch) -> None:
     """`replace: true` discards the shipped list, so its confirmations say
-    nothing about what is actually loaded."""
+    nothing about what is actually loaded.
+
+    BOTH globals are set, and the first version of this test set only
+    `_replace` — which made it pass or fail depending on what had run before it.
+    `describe()` calls `anchors()` before it reads `_replace`, and `anchors()`
+    lazily calls `_load_override()` when `_extra is None`, which assigns
+    `_extra, _replace = {}, False`. So a patched `_replace` survived only if
+    some earlier test had already triggered the load. Setting `_extra` too is
+    also the more faithful fixture: an operator override never produces one
+    without the other.
+    """
+    monkeypatch.setattr(trust_anchors, "_extra", {"a" * 64: "an operator's own anchor"})
     monkeypatch.setattr(trust_anchors, "_replace", True)
-    assert trust_anchors.describe()["provenance"] == "operator"
+
+    described = trust_anchors.describe()
+    assert described["provenance"] == "operator", described
+    assert described["replaced_shipped_list"] is True
+    assert described["anchors"] == 1, "replace means the shipped list is gone"
 
 
 def test_the_certum_exception_is_written_down_not_just_true() -> None:

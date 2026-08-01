@@ -185,8 +185,20 @@ class _HttpSandboxEngine(Engine):
         return bool(self._base()) and _requests() is not None
 
     def supports(self, family: str) -> bool:
-        # External sandboxes handle the same detonatable families the seam offers.
-        return family in {"pe", "elf", "script", "office", "pdf"}
+        # External sandboxes handle the same detonatable families the seam
+        # offers — and this set has to BE that set, not a copy of it that drifted.
+        #
+        # `rtf` and `lnk` were added to `_DYNAMIC_FAMILIES` when their analyzers
+        # were written and not added here, so the backend offered nine jobs no
+        # engine claimed. They are genuinely detonatable: CAPE ships
+        # `analyzer/windows/modules/packages/lnk.py` and `doc.py`, and a
+        # shortcut whose arguments are an encoded PowerShell is exactly the
+        # thing worth running rather than reading.
+        #
+        # `test_the_worker_claims_every_family_the_backend_offers` compares the
+        # two sets directly, so the next family to gain an analyzer cannot
+        # silently arrive here missing.
+        return family in {"pe", "elf", "script", "office", "pdf", "rtf", "lnk"}
 
     def _timeout_deadline(self) -> float:
         return time.monotonic() + self.config.engine_timeout_seconds

@@ -278,6 +278,36 @@ class Agent:
             except OSError:
                 pass
 
+    def _deliver(self, public_id: str, report: "Report") -> None:
+        """Post one report for one job, and never take the loop down with it.
+
+        THIS METHOD DID NOT EXIST, and the call site that needed it is the one
+        that keeps a job from occupying the head of the queue for ever. So the
+        moment a family reached the worker that no local engine claimed,
+        `process_job` raised `AttributeError` — inside `pool.map`, which
+        re-raises on the first future, so the whole batch died and NOTHING was
+        detonated that cycle. Measured on the live worker before this fix: 1176
+        occurrences of `'Agent' object has no attribute '_deliver'`, one every
+        sixteen seconds, with nine `lnk`/`rtf` jobs pinned at the head of an
+        oldest-first queue and every `pe`, `pdf` and `office` job behind them
+        starved.
+
+        It was latent from the day it was written, because every family the
+        backend offered was claimed by the CAPE engine. Widening
+        `_DYNAMIC_FAMILIES` to `rtf` and `lnk` without widening `supports()` is
+        what made it reachable.
+
+        Failure to post is logged, not raised: the caller is already handling
+        the case where a job cannot be run, and losing the loop over a failed
+        HTTP call would be the same bug in a different place.
+        """
+        if not public_id:
+            return
+        try:
+            self._post_json(f"/api/dynamic/report/{public_id}", report.to_payload())
+        except Exception as exc:  # noqa: BLE001
+            log.warning("could not deliver the report for %s: %s", public_id, exc)
+
     def _report_blocked(self, job: dict, reason: str) -> None:
         """Say why a job was not detonated, rather than leaving a silent gap.
 
@@ -289,13 +319,12 @@ class Agent:
         public_id = job.get("public_id")
         if not public_id:
             return
-        report = Report.unavailable(
-            "containment", self.config.worker_name, f"Not detonated: {reason}"
+        self._deliver(
+            public_id,
+            Report.unavailable(
+                "containment", self.config.worker_name, f"Not detonated: {reason}"
+            ),
         )
-        try:
-            self._post_json(f"/api/dynamic/report/{public_id}", report.to_payload())
-        except Exception as exc:
-            log.warning("could not report the block for %s: %s", public_id, exc)
 
     def _run_engine(self, engine: Engine, path: str, sha256: str, family: str) -> Report:
         """Run an engine, turning any crash or overrun into an honest ran=False
