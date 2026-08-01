@@ -82,16 +82,45 @@ def test_a_small_page_is_still_a_full_page(client, backlog) -> None:
     assert len(_queue(client, limit=2)) == 2
 
 
-def test_the_oldest_waiting_job_is_offered_first(client, backlog) -> None:
+def test_the_oldest_waiting_job_is_offered_first(client, db, backlog) -> None:
     """Newest-first starves a backlog: fresh arrivals keep taking the head.
 
-    Asserted on the ORDER of this test's own jobs, not on which job is at the
-    head overall — the database is shared across the suite, so earlier tests
-    leave older jobs behind and a global assertion would be about them.
+    This used to assert on the order of THIS test's own jobs within the page,
+    which was the right instinct about the shared database and the wrong
+    mechanism. Its own jobs are the newest, the queue is offered oldest-first,
+    and the endpoint caps a page at 100 rows — so once other tests had left more
+    than a hundred jobs waiting, none of this test's jobs was on the page at all
+    and the assertion compared `[]` against seven ids. It failed in two runs out
+    of six, on nothing but the order the suite happened to run in.
+
+    So the property is asserted where it actually lives: every job the queue
+    offers, in the order it offers them, must be non-decreasing in `created_at`.
+    That is what "oldest first" means, it is true of any page, and it no longer
+    depends on how much work the rest of the suite left behind.
     """
+    from sqlalchemy import select
+
+    from app.engine.models import SandboxJob
+
     order = [j["public_id"] for j in _queue(client, limit=100)]
+    assert order, "the fixture just created seven detonatable jobs"
+
+    created = {
+        job.public_id: job.created_at
+        for job in db.execute(
+            select(SandboxJob).where(SandboxJob.public_id.in_(order))
+        ).scalars().all()
+    }
+    stamps = [created[public_id] for public_id in order]
+    assert stamps == sorted(stamps), "the queue is not offered oldest-first"
+
+    # And when this test's own jobs ARE on the page, they keep their submission
+    # order among themselves — the original assertion, minus the assumption that
+    # all seven are visible.
     mine = [p for p in order if p in set(backlog)]
-    assert mine == backlog, "own jobs were not offered oldest-first"
+    assert mine == [p for p in backlog if p in set(order)], (
+        "own jobs were not offered oldest-first"
+    )
 
 
 def test_a_detonated_job_is_not_offered_again(client, backlog) -> None:
