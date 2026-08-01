@@ -229,6 +229,32 @@ WINDOWS_RUNS_THESE = frozenset({
     ".py", ".pyw", ".jar", ".sh",
 })
 
+#: Every suffix this module recognises as naming a FORMAT — from the magic
+#: tables, the script map, the binary-container list and the set Windows will
+#: execute. Built from those, never hand-maintained, so it cannot drift from
+#: them the way a duplicate list does.
+#:
+#: It exists to answer one question: does the name claim anything at all?
+#: `generic.extension_mismatch` is the engine's strongest deception signal, and
+#: on 220 stock Linux binaries it fired on nineteen and caught nothing — every
+#: hit a build or version suffix that names no format:
+#:
+#:     convert-im6.q16, display-im6.q16   ImageMagick's quantum-depth marker
+#:     db5.3_dump, db5.3_log_verify       Berkeley DB, version then tool name
+#:     python3.10                         splitext() reads `.10`
+#:
+#: `libfoo.so.6` is the same shape. None of these promises a format, so none of
+#: them can be lying about one.
+_KNOWN_FORMAT_EXTENSIONS: frozenset[str] = frozenset(
+    ext
+    for row in _MAGIC
+    for ext in row[3]
+) | frozenset(
+    ext
+    for row in _MAGIC_AT
+    for ext in row[4]
+) | frozenset(_SCRIPT_EXTENSIONS) | _BINARY_FORMAT_EXTENSIONS | WINDOWS_RUNS_THESE
+
 #: Mimes whose CONTENT identifies a script, whatever the file is called. A
 #: PowerShell dropper renamed `notes.txt` still gets detonated because of this —
 #: the gate is about whether there is an execution path, never about whether the
@@ -351,8 +377,41 @@ def _looks_textual(head: bytes) -> bool:
     return printable / min(len(head), 4096) > 0.90
 
 
+def _claimed_extension(original_name: str) -> str:
+    """The format the NAME claims, with version components stepped over.
+
+    `os.path.splitext` reads `libcrypto.so.3` as `.3` and `python3.10` as `.10`.
+    Neither is a format. Worse, `.3` is also a man-page extension, so the
+    versioned shared objects on any Linux system were being read as claiming to
+    be roff source — and the body, being ELF, then disagreed with a claim the
+    name never made.
+
+    Stepping back over digit-only components answers what the name actually
+    promises: `libcrypto.so.3` promises `.so`, which an ELF is; `python3.10`
+    promises nothing at all.
+    """
+    stem = original_name
+    # Bounded: each pass removes a component, and a name has finitely many.
+    for _ in range(8):
+        head, tail = os.path.splitext(stem)
+        if len(tail) < 2 or not tail[1:].isdigit():
+            break
+        # ONLY when stepping over the digits reveals a format underneath.
+        #
+        # `.3` is a version in `libcrypto.so.3` and a FORMAT in `rclone.3` —
+        # roff, manual section 3. What tells them apart is what is left: the
+        # first reveals `.so`, the second reveals nothing. Stripping
+        # unconditionally made every man page claim no extension, which took
+        # `rclone.1` out of the documentation path and had a text file rated
+        # 7.1 for impact.
+        if not os.path.splitext(head)[1]:
+            break
+        stem = head
+    return os.path.splitext(stem)[1].lower()
+
+
 def identify(path: str, original_name: str) -> Identity:
-    claimed = os.path.splitext(original_name)[1].lower()
+    claimed = _claimed_extension(original_name)
 
     with open(path, "rb") as fh:
         head = fh.read(8192)
@@ -464,6 +523,31 @@ def identify(path: str, original_name: str) -> Identity:
     # picks for it. `invoice.pdf` holding a PowerShell script still is one,
     # because `.pdf` promises a container and does not have it.
     if mismatch and _is_inert_text(mime) and claimed not in _BINARY_FORMAT_EXTENSIONS:
+        mismatch = False
+
+    # THE SAME BOUNDED QUESTION, ASKED OF BINARIES.
+    #
+    # The rule above rescued text under a name that promises no container. It
+    # could not rescue a BINARY under a name that promises nothing either,
+    # because it requires the body to be inert text — and on 220 stock Linux
+    # binaries that left nineteen ordinary programs accused at HIGH, against
+    # zero catches on 75 real Linux malware samples. `convert-im6.q16` is
+    # ImageMagick's quantum depth; `db5.3_dump` is Berkeley DB's version and
+    # then the tool's name; `python3.10` is a version that `splitext` reads as
+    # `.10`.
+    #
+    # A disguise needs a name that promises something. `photo.jpg` holding a PE
+    # still is one, and `invoice.pdf` holding a script still is one, because
+    # `.jpg` and `.pdf` are formats — they are in `_KNOWN_FORMAT_EXTENSIONS` and
+    # this leaves them alone. `.q16` names nothing, so there is nothing it can
+    # be lying about.
+    #
+    # The cost, stated: an extension that some OS executes and this module has
+    # never heard of is no longer called a mismatch. That is the direction to
+    # fail in — the signal claims deception, and we cannot claim a name is a lie
+    # when we do not know what it promises.
+    if mismatch and claimed not in _KNOWN_FORMAT_EXTENSIONS \
+            and claimed not in _TEXTUAL_EXTENSIONS:
         mismatch = False
 
     # A known script extension carries its specific content-type, so downstream

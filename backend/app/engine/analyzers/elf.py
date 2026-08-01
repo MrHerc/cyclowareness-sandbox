@@ -694,11 +694,39 @@ def analyze(sample: Sample) -> AnalyzerResult:
     ]
     high = [e for e in entropies if e[1] >= HIGH_ENTROPY]
     if high:
-        packing_reasons.append("high-entropy region")
         packing_evidence["high_entropy"] = [
             {"name": _clip(n, 64), "entropy": round(v, 3), "bytes": b}
             for n, v, b in sorted(high, key=lambda e: -e[1])[:MAX_EVIDENCE_ITEMS]
         ]
+        # WHERE the entropy is decides what it means, and a threshold cannot
+        # tell the difference.
+        #
+        # Measured over 75 real Linux malware samples and 220 stock binaries
+        # from this host. Every one of the 19 malicious files that scored as
+        # packed had its high-entropy region in the `<PT_LOAD>` fallback — the
+        # branch above only runs when there is no usable section table, which is
+        # itself the packed shape, and twelve of them also carry a UPX marker.
+        #
+        # All nine benign files it fired on had theirs in a NAMED SECTION of a
+        # normally-sectioned binary: `.debug_info` in Go programs (compressed
+        # DWARF), `.rodata` in curl and the six btrfs tools (compressed tables).
+        # Sections at 7.46-8.00 in a binary with seven to sixteen of them is the
+        # compiler putting compressed data where it belongs, not a packer.
+        #
+        # So `docker` was `malicious` at 33.6 and `curl` `suspicious` at 30.3,
+        # on a signal whose own title says "appears packed".
+        #
+        # Raising HIGH_ENTROPY would not have fixed this: `.debug_info` reaches
+        # 8.00, the same as the packed samples. The distinction is structural.
+        if not sections:
+            packing_reasons.append("high-entropy loadable image, no section table")
+        else:
+            packing_evidence["note"] = (
+                "High-entropy data sits in named section(s) of a binary that has "
+                "a normal section table. That is compressed data the compiler "
+                "emitted — measured on 220 stock binaries, nine reach 7.46 or "
+                "above this way — so it is recorded, not read as packing."
+            )
 
     facts["packed"] = bool(packing_reasons)
     if packing_reasons:
