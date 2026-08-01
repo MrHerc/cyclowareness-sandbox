@@ -590,6 +590,45 @@ def analyze(sample: Sample) -> AnalyzerResult:
             ),
             evidence={"error": _clip(f"{exc.__class__.__name__}: {exc}")},
         ))
+        # DO NOT GIVE UP HERE.
+        #
+        # olevba failing means the MACRO reader could not open the file. The
+        # package is a zip, and walking it is independent of that -- so this used
+        # to return before ever looking, and both SideWinder samples (whose
+        # `word/_rels/document.xml.rels` will not open while every other part is
+        # perfect) produced one generic "malformed" signal and nothing about the
+        # technique.
+        try:
+            (_ext, _body, _emb, carried_after_failure,
+             unreadable_after_failure) = _ooxml_relationships_and_body(sample.path)
+        except Exception:  # noqa: BLE001 — best effort on an already-broken file
+            carried_after_failure, unreadable_after_failure = [], []
+        if unreadable_after_failure:
+            signals.append(Signal(
+                id="office.part_unreadable",
+                title="A part of the package will not open",
+                severity="medium",
+                detail=(
+                    "These parts could not be read: "
+                    + ", ".join(unreadable_after_failure[:6]) +
+                    ". Word is tolerant of a malformed part and reads it anyway; tools "
+                    "are not, which is why damaging exactly one relationship inside an "
+                    "otherwise readable archive is a technique rather than an accident."
+                ),
+                evidence={"parts": unreadable_after_failure[:16]},
+            ))
+        if carried_after_failure:
+            signals.append(Signal(
+                id="office.carries_a_document",
+                title="Document contains another document",
+                severity="high",
+                detail=(
+                    "An OOXML package holds these parts: "
+                    + ", ".join(carried_after_failure[:6]) +
+                    ". Word does not produce them as part of saving a document."
+                ),
+                evidence={"parts": carried_after_failure[:16]},
+            ))
         return AnalyzerResult(
             analyzer=NAME, ran=True, signals=signals,
             facts={**facts, "parsed": False}, iocs=iocs,

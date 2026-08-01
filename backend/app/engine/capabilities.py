@@ -90,6 +90,12 @@ CAPABILITY_SIGNALS: dict[str, frozenset[str]] = {
         "pe.packer_section_name",
         "elf.packed",
         "office.macro_obfuscation", "office.vba_stomping",
+        # ONE part unreadable inside an otherwise readable archive. Not
+        # `office.parse_failed`, which fires when the whole file will not open
+        # and cannot tell deliberate damage from ordinary corruption; this is
+        # the specific shape -- both SideWinder samples have exactly one broken
+        # relationship and every other part intact.
+        "office.part_unreadable",
         # `pdf.object_streams` was here. Object streams are how every PDF
         # 1.5+ writer stores its structure, and the signal that reports them
         # is `info`. It asserted T1027 through the word "obfuscation" in its
