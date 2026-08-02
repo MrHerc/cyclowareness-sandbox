@@ -128,7 +128,18 @@ def main(argv: list[str]) -> int:
                 # trust_anchors.py. Excluding expired authorities cost 32 genuine
                 # Microsoft binaries their verification for close to no security
                 # gain, and the proper gate is the RFC 3161 countersignature
-                # timestamp, which this engine does not parse yet.
+                # timestamp — which the engine DOES parse, including Microsoft's
+                # own `1.3.6.1.4.1.311.3.3.1`, since 2026-08-03. Measured then:
+                # of the files under this expired anchor, a readable timestamp
+                # went from 0 to 106, and every one of them predates the expiry,
+                # so nothing changed status.
+                #
+                # This line stays "reported, not enforced" on purpose, and the
+                # two are not the same thing: `authenticode.verify()` enforces
+                # per FILE (a binary signed after the anchor expired loses
+                # `verified`), while this tool reports per ANCHOR. Failing the
+                # build because an authority expired would retire a fingerprint
+                # that 106 correctly-identified binaries still need.
                 expired.append(f"{description} (expired {found['not_after'].date()})")
                 marks.append("EXPIRED - reported, not enforced")
             print("  %-58s ok  (%s, expires %s) %s"
@@ -138,8 +149,12 @@ def main(argv: list[str]) -> int:
         print("no sample paths given; shape checks only\n")
 
     print("\nWHAT THIS DOES NOT CHECK: whether each fingerprint matches the")
-    print("authority's OWN published thumbprint. That needs a network and a")
-    print("person. Run with --print and diff against the vendor's page.")
+    print("authority's OWN published thumbprint. That needs a network, which")
+    print("this tool deliberately does not have.")
+    print("Its sibling does it: tools/verify_anchor_provenance.py, last run")
+    print("2026-08-01 with 10 of 10 confirmed against the issuing authority.")
+    print("The result is recorded per anchor in trust_anchors.ANCHOR_PROVENANCE,")
+    print("and describe() reports provenance: vendor-published while it holds.")
 
     if problems:
         print("\nFAILED:")

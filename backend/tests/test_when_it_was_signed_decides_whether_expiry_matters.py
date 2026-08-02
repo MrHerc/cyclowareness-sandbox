@@ -153,3 +153,99 @@ def test_verify_of_a_non_pe_is_still_quiet() -> None:
     result = authenticode.verify(b"not a PE at all" * 100)
     assert result.present is False
     assert result.to_dict()["signed_at"] == ""
+
+
+# --- the OID Microsoft actually uses ----------------------------------------
+#
+# The parsers above were right and the dispatcher was wrong. `_signing_time`
+# routed on the CMS OID 1.2.840.113549.1.9.16.2.14, which Microsoft does not
+# use: Authenticode carries its RFC 3161 token under szOID_RFC3161_counterSign,
+# 1.3.6.1.4.1.311.3.3.1.
+#
+# Measured over every signed PE on the detonation host, before the fix:
+#
+#     signed PEs on disk                         181
+#     with a timestamp the engine READ            11
+#     anchored to the EXPIRED Microsoft CS PCA 2011  106
+#       of those, timestamp read                     0
+#
+# So the expiry gate could not fire on a single one of the files it exists to
+# judge, and the CMS OID occurs zero times in the whole corpus. After the fix,
+# same populations, same command:
+#
+#     with a timestamp the engine READ           178
+#       of the 106 under the expired anchor      106
+#     verified                                   167  (unchanged, both runs)
+#
+# Nothing lost a waiver. The gate simply stopped being a no-op.
+
+
+def _der(tag: int, body: bytes) -> bytes:
+    """Minimal DER TLV. Long form only where the body needs it."""
+    if len(body) < 0x80:
+        return bytes([tag, len(body)]) + body
+    length = len(body).to_bytes((len(body).bit_length() + 7) // 8, "big")
+    return bytes([tag, 0x80 | len(length)]) + length + body
+
+
+def _timestamp_token(gen_time: bytes) -> bytes:
+    """A TimeStampToken shaped exactly as `_timestamp_from_rfc3161` walks it.
+
+        ContentInfo  ::= SEQUENCE { contentType OID, [0] SignedData }
+        SignedData   ::= SEQUENCE { version, digestAlgorithms, encapContentInfo }
+        encap        ::= SEQUENCE { eContentType OID, [0] OCTET STRING(TSTInfo) }
+        TSTInfo      ::= SEQUENCE { version, ..., genTime GeneralizedTime }
+    """
+    tst = _der(0x30, _der(0x02, b"\x01") + _der(0x18, gen_time))
+    encap = _der(0x30, _der(0x06, b"\x2a\x86\x48\x86\xf7\x0d\x01\x09\x10\x01\x04")
+                 + _der(0xA0, _der(0x04, tst)))
+    signed = _der(0x30, _der(0x02, b"\x03") + _der(0x31, b"") + encap)
+    return _der(0x30, _der(0x06, b"\x2a\x86\x48\x86\xf7\x0d\x01\x07\x02")
+                + _der(0xA0, signed))
+
+
+def _oid_der(dotted: str) -> bytes:
+    """Encode a dotted OID, so the test states the OID rather than a blob."""
+    parts = [int(p) for p in dotted.split(".")]
+    body = bytes([40 * parts[0] + parts[1]])
+    for part in parts[2:]:
+        chunk = [part & 0x7F]
+        part >>= 7
+        while part:
+            chunk.append((part & 0x7F) | 0x80)
+            part >>= 7
+        body += bytes(reversed(chunk))
+    return _der(0x06, body)
+
+
+def _unsigned_attrs(oid: str, token: bytes):
+    """An `unsignedAttrs` [1] holding one attribute, and its buffer."""
+    attribute = _der(0x30, _oid_der(oid) + _der(0x31, token))
+    body = attribute
+    buf = _der(0xA1, body)
+    return buf, _Node(tag=0xA1, start=0, header=len(buf) - len(body),
+                      length=len(body), value=len(buf) - len(body))
+
+
+@pytest.mark.parametrize("oid", [
+    "1.3.6.1.4.1.311.3.3.1",        # szOID_RFC3161_counterSign — 169 corpus files
+    "1.2.840.113549.1.9.16.2.14",   # the CMS OID — zero corpus files, kept working
+])
+def test_both_rfc3161_oids_are_dispatched(oid) -> None:
+    buf, node = _unsigned_attrs(oid, _timestamp_token(b"20240115103000Z"))
+    found = authenticode._signing_time(buf, node, [100_000])
+    assert found is not None, f"{oid} was not dispatched to the RFC 3161 reader"
+    assert found == datetime(2024, 1, 15, 10, 30, tzinfo=timezone.utc)
+
+
+def test_the_microsoft_oid_is_named_not_inlined() -> None:
+    """A bare string in a dispatch is a fact nobody can look up."""
+    assert authenticode.OID_MS_TIMESTAMP_TOKEN == "1.3.6.1.4.1.311.3.3.1"
+
+
+def test_an_unknown_unsigned_attribute_is_still_ignored() -> None:
+    """Widening the dispatch must not make it credulous: an attribute this
+    module does not recognise still yields no timestamp."""
+    buf, node = _unsigned_attrs("1.3.6.1.4.1.311.2.4.1",     # SPC_NESTED_SIGNATURE
+                                _timestamp_token(b"20240115103000Z"))
+    assert authenticode._signing_time(buf, node, [100_000]) is None

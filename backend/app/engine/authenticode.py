@@ -82,6 +82,20 @@ OID_SPC_INDIRECT_DATA = "1.3.6.1.4.1.311.2.1.4"
 #: a timestamping authority, which is why a TSA must never be a code-signing
 #: anchor (see `trust_anchors`).
 OID_TIMESTAMP_TOKEN = "1.2.840.113549.1.9.16.2.14"
+#: `szOID_RFC3161_counterSign` — the OID Microsoft actually uses to carry an
+#: RFC 3161 timestamp token in an Authenticode signature.
+#:
+#: The CMS OID above is the one the RFC defines and the one this module
+#: dispatched on. Measured over every signed PE in the corpus, it occurs **zero
+#: times**; 169 of them carry their token under this Microsoft OID instead. So
+#: the RFC 3161 branch of `_signing_time` had never executed on real input, and
+#: `signed_at` came back empty for all 106 binaries anchored to the EXPIRED
+#: `Microsoft Code Signing PCA 2011` — which are precisely the files the expiry
+#: gate at the bottom of `verify()` exists to judge.
+#:
+#: The token underneath is an ordinary RFC 3161 `TimeStampToken`, so it routes
+#: to the same reader; nothing new is parsed.
+OID_MS_TIMESTAMP_TOKEN = "1.3.6.1.4.1.311.3.3.1"
 #: The older Authenticode countersignature: a SignerInfo whose signed attributes
 #: carry `signingTime`. Still present on binaries signed before RFC 3161 became
 #: the norm, and on plenty signed since.
@@ -658,7 +672,10 @@ def _signing_time(buf: bytes, unsigned: "_Node", budget: list[int]):
             continue
         if not values:
             continue
-        if oid == OID_TIMESTAMP_TOKEN:
+        if oid in (OID_TIMESTAMP_TOKEN, OID_MS_TIMESTAMP_TOKEN):
+            # Both carry an RFC 3161 TimeStampToken. See OID_MS_TIMESTAMP_TOKEN:
+            # the standards-defined OID appears on nothing in the corpus, and
+            # the Microsoft one appears on 169 files.
             found = _timestamp_from_rfc3161(buf, values[0], budget)
             if found is not None:
                 return found

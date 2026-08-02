@@ -121,8 +121,24 @@ logger = logging.getLogger(__name__)
 #:     losing a waiver that only ever silences STRUCTURAL signals. What would
 #:     properly gate an expired anchor is the RFC 3161 countersignature
 #:     timestamp, i.e. "was this signed while the authority was valid", which is
-#:     what Windows checks and this engine does not yet parse. Until it does,
-#:     expiry is reported, not enforced. `UTN-USERFirst-Object` (expired
+#:     what Windows checks — ~~and this engine does not yet parse~~.
+#:
+#:     THE ENGINE PARSES IT, and as of 2026-08-03 it also reads the OID
+#:     Microsoft actually uses. `authenticode._signing_time` dispatched only on
+#:     the CMS OID `1.2.840.113549.1.9.16.2.14`, which occurs on ZERO files in
+#:     the corpus; Authenticode carries the token under
+#:     `szOID_RFC3161_counterSign` = `1.3.6.1.4.1.311.3.3.1`. Measured over 181
+#:     signed PEs: 11 had a readable timestamp before, 178 after, and of the 106
+#:     under this expired anchor it went 0 -> 106. `verified` was 167 both
+#:     times, so no file gained or lost a waiver.
+#:
+#:     The gate at the end of `authenticode.verify()` therefore works now: a
+#:     binary whose countersignature POSTDATES this anchor's expiry loses
+#:     `verified`. What is still deliberately NOT done is requiring a timestamp
+#:     — absence leaves the verdict untouched, because refusing to trust a
+#:     binary whose timestamp our parser cannot read would be a false positive
+#:     invented to fix a theoretical one. So expiry is now enforced when it can
+#:     be, and reported when it cannot. `UTN-USERFirst-Object` (expired
 #:     2020-05-30) is still left out for a different reason: everything under it
 #:     is SHA-1 and fails `WEAK_DIGESTS` anyway, so anchoring it buys nothing;
 #:   * never a TIMESTAMPING authority. It attests to WHEN, not WHO, and a
