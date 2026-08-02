@@ -50,7 +50,30 @@ logger = logging.getLogger("sandbox.audit")
 #: written. One per event would double the write cost of every audited action;
 #: one per day would leave a day of events unanchored. Fifty bounds the gap to
 #: a handful of actions for one Ed25519 signature, which is microseconds.
+#:
+#: THAT BOUND ONLY HOLDS IF THE TRIGGER CANNOT BE MISSED, and the original
+#: `event.id % CHECKPOINT_EVERY == 0` could be. A PostgreSQL sequence burns its
+#: value on every rollback, and `record()` rolls back on both its error arms, so
+#: allocated ids that never become rows are ordinary here. Measured on the live
+#: chain: 1,339 of 15,251 allocated ids do not exist (8.8%), and **34 of the 305
+#: multiples of fifty were never written at all** (11.1%) — five of them in
+#: consecutive pairs, so three times the intended window was reachable. Largest
+#: gap actually observed between two checkpoints: **93 events**.
+#:
+#: The trigger is now a boundary CROSSING rather than a landing, so a burned id
+#: costs nothing: if 14950 never exists, 14951 crosses the same boundary and
+#: writes the checkpoint.
 CHECKPOINT_EVERY = 50
+
+#: The highest boundary this process has already anchored, so the crossing test
+#: costs no query per event. Seeded once from the newest checkpoint; `None`
+#: means "not looked up yet".
+#:
+#: Being per-process is safe rather than merely tolerable: two appenders that
+#: both decide to anchor the same boundary race on the unique index, and
+#: `checkpoint()` already treats that `IntegrityError` as "the other one wrote a
+#: checkpoint covering at least as much, so there is nothing to do".
+_last_boundary: int | None = None
 
 #: The ``prev_hash`` of the first event. A real hash never collides with it, so
 #: "this row claims to be the genesis" is unforgeable in the same way every
@@ -361,7 +384,7 @@ def record(
             # action either -- `checkpoint` never raises, but obtaining the id
             # after a commit can, and the rule here is that audit bookkeeping is
             # never the reason an upload is refused.
-            if event.id and event.id % CHECKPOINT_EVERY == 0:
+            if event.id and _crossed_a_boundary(db, event.id):
                 checkpoint(db)
             return event
         except IntegrityError:
@@ -545,6 +568,40 @@ def _checkpoint_tail(db: Session) -> str:
         .limit(1)
     ).scalar_one_or_none()
     return last or GENESIS_HASH
+
+
+def _crossed_a_boundary(db: Session, event_id: int) -> bool:
+    """Has this event taken the chain past the next multiple of CHECKPOINT_EVERY?
+
+    The predicate the cadence needs is "we are now in a later block than the one
+    we last anchored", not "this id is exactly on a boundary". The second is
+    what shipped, and it silently skipped 34 of 305 boundaries on the live chain
+    because a rolled-back insert still consumes its sequence value.
+
+    Costs one query the first time a process asks, and none afterwards. It never
+    raises: a checkpoint that cannot be scheduled must not fail the analyst's
+    action, which is the rule the whole module follows.
+    """
+    global _last_boundary
+
+    boundary = event_id // CHECKPOINT_EVERY
+    if _last_boundary is None:
+        try:
+            newest = db.execute(
+                select(func.max(AuditCheckpoint.head_id))
+            ).scalar_one_or_none()
+        except Exception:  # noqa: BLE001
+            # Unknown is treated as "anchor now": writing one checkpoint too many
+            # is a duplicate the unique index absorbs, while writing one too few
+            # is a gap in the evidence.
+            _last_boundary = boundary - 1
+            return True
+        _last_boundary = int(newest or 0) // CHECKPOINT_EVERY
+
+    if boundary > _last_boundary:
+        _last_boundary = boundary
+        return True
+    return False
 
 
 def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:

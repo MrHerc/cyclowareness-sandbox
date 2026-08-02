@@ -295,3 +295,108 @@ def test_a_checkpoint_appears_without_anyone_asking(db, signed, monkeypatch) -> 
         db.execute(select(func.count(audit.AuditCheckpoint.id))).scalar_one() or 0
     )
     assert after > before, "record() should have anchored on the cadence"
+
+
+# --- what the ENDPOINT says, which is what an auditor actually reads ---------
+#
+# `verify_checkpoints` was honest all along: both "not anchored" branches return
+# `{"anchored": False, "reason": ...}`. The endpoint then asked only about
+# `broken_at` — a key NEITHER of those branches sets — so `.get()` yielded None,
+# the condition was false, and `/api/audit/verify` answered `ok: true` for a
+# chain with no anchor whatsoever. Three lines above it sits a comment saying
+# internal consistency is exactly what an attacker with UPDATE can restore, and
+# `docs/api.md` told auditors this endpoint "answers the only question that
+# matters about an audit log".
+#
+# `ok` is NOT flipped: "not anchored" and "chain broken" must not read the same,
+# which the two tests above hold. The absence is surfaced beside `ok` instead.
+
+def test_the_endpoint_reports_an_unanchored_chain_beside_ok(client, auth) -> None:
+    """`ok: true` alone must not be readable as "this log is vouched for"."""
+    response = client.get("/api/audit/verify", headers=auth)
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert "anchored" in body, (
+        "an auditor reading the top level cannot see whether anything signed "
+        "vouches for this chain: " + ", ".join(sorted(body))
+    )
+    assert isinstance(body["anchored"], bool)
+    assert body["anchored"] == bool(body["anchor"].get("anchored")), body
+
+    if not body["anchored"]:
+        assert body.get("anchor_reason"), "an unanchored chain must say why"
+    else:
+        # The claim carries its own limits, at the level it is read.
+        assert body["anchor"].get("covers")
+
+
+def test_a_chain_with_no_checkpoints_is_not_reported_as_vouched_for(db) -> None:
+    """The branch the endpoint could not see. No checkpoint has been written,
+    so there is nothing signed to check — and that is not `broken_at`."""
+    result = audit.verify_checkpoints(db)
+    assert result["anchored"] is False
+    assert "broken_at" not in result, (
+        "if this branch ever grows a broken_at, the endpoint's older condition "
+        "would start reading 'unsigned' as 'tampered'"
+    )
+    assert result["reason"]
+
+
+# --- the cadence has to be a crossing, not a landing -------------------------
+#
+# `event.id % CHECKPOINT_EVERY == 0` assumes every multiple of fifty becomes a
+# row. A PostgreSQL sequence burns its value on rollback and `record()` rolls
+# back on both of its error arms, so it does not. Measured on the live chain:
+# 1,339 of 15,251 allocated ids do not exist, **34 of the 305 multiples of fifty
+# were never written**, five of those in consecutive pairs, and the largest gap
+# actually observed between two checkpoints was **93 events** — against a
+# docstring promising fifty bounds it "to a handful of actions".
+
+def test_a_burned_sequence_value_no_longer_skips_an_anchor(monkeypatch) -> None:
+    """The exact live failure: id 14950 never exists, 14951 is written."""
+    monkeypatch.setattr(audit, "_last_boundary", 14900 // audit.CHECKPOINT_EVERY)
+
+    # 14950 was allocated to a rolled-back insert and is not a row.
+    assert audit._crossed_a_boundary(None, 14951) is True, (
+        "the boundary at 14950 was skipped and nothing anchored it"
+    )
+
+
+def test_it_anchors_once_per_block_not_once_per_event(monkeypatch) -> None:
+    monkeypatch.setattr(audit, "_last_boundary", 100 // audit.CHECKPOINT_EVERY)
+    crossings = [audit._crossed_a_boundary(None, i) for i in range(101, 201)]
+    assert sum(crossings) == 2, (
+        "one crossing at 150 and one at 200, not %d" % sum(crossings)
+    )
+
+
+def test_two_consecutive_missing_boundaries_still_anchor_once(monkeypatch) -> None:
+    """8900 and 8950 were both missing on the live chain. The first event past
+    them must still close the window rather than waiting for 9000."""
+    monkeypatch.setattr(audit, "_last_boundary", 8850 // audit.CHECKPOINT_EVERY)
+    assert audit._crossed_a_boundary(None, 8951) is True
+
+
+def test_an_unreadable_checkpoint_table_anchors_rather_than_skips(monkeypatch) -> None:
+    """Unknown must fail towards writing. A duplicate checkpoint is absorbed by
+    the unique index; a missing one is a gap in the evidence."""
+    monkeypatch.setattr(audit, "_last_boundary", None)
+
+    class _Exploding:
+        def execute(self, *_a, **_k):
+            raise RuntimeError("no table")
+
+    assert audit._crossed_a_boundary(_Exploding(), 500) is True
+
+
+def test_the_modulo_form_is_gone(monkeypatch) -> None:
+    """A guard on the shape, because the old form reads perfectly reasonable."""
+    import pathlib
+
+    source = pathlib.Path(audit.__file__).read_text(encoding="utf-8")
+    body = source[source.index("def record("):source.index("def _crossed_a_boundary")]
+    assert "% CHECKPOINT_EVERY == 0" not in body, (
+        "the cadence is back to landing on a multiple, which the sequence skips"
+    )
+    assert "_crossed_a_boundary" in body

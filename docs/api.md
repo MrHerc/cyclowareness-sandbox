@@ -390,8 +390,28 @@ sample content and no secrets.
 
 ### `GET /api/audit/verify`
 Re-walks the whole chain and reports whether it is intact, plus the sequence
-number of the first break if not. This is the endpoint an auditor runs; it
-answers the only question that matters about an audit log.
+number of the first break if not. This is the endpoint an auditor runs.
+
+**Read two fields, not one.** `ok` says the chain's links verify — and internal
+consistency is precisely what an attacker holding UPDATE on the table can
+restore, by editing a row and recomputing the tail. `anchored` says whether the
+signed Ed25519 checkpoints back that up; when it is `false`, `anchor_reason`
+gives the cause (no checkpoint written yet, or no public key on this deployment
+to check the existing ones against). `anchor` carries the full detail, including
+`covers`, which states in plain words what the newest checkpoint does *not*
+reach: events after it rest on the chain alone, and whoever holds the signing
+key can forge both.
+
+`ok: true, anchored: false` is a real and reportable state — it means the chain
+is self-consistent and nothing independent vouches for it. It is deliberately
+not an error, because a deployment without a signing key has not detected
+tampering; it has declined to make a claim.
+
+    ~~it answers the only question that matters about an audit log~~
+
+That sentence was wrong in the way that matters most: until 2026-08-03 this
+endpoint returned `ok: true` for a chain with no anchor at all, because it only
+lowered `ok` on `broken_at`, a key neither "not anchored" branch sets.
 
 ### `GET /api/audit/export`
 The chain as newline-delimited JSON, for archiving or ingesting elsewhere.

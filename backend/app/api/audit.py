@@ -106,6 +106,28 @@ def verify(
     if result.get("ok") and result["anchor"].get("broken_at") is not None:
         result["ok"] = False
         result["reason"] = result["anchor"]["reason"]
+
+    # AND THE ABSENCE OF AN ANCHOR HAS TO BE VISIBLE WHERE `ok` IS.
+    #
+    # The line above only reacts to `broken_at`, and neither "not anchored"
+    # branch of `verify_checkpoints` sets that key — a deployment with no
+    # checkpoints, or with checkpoints and no public key to check them against,
+    # returns `{"anchored": False, "reason": ...}` with no `broken_at` at all.
+    # `.get()` yielded None, the condition was false, and the endpoint answered
+    # `ok: true` for a chain with no anchor whatsoever, three lines under a
+    # comment saying internal consistency is exactly what an attacker with
+    # UPDATE can restore. `docs/api.md` tells an auditor this endpoint answers
+    # the only question that matters about an audit log.
+    #
+    # `ok` still means what it has always meant — the chain links verify — and
+    # it is NOT flipped here. `verify_checkpoints` documents that "not anchored"
+    # and "chain broken" must not read the same, and
+    # `test_an_unsigned_deployment_says_so_rather_than_passing` holds it. What
+    # was missing is that a caller reading the top level had no way to learn the
+    # difference without descending into `result["anchor"]`.
+    result["anchored"] = bool(result["anchor"].get("anchored"))
+    if not result["anchored"] and result["anchor"].get("reason"):
+        result["anchor_reason"] = result["anchor"]["reason"]
     return result
 
 
