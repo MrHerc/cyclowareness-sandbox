@@ -107,6 +107,58 @@ the socket peer is used, and a warning naming both options is logged at startup 
 the first such request. That is the same over-counting failure as leaving the
 switch off, which is the direction to be wrong in.
 
+### Configuration an operator has to know exists
+
+Eleven settings were readable only from `backend/app/config.py`: absent from
+every document here and from `.env.example`. `/api/capabilities` printed *"Set
+`SAMPLE_RETENTION_DAYS` to bound the malware held on disk"* while naming a
+variable the operator could not look up. They are all in `.env.example` now,
+and the ones that change what the product PROMISES are here.
+
+| variable | default | what it decides |
+|---|---|---|
+| `SIGNING_KEY` | *(empty)* | Whether the evidence is signed at all. |
+| `SAMPLE_RETENTION_DAYS` | `0` | Days before the quarantined sample is deleted. `0` keeps it forever. |
+| `REPORT_RETENTION_DAYS` | `0` | Days before the report row is deleted. `0` keeps it forever. |
+| `RETENTION_SWEEP_HOURS` | `6` | How often the retention sweep runs. |
+| `SOVEREIGN_MODE` | `true` | The core promise: no analysis data leaves this deployment. |
+| `SOVEREIGN_ALLOW_URL_FETCH` | `true` | The one deliberate exception — see below. |
+| `ENTITY_NAME` / `_COUNTRY` / `_SECTOR` / `_CONTACT` | *(empty)* | Copied verbatim into NIS2 Article 23 and DORA Article 19 records. |
+| `DEFAULT_TENANT` / `ANALYST_TENANT` | `default` | Which tenant owns evidence submitted without one. |
+
+**`SIGNING_KEY` is the sharp one.** It signs two different things: every
+exported report's attestation, and the audit chain's **checkpoints** — the
+signed anchors that make a re-chained audit table detectable. Unset is a real
+state and nothing pretends otherwise: reports are stamped `UNSIGNED`, and
+`GET /api/audit/verify` answers `anchored: false` with the reason beside a
+still-`true` `ok`, because a self-consistent chain with nothing vouching for it
+is exactly what that pair of fields is there to distinguish.
+
+The consequence worth planning around: **a key added later cannot sign what was
+already recorded.** Set it before the deployment takes its first sample.
+
+```bash
+python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
+```
+
+**Retention is opt-in, and `0` means keep forever.** An unset policy must never
+delete a customer's data, so nothing is removed until a number is chosen. The
+sample and the report are separate: the sample is live malware on the operator's
+disk, needed after the analysis only for a re-run, while the report is the
+evidence the customer bought and normally outlives it by a long way. Every
+deletion is written to the audit chain (`retention.sample_purged`,
+`retention.report_purged`) — a deletion nobody can prove happened is not one an
+auditor accepts.
+
+**`SOVEREIGN_ALLOW_URL_FETCH` is the only hole in the sovereignty promise, and
+it is not an exfiltration path**: submitting a URL for analysis *is* a request
+to fetch it. It is separately controllable because an air-gapped deployment must
+be able to close it.
+
+**The entity fields identify the notifier, not the analyst.** The engine cannot
+know who is running it; left empty, the incident record says operator input is
+still required rather than inventing an entity.
+
 ### Health checks
 
 `GET /api/health` (also `HEAD`) performs one database round-trip and answers

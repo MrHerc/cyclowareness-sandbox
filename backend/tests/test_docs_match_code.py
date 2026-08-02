@@ -79,6 +79,22 @@ def test_the_queue_contract_documents_every_field_it_returns() -> None:
         # An operator who does not know it exists gets no gate, and the only sign
         # is one line at startup.
         "CONTAINMENT_CHECK",
+        # Whether the evidence this product exists to produce is signed at all.
+        # Unset, every report is stamped UNSIGNED and the audit chain has no
+        # anchor — `/api/audit/verify` says `anchored: false`. It appeared in no
+        # document and in no .env.example, so an operator following the setup
+        # exactly produced an unanchored deployment and had no way to know.
+        "SIGNING_KEY",
+        # Retention is opt-in and deletes a customer's evidence when it is not.
+        # `/api/capabilities` printed "Set SAMPLE_RETENTION_DAYS to bound the
+        # malware held on disk" — naming a variable that was documented nowhere.
+        "SAMPLE_RETENTION_DAYS",
+        "REPORT_RETENTION_DAYS",
+        # The one deliberate hole in the sovereignty promise. An air-gapped
+        # deployment has to be able to find it in order to close it.
+        "SOVEREIGN_ALLOW_URL_FETCH",
+        # Copied verbatim into a NIS2 Article 23 / DORA Article 19 record.
+        "ENTITY_NAME",
     ],
 )
 def test_environment_variables_the_product_depends_on_are_documented(variable) -> None:
