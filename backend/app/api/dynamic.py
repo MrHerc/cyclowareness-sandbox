@@ -610,7 +610,16 @@ def ingest_report(
         )
     job.impact = impact_res.to_dict()
     job.verdict = verdict_res.to_dict()
-    job.mitre = mitre_mod.map_techniques(all_signals)
+    job.mitre = mitre_mod.map_techniques(
+            all_signals,
+            # An uncalibrated platform may not assert an ATT&CK technique
+            # either. See scoring.DYNAMIC_UNCALIBRATED_FAMILIES.
+            exclude={
+                s.id for s in all_signals
+                if s.id.startswith("capev2.")
+                and scoring.dynamic_uncalibrated(job.family)
+            },
+        )
 
     # AND THE CONTAINER ABOVE IT.
     #

@@ -53,9 +53,19 @@ STEALTH = Signal(
 
 
 def test_a_linux_detonation_scores_nothing() -> None:
-    """`high` in the report, `low` into the number."""
-    assert scoring.effective_severity(DELETES, family="elf") == "low"
-    assert scoring.effective_severity(STEALTH, family="elf") == "low"
+    """`high` in the report, `info` into the number — and `info`, not `low`.
+
+    This first shipped as `low`, following the `dynamic_attributable` rule
+    beside it. `low` weighs 4 and saturates like any other severity: measured on
+    the first real Linux detonation, five demoted signals took a sample from
+    29.5 to 31.4 while the commit that introduced them claimed they "do not move
+    the number". `info` weighs 0.0, which is what "recorded, not counted against
+    the file" already means everywhere else in this engine.
+    """
+    assert scoring.SEVERITY_WEIGHT["info"] == 0.0
+    assert scoring.SEVERITY_WEIGHT["low"] > 0
+    assert scoring.effective_severity(DELETES, family="elf") == "info"
+    assert scoring.effective_severity(STEALTH, family="elf") == "info"
 
 
 def test_the_same_signals_still_score_on_a_calibrated_platform() -> None:
@@ -114,3 +124,32 @@ def test_removing_the_gag_requires_a_corpus_first() -> None:
         "malware -- capev2.deletes_files fires on any unlink, and "
         "capev2.stealth_network is a guaranteed false positive on Linux."
     )
+
+
+def test_an_uncalibrated_platform_asserts_no_attack_technique() -> None:
+    """A technique in the ATT&CK panel is an accusation with a reference number.
+
+    `mitre.map_techniques` has no severity gate — a blanket one was measured and
+    rejected because it removed 362 techniques including 28 on malicious
+    samples — so demoting a signal for scoring does not stop it mapping. On the
+    first real ELF detonation `capev2.stealth_network`, the guaranteed Linux
+    false positive, asserted **Application Layer Protocol** on a report whose
+    score had deliberately ignored it.
+    """
+    from app.engine import mitre
+
+    everything = mitre.map_techniques([STEALTH, DELETES])
+    gagged = mitre.map_techniques(
+        [STEALTH, DELETES],
+        exclude={s.id for s in (STEALTH, DELETES)},
+    )
+    assert not gagged, gagged
+    # And the exclusion is doing something rather than the ids mapping to
+    # nothing in the first place, which would make this test vacuous.
+    assert everything, "neither signal maps to a technique; pick ids that do"
+
+
+def test_a_calibrated_platform_still_maps() -> None:
+    from app.engine import mitre
+
+    assert mitre.map_techniques([STEALTH, DELETES], exclude=None)

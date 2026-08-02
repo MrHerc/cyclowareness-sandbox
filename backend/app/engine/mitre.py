@@ -137,9 +137,29 @@ def _is_anti_analysis(signal: Signal) -> bool:
     return any(token in _ANTI_ANALYSIS for token in tail.split("_"))
 
 
-def map_techniques(signals: Iterable[Signal]) -> list[dict[str, Any]]:
-    """Return the ATT&CK techniques the signals map to, with their evidence."""
+def map_techniques(
+    signals: Iterable[Signal],
+    *,
+    exclude: frozenset[str] | set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return the ATT&CK techniques the signals map to, with their evidence.
+
+    `exclude` drops signal ids that must not assert a technique. There is no
+    severity gate here on purpose — a blanket one was measured and rejected,
+    because it removed 362 techniques across the deployment including 28 on
+    malicious samples — so an id that has been demoted for scoring still maps
+    unless it is named here.
+
+    That asymmetry produced a live wrong claim. `capev2.stealth_network` is a
+    guaranteed false positive on Linux (the strace processor emits category
+    `net`, the signature looks for `network`), and on the first real ELF
+    detonation it asserted **T1071 Application Layer Protocol** on a report
+    whose score had deliberately ignored it. A technique in an ATT&CK panel is
+    an accusation with a reference number.
+    """
     signals = list(signals)
+    if exclude:
+        signals = [s for s in signals if s.id not in exclude]
     found: dict[str, dict[str, Any]] = {}
     for signal in signals:
         if _is_anti_analysis(signal):

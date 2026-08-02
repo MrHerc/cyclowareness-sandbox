@@ -467,8 +467,21 @@ def effective_severity(
     # signal set has never been measured against benign software observed
     # something real and cannot yet say what it means. See
     # DYNAMIC_UNCALIBRATED_FAMILIES for the three measurements behind this.
+    #
+    # `info`, NOT `low`, and the difference is the whole claim. `low` weighs 4
+    # and saturates like any other severity; measured on the first real Linux
+    # detonation, five demoted signals moved a sample from 29.5 to 31.4 — while
+    # the commit that introduced them said they "do not move the number". They
+    # do, at `low`. `info` weighs 0.0, which is what "recorded, not counted
+    # against the file" already means everywhere else in this engine
+    # (`pdf.open_action`, `pdf.embedded_file`).
+    #
+    # This is deliberately stricter than the `dynamic_attributable` rule above,
+    # which stops at `low`. That one is about ONE sample that could not execute;
+    # this one is about a whole platform nobody has calibrated, and a small
+    # nudge from an uncalibrated source is still an uncalibrated verdict.
     if _dynamic(signal.id) and dynamic_uncalibrated(family):
-        return "low"
+        return "info"
     return signal.severity
 
 
