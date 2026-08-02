@@ -58,7 +58,15 @@ services:
     environment:
       SANDBOX_API_URL: http://api:8000
       DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}
-      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-10}
+      # POLL_INTERVAL_SECONDS, not WORKER_POLL_SECONDS. This line said the
+      # latter for months and `worker/config.py:163` has always read the
+      # former, so setting it did nothing and the worker kept its 15 s default.
+      # The test written to catch exactly this passed anyway — see
+      # `test_compose_only_sets_variables_something_reads`, whose filter was
+      # `"test" not in p.parts` against a directory named `tests`, so every test
+      # file counted as source and the variable was "read" by that test's own
+      # docstring.
+      POLL_INTERVAL_SECONDS: ${POLL_INTERVAL_SECONDS:-10}
     restart: unless-stopped
     # The worker is the only component that detonates samples. It must run its
     # payloads inside isolation (firejail/seccomp/container) or via emulation

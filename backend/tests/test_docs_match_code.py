@@ -104,6 +104,18 @@ def test_compose_only_sets_variables_something_reads() -> None:
     `max_sample_mb` without the string ever appearing. Missing the second is how
     the first draft of this test reported a false positive, which is the failure
     mode that gets a test deleted rather than fixed.
+
+    AND THEN THE TEST NEUTRALISED ITSELF. The filter below read
+    `"test" not in p.parts` against a directory named `tests`, so it excluded
+    nothing: all 107 test files were concatenated into `code`, and `is_read()`
+    returned True for any name merely MENTIONED in a test — including in the
+    line above, which names `WORKER_POLL_SECONDS`. The test passed for the exact
+    variable it was written about, and `docker-compose.yml` went on setting a
+    variable the worker never read (it reads `POLL_INTERVAL_SECONDS`,
+    `worker/config.py:163`, and kept its 15 s default while compose said 10).
+
+    A guard that cannot fail is worse than no guard: it is a green tick over the
+    thing it was supposed to watch.
     """
     compose = REPO / "docker-compose.yml"
     if not compose.exists():  # pragma: no cover
@@ -111,7 +123,9 @@ def test_compose_only_sets_variables_something_reads() -> None:
     code = "\n".join(
         p.read_text(encoding="utf-8")
         for p in (*(REPO / "backend").rglob("*.py"), *(REPO / "worker").rglob("*.py"))
-        if "test" not in p.parts
+        # `"tests"`, plural: the directory is `backend/tests`, and the singular
+        # matched no path part at all.
+        if "tests" not in p.parts
     )
     #: Environment belonging to third-party images (Grafana, Prometheus), which
     #: our code has no business reading.

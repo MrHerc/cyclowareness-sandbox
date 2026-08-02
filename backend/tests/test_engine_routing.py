@@ -99,3 +99,62 @@ def test_an_unsupported_family_gets_no_engine(engines) -> None:
             self.engines = [native, cape]
 
     assert _Agent()._choose_engine("archive") is None
+
+
+# --- the one unavailability an operator can actually fix ---------------------
+#
+# `agent.py:88-93` prints an engine's `unavailable_reason` when it has one, "so
+# 'unavailable' is never read as a bug". Every engine had one except this one,
+# which is the only engine whose absence is a package install. Startup read:
+#
+#     engine native   -> unavailable
+#     engine qiling   -> unavailable: qiling is GPL-2.0 and we do not ship it...
+#
+# The licence stance explained itself at length; the missing `apt install
+# firejail` did not. Measured on the reference host: strace present, firejail
+# absent, 5,643 detonations all to CAPE, this engine never having run a sample.
+
+def test_the_native_engine_names_the_binary_it_is_missing(engines, monkeypatch) -> None:
+    native, _cape = engines
+    monkeypatch.setattr(native, "_firejail", lambda: None)
+    monkeypatch.setattr(native, "_strace", lambda: "/usr/bin/strace")
+
+    assert native.available() is False
+    reason = native.unavailable_reason
+    assert reason, "the fixable unavailability is the one that must explain itself"
+    assert native.config.firejail_bin in reason
+    assert native.config.strace_bin not in reason.split(".")[0], (
+        "only the MISSING binary should be named as missing"
+    )
+
+
+def test_both_missing_are_both_named(engines, monkeypatch) -> None:
+    native, _cape = engines
+    monkeypatch.setattr(native, "_firejail", lambda: None)
+    monkeypatch.setattr(native, "_strace", lambda: None)
+    reason = native.unavailable_reason
+    assert native.config.firejail_bin in reason and native.config.strace_bin in reason
+
+
+def test_an_available_engine_has_no_reason(engines, monkeypatch) -> None:
+    native, _cape = engines
+    monkeypatch.setattr(native, "_firejail", lambda: "/usr/bin/firejail")
+    monkeypatch.setattr(native, "_strace", lambda: "/usr/bin/strace")
+    assert native.available() is True
+    assert native.unavailable_reason is None
+
+
+def test_the_refusal_report_says_the_same_thing_as_the_log(engines, monkeypatch, tmp_path) -> None:
+    """An operator reading a report and one reading the log are told the same
+    thing, and both are told WHICH binary is missing."""
+    native, _cape = engines
+    monkeypatch.setattr(native, "_firejail", lambda: None)
+    monkeypatch.setattr(native, "_strace", lambda: "/usr/bin/strace")
+
+    sample = tmp_path / "s.elf"
+    sample.write_bytes(b"\x7fELF" + b"\x00" * 64)
+    report = native.run(str(sample), "a" * 64, "elf")
+
+    assert report.ran is False
+    assert native.config.firejail_bin in (report.unavailable_reason or "")
+    assert "unconfined" in (report.unavailable_reason or "")

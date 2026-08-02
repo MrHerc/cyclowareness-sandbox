@@ -121,6 +121,39 @@ class NativeLinuxEngine(Engine):
         """
         return bool(self._firejail() and self._strace())
 
+    @property
+    def unavailable_reason(self) -> str | None:
+        """Which binary is missing, named.
+
+        `agent.py` prints an engine's reason when it exposes one, "so
+        'unavailable' is never read as a bug" — and this engine, the only one
+        whose absence an operator can actually fix with a package install, was
+        the one that said nothing. Startup read
+
+            engine native   -> unavailable
+            engine qiling   -> unavailable: qiling is GPL-2.0 and we do not ship it...
+
+        so the licence stance explained itself at length and the missing
+        `apt install firejail` did not. Measured on the reference host: `strace`
+        is present, `firejail` is not, and 5,643 detonations have all gone to
+        CAPE. This engine has never run a sample.
+        """
+        missing = [
+            name for name, found in (
+                (self.config.firejail_bin, self._firejail()),
+                (self.config.strace_bin, self._strace()),
+            ) if not found
+        ]
+        if not missing:
+            return None
+        return (
+            f"not installed on this worker: {', '.join(missing)}. "
+            "The native engine confines each sample with firejail and reads its "
+            "behaviour from strace, and it refuses to run a sample it cannot "
+            "confine, so both are required. Install them on the worker host to "
+            "enable native Linux detonation."
+        )
+
     def supports(self, family: str) -> bool:
         return family in _SUPPORTED
 
@@ -136,8 +169,12 @@ class NativeLinuxEngine(Engine):
             return Report.unavailable(
                 self.name,
                 self.config.worker_name,
-                "firejail or strace missing on the worker host; refusing to run "
-                "a sample unconfined (native engine safety invariant).",
+                # The same sentence the startup line prints, so an operator who
+                # reads a report and an operator who reads the log are told the
+                # same thing — and both are told WHICH binary is missing.
+                (self.unavailable_reason or "firejail or strace missing")
+                + " Refusing to run a sample unconfined (native engine safety "
+                "invariant).",
             )
 
         started = time.monotonic()
