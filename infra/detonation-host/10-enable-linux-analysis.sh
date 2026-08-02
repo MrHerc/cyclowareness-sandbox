@@ -116,10 +116,26 @@ print('  processing[virustotal]    :', Config('processing').get('virustotal').ge
 "
 
 echo
-echo "=== 5. restart ==="
-systemctl restart cape
-sleep 20
-systemctl is-active cape
+echo "=== 5. restart ALL THREE, not just the scheduler ==="
+# CAPE is three processes and they read different files at import time:
+#
+#   cape.service            the scheduler — kvm.conf, the machines
+#   cape-web.service        the REST API  — web.conf, and `linux_enabled` is
+#                           module state read once at import
+#   cape-processor.service  reporting     — processing.conf, i.e. [strace]
+#
+# Restarting only `cape` was tried, and the submission still came back
+#     "CAPE refused the sample: Linux binaries analysis isn't enabled"
+# from a cape-web process older than the config change — with the scheduler
+# quite happily reporting `Loaded 4 machines` next to it. Two of the three
+# switches would have looked applied and done nothing.
+for unit in cape cape-web cape-processor; do
+    systemctl restart "$unit"
+done
+sleep 25
+for unit in cape cape-web cape-processor; do
+    printf '  %-22s %s\n' "$unit" "$(systemctl is-active "$unit")"
+done
 
 echo "=== 6. did it load every machine, INCLUDING the Windows ones ==="
 journalctl -u cape --since "-2 min" --no-pager | grep -iE "loaded .* machine|machinery|error" | tail -8
