@@ -196,7 +196,7 @@ class RateLimiter:
         self._lock = threading.Lock()
         self._last_sweep = clock()
 
-    def check(self, identities: str | list[str], rule: Rule) -> tuple[bool, int, int]:
+    def check(self, identities: str | list[str], rule: Rule) -> tuple[bool, int, int, int]:
         """Returns (allowed, remaining, retry_after_seconds).
 
         Every identity is checked BEFORE any is charged. Checking and charging
@@ -234,20 +234,36 @@ class RateLimiter:
                     bucket.hits = [t for t in bucket.hits if t > cutoff]
                 found.append((identity, bucket, rule.limit_for(identity)))
 
-            full = [b for _i, b, ceiling in found if b is not None and len(b.hits) >= ceiling]
+            full = [
+                (b, ceiling) for _i, b, ceiling in found
+                if b is not None and len(b.hits) >= ceiling
+            ]
             if full:
                 #: The soonest any of the exhausted buckets frees a slot.
-                retry = min(int(b.hits[0] - cutoff) + 1 for b in full)
-                return False, 0, max(1, retry)
+                retry = min(int(b.hits[0] - cutoff) + 1 for b, _c in full)
+                # The ceiling of the bucket that actually stopped them, so the
+                # 429 body and headers describe the limit the caller hit.
+                return False, 0, max(1, retry), min(c for _b, c in full)
 
             remaining = []
             for identity, bucket, ceiling in found:
                 if bucket is None:
                     bucket = self._buckets.setdefault((identity, rule.name), _Bucket())
                 bucket.hits.append(now)
-                remaining.append(ceiling - len(bucket.hits))
-            # The tightest of them, because that is the one that will stop them.
-            return True, min(remaining), 0
+                remaining.append((ceiling - len(bucket.hits), ceiling))
+            # The tightest of them, because that is the one that will stop them
+            # -- AND ITS CEILING, because a header pair describing two different
+            # buckets is not a rate limit, it is two numbers.
+            #
+            # `X-RateLimit-Limit` always printed `rule.limit`, the credential
+            # ceiling of 240, while `remaining` came from whichever bucket was
+            # tightest -- for an anonymous caller the address bucket, ceiling
+            # 2400. Reproduced live: `x-ratelimit-limit: 240` beside
+            # `x-ratelimit-remaining: 2397`. With an API key present the two
+            # happened to agree, so it only ever misled the unauthenticated
+            # caller, who is the one most likely to be reading them.
+            left, ceiling = min(remaining)
+            return True, left, 0, ceiling
 
     def reset(self) -> None:
         """Forget every caller. For tests, which are not an attacker.
@@ -314,27 +330,27 @@ async def rate_limit_middleware(request: Request, call_next):
         return await call_next(request)
 
     rule = _rule_for(path)
-    allowed, remaining, retry_after = limiter.check(_identities(request), rule)
+    allowed, remaining, retry_after, ceiling = limiter.check(_identities(request), rule)
     if not allowed:
         return JSONResponse(
             status_code=429,
             content={
                 "detail": (
                     f"Rate limit exceeded for {rule.name}: "
-                    f"{rule.limit} requests per {rule.window}s. "
+                    f"{ceiling} requests per {rule.window}s. "
                     f"Retry in {retry_after}s."
                 )
             },
             headers={
                 "Retry-After": str(retry_after),
-                "X-RateLimit-Limit": str(rule.limit),
+                "X-RateLimit-Limit": str(ceiling),
                 "X-RateLimit-Remaining": "0",
                 "X-RateLimit-Scope": "process",
             },
         )
 
     response = await call_next(request)
-    response.headers["X-RateLimit-Limit"] = str(rule.limit)
+    response.headers["X-RateLimit-Limit"] = str(ceiling)
     response.headers["X-RateLimit-Remaining"] = str(remaining)
     response.headers["X-RateLimit-Scope"] = "process"
     return response

@@ -43,7 +43,7 @@ def test_a_refused_request_allocates_nothing() -> None:
     # The address bucket is full. Every one of these is refused, and every one
     # of them presents a credential nobody has seen before.
     for n in range(500):
-        allowed, _remaining, _retry = limiter.check(
+        allowed, _remaining, _retry, _ceiling = limiter.check(
             ["ip:9.9.9.9", f"key:invented-{n}", f"auth:invented-{n}"], rule
         )
         assert not allowed

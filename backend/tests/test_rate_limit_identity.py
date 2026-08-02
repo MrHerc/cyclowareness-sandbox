@@ -203,7 +203,7 @@ def test_analysts_behind_one_proxy_do_not_throttle_each_other(client) -> None:
     refused = 0
     for tick in range(per_analyst):
         for analyst in range(6):
-            ok, _rem, _retry = ratelimit.limiter.check(
+            ok, _rem, _retry, _ceiling = ratelimit.limiter.check(
                 ["ip:172.17.0.1", f"auth:analyst{analyst}"], rule
             )
             refused += 0 if ok else 1

@@ -21,7 +21,7 @@ def test_a_caller_within_the_limit_is_never_blocked() -> None:
     limiter = RateLimiter()
     rule = Rule(limit=5, window=60, name="test")
     for n in range(5):
-        allowed, remaining, _ = limiter.check("ip:1.2.3.4", rule)
+        allowed, remaining, _retry, _ceiling = limiter.check("ip:1.2.3.4", rule)
         assert allowed, f"blocked at request {n + 1} of 5"
         assert remaining == 4 - n
 
@@ -31,7 +31,7 @@ def test_the_caller_after_the_limit_is_blocked_with_a_retry_hint() -> None:
     rule = Rule(limit=3, window=60, name="test")
     for _ in range(3):
         limiter.check("ip:1.2.3.4", rule)
-    allowed, remaining, retry_after = limiter.check("ip:1.2.3.4", rule)
+    allowed, remaining, retry_after, _ceiling = limiter.check("ip:1.2.3.4", rule)
     assert not allowed
     assert remaining == 0
     assert 0 < retry_after <= 61, retry_after
@@ -185,3 +185,53 @@ def test_health_and_metrics_stay_available_under_load(client) -> None:
     """A monitoring probe that gets 429'd reads as an outage."""
     for _ in range(60):
         assert client.get("/api/health").status_code == 200
+
+
+# --- the two headers have to describe the same bucket ------------------------
+#
+# `X-RateLimit-Limit` always printed `rule.limit` -- the credential ceiling --
+# while `X-RateLimit-Remaining` came from whichever identity bucket was
+# tightest. For an anonymous caller the only identity is the address, whose
+# ceiling is a deliberately wider backstop, so the live deployment answered
+#
+#     x-ratelimit-limit: 240
+#     x-ratelimit-remaining: 2397
+#
+# With an API key present the two happened to agree, so it only ever misled the
+# unauthenticated caller -- the one most likely to be reading them.
+
+def test_the_limit_and_remaining_headers_come_from_one_bucket(client) -> None:
+    response = client.get("/api/health")
+    limit = response.headers.get("x-ratelimit-limit")
+    remaining = response.headers.get("x-ratelimit-remaining")
+    if limit is None or remaining is None:
+        pytest.skip("this route is not rate limited")
+    assert int(remaining) <= int(limit), (
+        f"remaining {remaining} exceeds limit {limit}: the two describe "
+        "different buckets"
+    )
+
+
+def test_check_reports_the_ceiling_that_bound_it() -> None:
+    limiter = RateLimiter()
+    rule = Rule(name="probe", limit=3, window=60)
+
+    allowed, remaining, _retry, ceiling = limiter.check(["ip:7.7.7.7"], rule)
+    assert allowed is True
+    assert remaining <= ceiling, (remaining, ceiling)
+    assert ceiling == rule.limit_for("ip:7.7.7.7")
+
+
+def test_a_blocked_caller_is_told_the_ceiling_it_hit() -> None:
+    limiter = RateLimiter()
+    rule = Rule(name="probe2", limit=2, window=60)
+    identity = ["ip:8.8.8.8"]
+
+    ceiling_seen = None
+    for _ in range(50):
+        allowed, _remaining, _retry, ceiling = limiter.check(identity, rule)
+        ceiling_seen = ceiling
+        if not allowed:
+            break
+    assert allowed is False, "the limiter never blocked"
+    assert ceiling_seen == rule.limit_for("ip:8.8.8.8"), ceiling_seen
