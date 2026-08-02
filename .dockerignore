@@ -1,4 +1,27 @@
 # Keep the build context small and never ship secrets or local data.
+#
+# A PATTERN WITHOUT `**/` ONLY MATCHES AT THE ROOT OF THE BUILD CONTEXT.
+# That is Docker's rule, not an accident of this file, and this file used it
+# inconsistently: `**/__pycache__/` was written correctly while `.env`, `*.db`
+# and `.pytest_cache/` were not. Since the Dockerfile does `COPY backend/ ./`,
+# everything under `backend/` was therefore in scope.
+#
+# Measured with a real build rather than argued (four files, one context):
+#
+#     .dockerignore: *.db, .env, .env.*, .pytest_cache/
+#     ./.env                    excluded
+#     ./sandbox.db              excluded
+#     ./backend/.env            COPIED INTO THE IMAGE
+#     ./backend/sandbox.db      COPIED INTO THE IMAGE
+#     ./backend/.pytest_cache/  COPIED INTO THE IMAGE
+#
+# And it was not hypothetical: `/app/.pytest_cache` is present in the shipped
+# image today, from `backend/.pytest_cache`, with `.pytest_cache/` sitting in
+# this file the whole time. A `backend/.env` would have shipped the same way.
+#
+# So: anything that can exist in a subdirectory is `**/`-prefixed below. The
+# few patterns that are deliberately root-only keep a leading `/` or an
+# explicit path, and say so.
 
 # --- version control / CI ---
 .git/
@@ -9,15 +32,15 @@
 **/__pycache__/
 **/*.py[cod]
 **/*.egg-info/
-.venv/
-venv/
+**/.venv/
+**/venv/
 # Scratch virtualenvs an operator or a tool may leave in the checkout. Without
 # this a 23 MB stray venv was copied into the build context of every image.
-.wvenv/
-*.venv/
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+**/.wvenv/
+**/*.venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
 
 # --- node / frontend build artefacts (rebuilt inside the image) ---
 frontend/node_modules/
@@ -25,28 +48,28 @@ frontend/dist/
 backend/frontend_dist/
 
 # --- local data: never bake samples or databases into an image ---
-*.db
-*.sqlite3
-sandbox.db
-smoke*.db
+**/*.db
+**/*.sqlite3
+**/sandbox.db
+**/smoke*.db
 **/quarantine/
-*-quarantine/
-sample_corpus/
+**/*-quarantine/
+**/sample_corpus/
 
 # --- env / secrets ---
-.env
-.env.*
-!.env.example
+**/.env
+**/.env.*
+!**/.env.example
 
 # --- runtime reports ---
 /reports/
-*.report.pdf
+**/*.report.pdf
 
 # --- editors / OS ---
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/Thumbs.db
 
 # --- docs and infra not needed at runtime ---
 docs/
