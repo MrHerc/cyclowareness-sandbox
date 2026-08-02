@@ -363,6 +363,48 @@ def family_ambient(family: str | None) -> frozenset[str]:
     return FAMILY_AMBIENT_SIGNALS.get((family or "").lower(), frozenset())
 
 
+#: Families whose DYNAMIC signals are recorded, timelined and shown — and never
+#: scored, and never allowed to name a capability.
+#:
+#: `FAMILY_AMBIENT_SIGNALS` above lists ids, which works when the signals are
+#: known and only some of them are noise. This is the other case: a platform
+#: whose whole dynamic signal set is uncalibrated, where enumerating ids would
+#: be guessing at a list that upstream changes.
+#:
+#: `elf` is here because Linux detonation was measured before it was enabled:
+#:
+#:   * CAPE loads `modules/signatures/all/` for a Linux task as well as the four
+#:     in `linux/`, and `all/stealth_network.py` fires whenever the report has
+#:     network hosts and no `network`-category call was seen. The strace
+#:     processor emits category `net`, never `network`, so it is a GUARANTEED
+#:     false positive on any Linux task with a PCAP.
+#:   * `capev2.deletes_files` arrives at CAPE severity 3, which this engine maps
+#:     to `high`, on any `unlink` or `O_TRUNC`.
+#:   * Not one Linux id appears in `AMBIENT_SIGNALS`, `STRUCTURAL_SIGNALS` or
+#:     `FAMILY_AMBIENT_SIGNALS`, and there is no benign Linux corpus to build
+#:     those lists from the way the 50-sample Windows corpus built them.
+#:
+#: Together that means the first flagged Linux sample would most likely read
+#: `Linux.Backdoor.DeletesFiles` because it truncated a file, pushed over the
+#: threshold by the guest's own DNS traffic. That is the exact false-positive
+#: disease this engine spent a corpus curing on PDF and on static ELF, and
+#: shipping it on a platform with no fixture would be doing it deliberately.
+#:
+#: So the detonation runs, the syscall trace is captured, the timeline and every
+#: signal are in the report and in the signed evidence — and none of it moves
+#: the number. A trace is a document until it is calibrated.
+#:
+#: TO REMOVE A FAMILY FROM HERE: build a benign corpus for that platform, run
+#: it, and populate the demotion lists from what fires on software that is not
+#: malware. That is the same bar every other platform cleared.
+DYNAMIC_UNCALIBRATED_FAMILIES = frozenset({"elf"})
+
+
+def dynamic_uncalibrated(family: str | None) -> bool:
+    """Is this family's dynamic tier observed but not yet believed?"""
+    return (family or "").lower() in DYNAMIC_UNCALIBRATED_FAMILIES
+
+
 #: Prefixes of the signals a detonation produces.
 _DYNAMIC_PREFIX = "capev2."
 
@@ -420,6 +462,12 @@ def effective_severity(
     # sample. The observations are kept and shown — an analyst can see exactly
     # what the guest did — but they may not accuse a file that never ran.
     if not dynamic_attributable and _dynamic(signal.id):
+        return "low"
+    # The same sentence, one platform wider: a detonation on a platform whose
+    # signal set has never been measured against benign software observed
+    # something real and cannot yet say what it means. See
+    # DYNAMIC_UNCALIBRATED_FAMILIES for the three measurements behind this.
+    if _dynamic(signal.id) and dynamic_uncalibrated(family):
         return "low"
     return signal.severity
 

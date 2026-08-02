@@ -333,11 +333,30 @@ def classify(
     # `FAMILY_AMBIENT_SIGNALS` makes a different claim — not "ordinary software
     # does this too" but "this is the interpreter, not the sample" — and a
     # capability the sample does not have is not a capability.
-    from .scoring import family_ambient, publisher_verified, uncorroborated
+    from .scoring import (
+        dynamic_uncalibrated,
+        family_ambient,
+        publisher_verified,
+        uncorroborated,
+    )
 
     alone = uncorroborated(all_signals)
     signed = publisher_verified(all_signals)
     excluded = alone | family_ambient(family)
+    # AND A PLATFORM WE HAVE NOT CALIBRATED CANNOT NAME A CAPABILITY.
+    #
+    # Demoting these to `low` in `effective_severity` keeps them out of the
+    # SCORE, and `detect_capabilities` is severity-blind — the same asymmetry
+    # that let the `unbacked_*` cluster yield `injection` while every row read
+    # `low`. Without this a Linux detonation would still produce a threat name
+    # and a category out of signals the score is deliberately ignoring, and the
+    # panel would contradict the number in exactly the documented way.
+    #
+    # `capev2.deletes_files` alone would read `Linux.Backdoor.DeletesFiles`.
+    if dynamic_uncalibrated(family):
+        excluded = excluded | {
+            s.id for s in all_signals if s.id.startswith("capev2.")
+        }
     caps = detect_capabilities(
         [s for s in all_signals if s.id not in excluded] if excluded else all_signals,
         iocs,
