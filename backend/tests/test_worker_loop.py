@@ -230,27 +230,39 @@ def test_the_batch_survives_one_unrunnable_job(agent) -> None:
 
 
 def test_the_worker_claims_every_family_the_backend_offers() -> None:
-    """The two sets are one decision written in two files, and they drifted.
+    """The two sets are one decision, and they drifted once already.
 
     A family the queue offers and no engine claims is not a missing feature —
-    it is a job that comes back on every poll for ever.
+    it is a job that comes back on every poll for ever, and it took the whole
+    detonation tier down for fourteen hours.
+
+    This used to read both files with a regex. It no longer can, and that is
+    the point: `_DYNAMIC_FAMILIES` is now `native.DETONABLE_FAMILIES` itself
+    rather than a second copy of it, because the pipeline's tier text has to
+    promise exactly what the queue offers.
     """
     import re
+    import sys
 
-    root = Path(__file__).resolve().parents[2]
-    offered = set(re.search(
-        r"_DYNAMIC_FAMILIES\s*=\s*\{([^}]*)\}",
-        (root / "backend" / "app" / "api" / "dynamic.py").read_text(encoding="utf-8"),
-    ).group(1).replace('"', "").replace("'", "").replace(" ", "").split(","))
-    offered.discard("")
+    from app.api import dynamic
+    from app.engine import native
 
-    claimed = set(re.search(
-        r"return family in \{([^}]*)\}",
-        (root / "worker" / "engines" / "opensource.py").read_text(encoding="utf-8"),
-    ).group(1).replace('"', "").replace("'", "").replace(" ", "").split(","))
+    sys.path.insert(0, str(WORKER))
+    try:
+        source = (WORKER / "engines" / "opensource.py").read_text(encoding="utf-8")
+    finally:
+        sys.path.remove(str(WORKER))
+
+    inside = re.search(r"return family in \{([^}]*)\}", source)
+    assert inside, "CapeV2Engine.supports() no longer declares a literal set"
+    claimed = {
+        token.strip().strip("\"'")
+        for token in inside.group(1).split(",")
+    }
     claimed.discard("")
 
+    offered = set(dynamic._DYNAMIC_FAMILIES)
+    assert offered == set(native.DETONABLE_FAMILIES)
     assert offered <= claimed, (
-        "the backend offers families no engine claims: "
-        f"{sorted(offered - claimed)}"
+        "the backend offers families no engine claims: " f"{sorted(offered - claimed)}"
     )

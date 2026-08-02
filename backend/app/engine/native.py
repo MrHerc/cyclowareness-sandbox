@@ -67,6 +67,26 @@ class DynamicReport:
     duration_ms: int = 0
 
 
+#: Families a dynamic worker can meaningfully detonate.
+#:
+#: THE PIPELINE'S TIER TEXT AND THE QUEUE FILTER MUST READ THE SAME SET. They
+#: did not: `_tier_record` chose its wording from `dynamic_available()` alone,
+#: which asks whether a worker is attached and nothing about whether this
+#: particular job will ever be offered to it. Measured on the live deployment,
+#: **719 of 1626 completed reports** carried
+#:
+#:     "Queued for detonation on the attached isolated worker; behaviour will be
+#:      merged into this report when the worker posts it."
+#:
+#: for jobs the queue never offers — 440 because the family is not in this set
+#: (unknown 238, archive 162, diskimage 27, jar 7, apk 6), the rest because they
+#: are inert `script` files the attributability gate deliberately excludes.
+#:
+#: Nothing errored, because nothing compared the two lists. `"ran": False` was
+#: correct the whole time; the future tense was the lie.
+DETONABLE_FAMILIES = frozenset({"pe", "elf", "script", "office", "pdf", "rtf", "lnk"})
+
+
 def dynamic_available() -> bool:
     """True only when an operator has attached a dynamic worker.
 

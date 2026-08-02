@@ -134,3 +134,70 @@ def test_a_worker_that_could_not_run_is_recorded_as_not_run(client, completed_jo
     dynamic = response.json()["tiers"]["dynamic"]
     assert dynamic["ran"] is False
     assert "failed_analysis" in dynamic["detail"]
+
+
+# --- the promise has to match what the queue will offer ----------------------
+#
+# `_tier_record` chose its wording from `dynamic_available()` alone — "is a
+# worker attached" — and never asked whether THIS job is one the queue hands
+# out. Measured on the live deployment: 719 of 1626 completed reports said
+#
+#     "Queued for detonation on the attached isolated worker; behaviour will be
+#      merged into this report when the worker posts it."
+#
+# for jobs that will never be queued: 440 on family (unknown 238, archive 162,
+# diskimage 27, jar 7, apk 6) and the rest inert `script` files the
+# attributability gate deliberately excludes. `"ran": false` was correct the
+# whole time; the future tense was the lie, in an artifact this product signs.
+
+def test_the_two_family_lists_are_one_list() -> None:
+    """The drift that made it possible. Two copies of the same decision."""
+    from app.api import dynamic
+    from app.engine import native
+
+    assert set(dynamic._DYNAMIC_FAMILIES) == set(native.DETONABLE_FAMILIES)
+    assert dynamic._DYNAMIC_FAMILIES is native.DETONABLE_FAMILIES, (
+        "a copy will drift again; it has to be the same object"
+    )
+
+
+def test_a_family_the_queue_never_offers_is_not_promised_a_detonation(monkeypatch) -> None:
+    from app.engine import native, pipeline
+
+    # A worker IS attached; the family is what makes this job unofferable.
+    monkeypatch.setattr(native, "dynamic_available", lambda: True)
+    tiers = pipeline._tier_record(
+        static_ran=True, analyzer_gaps={}, family="archive", detonable=False
+    )
+    detail = tiers["dynamic"]["detail"]
+
+    assert tiers["dynamic"]["ran"] is False
+    assert "queued" not in detail.lower(), detail
+    assert "will be merged" not in detail.lower(), detail
+    assert "archive" in detail, "the report must name the family it declined"
+    assert "static analysis read every byte" in detail.lower(), detail
+
+
+def test_a_detonable_family_still_says_it_is_queued(monkeypatch) -> None:
+    """The other direction, unchanged: a PE with a worker attached is queued."""
+    from app.engine import native, pipeline
+
+    monkeypatch.setattr(native, "dynamic_available", lambda: True)
+    tiers = pipeline._tier_record(
+        static_ran=True, analyzer_gaps={}, family="pe", detonable=True
+    )
+    assert "Queued for detonation" in tiers["dynamic"]["detail"]
+    assert tiers["dynamic"]["ran"] is False
+
+
+def test_with_no_worker_the_reason_is_still_the_worker_one(monkeypatch) -> None:
+    """Family only decides the wording when a worker IS attached; otherwise the
+    honest answer is that nothing can detonate anything here."""
+    from app.engine import native, pipeline
+
+    monkeypatch.setattr(native, "dynamic_available", lambda: False)
+    for detonable in (True, False):
+        detail = pipeline._tier_record(
+            static_ran=True, analyzer_gaps={}, family="archive", detonable=detonable
+        )["dynamic"]["detail"]
+        assert detail == native.unavailable_reason()

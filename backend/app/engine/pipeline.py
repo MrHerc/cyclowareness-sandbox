@@ -29,7 +29,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..util import utcnow
-from . import analyzers, archives, identify as identify_mod, scoring
+from . import analyzers, archives, identify as identify_mod, native, scoring
 from .contracts import AnalyzerResult, IOCs, Sample, Signal, risk_level
 from .models import JobSource, JobStatus, SandboxJob
 from .storage import StoredSample
@@ -184,9 +184,13 @@ def _result_from_stored(name: str, payload: dict[str, Any]) -> AnalyzerResult:
     )
 
 
-def _tier_record(static_ran: bool, analyzer_gaps: dict[str, str]) -> dict[str, Any]:
-    from . import native
-
+def _tier_record(
+    static_ran: bool,
+    analyzer_gaps: dict[str, str],
+    *,
+    family: str = "",
+    detonable: bool = True,
+) -> dict[str, Any]:
     dynamic_on = native.dynamic_available()
     return {
         "static": {
@@ -209,11 +213,34 @@ def _tier_record(static_ran: bool, analyzer_gaps: dict[str, str]) -> dict[str, A
         #
         # The only writer permitted to set this True is `ingest_report`, which
         # has an actual worker report in hand and copies `report.ran` from it.
+        # AND THE PROMISE HAS TO MATCH WHAT THE QUEUE WILL ACTUALLY OFFER.
+        #
+        # The wording was chosen from `dynamic_available()` alone — "is a worker
+        # attached" — which says nothing about whether THIS job is one the queue
+        # ever hands out. `api/dynamic._needs_dynamic` also requires the family
+        # to be in `native.DETONABLE_FAMILIES` and, for `script`, that the file
+        # has an execution path at all.
+        #
+        # Measured on the live deployment: **719 of 1626 completed reports** said
+        # "Queued for detonation ... will be merged into this report" for jobs
+        # that will never be queued — 440 on family (unknown 238, archive 162,
+        # diskimage 27, jar 7, apk 6), the rest inert `script` files the
+        # attributability gate deliberately excludes. The worker log reads
+        # `queue: 0 job(s)`, nothing errors, and a future-tense promise sits in
+        # an artifact this product signs.
         "dynamic": {
             "ran": False,
             "detail": (
-                "Queued for detonation on the attached isolated worker; behaviour "
-                "will be merged into this report when the worker posts it."
+                (
+                    "Queued for detonation on the attached isolated worker; behaviour "
+                    "will be merged into this report when the worker posts it."
+                    if detonable
+                    else (
+                        "Not detonated: no dynamic engine accepts the "
+                        f"'{family or 'unknown'}' family, so this job is never offered "
+                        "to the worker queue. Static analysis read every byte."
+                    )
+                )
                 if dynamic_on
                 else native.unavailable_reason()
             ),
@@ -810,7 +837,21 @@ def run(
                 merged = merged.merge(result.iocs)
 
         gaps = analyzers.unavailable_analyzers()
-        tiers = _tier_record(static_ran=any(r.ran for r in results), analyzer_gaps=gaps)
+        # The same predicate `api/dynamic._needs_dynamic` applies, computed here
+        # so the tier text promises exactly what the queue will offer. It is
+        # computed again below for scoring; this is the cheap half of it and
+        # duplicating the expression is better than reordering a scoring block
+        # to reach it.
+        offerable = sample.family in native.DETONABLE_FAMILIES and (
+            sample.family != "script"
+            or identify_mod.has_execution_path(sample.claimed_extension, sample.mime)
+        )
+        tiers = _tier_record(
+            static_ran=any(r.ran for r in results),
+            analyzer_gaps=gaps,
+            family=sample.family,
+            detonable=offerable,
+        )
         # A carried-forward detonation keeps the tier it earned. `_tier_record`
         # hard-codes `ran: False` — correctly, because a fresh static pass has
         # detonated nothing — but this job HAS been detonated, and the evidence

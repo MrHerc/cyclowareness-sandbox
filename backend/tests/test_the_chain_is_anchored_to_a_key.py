@@ -353,50 +353,53 @@ def test_a_chain_with_no_checkpoints_is_not_reported_as_vouched_for(db) -> None:
 # actually observed between two checkpoints was **93 events** — against a
 # docstring promising fifty bounds it "to a handful of actions".
 
-def test_a_burned_sequence_value_no_longer_skips_an_anchor(monkeypatch) -> None:
-    """The exact live failure: id 14950 never exists, 14951 is written."""
-    monkeypatch.setattr(audit, "_last_boundary", 14900 // audit.CHECKPOINT_EVERY)
-
-    # 14950 was allocated to a rolled-back insert and is not a row.
-    assert audit._crossed_a_boundary(None, 14951) is True, (
-        "the boundary at 14950 was skipped and nothing anchored it"
-    )
+def test_a_burned_sequence_value_no_longer_skips_an_anchor() -> None:
+    """The exact live failure: 14950 was allocated to a rolled-back insert and
+    never became a row, so nothing anchored that boundary."""
+    assert audit._should_checkpoint(14949, 14951) is True
 
 
-def test_it_anchors_once_per_block_not_once_per_event(monkeypatch) -> None:
-    monkeypatch.setattr(audit, "_last_boundary", 100 // audit.CHECKPOINT_EVERY)
-    crossings = [audit._crossed_a_boundary(None, i) for i in range(101, 201)]
-    assert sum(crossings) == 2, (
-        "one crossing at 150 and one at 200, not %d" % sum(crossings)
-    )
+def test_it_anchors_once_per_block_not_once_per_event() -> None:
+    crossings = sum(audit._should_checkpoint(i - 1, i) for i in range(101, 201))
+    assert crossings == 2, "one crossing at 150 and one at 200, not %d" % crossings
 
 
-def test_two_consecutive_missing_boundaries_still_anchor_once(monkeypatch) -> None:
+def test_two_consecutive_missing_boundaries_still_anchor_once() -> None:
     """8900 and 8950 were both missing on the live chain. The first event past
-    them must still close the window rather than waiting for 9000."""
-    monkeypatch.setattr(audit, "_last_boundary", 8850 // audit.CHECKPOINT_EVERY)
-    assert audit._crossed_a_boundary(None, 8951) is True
+    them closes the window rather than waiting for 9000."""
+    assert audit._should_checkpoint(8899, 8951) is True
 
 
-def test_an_unreadable_checkpoint_table_anchors_rather_than_skips(monkeypatch) -> None:
-    """Unknown must fail towards writing. A duplicate checkpoint is absorbed by
-    the unique index; a missing one is a gap in the evidence."""
-    monkeypatch.setattr(audit, "_last_boundary", None)
-
-    class _Exploding:
-        def execute(self, *_a, **_k):
-            raise RuntimeError("no table")
-
-    assert audit._crossed_a_boundary(_Exploding(), 500) is True
+def test_landing_exactly_on_a_boundary_still_anchors() -> None:
+    """The behaviour that already worked must keep working."""
+    assert audit._should_checkpoint(14949, 14950) is True
 
 
-def test_the_modulo_form_is_gone(monkeypatch) -> None:
+def test_an_ordinary_event_does_not_anchor() -> None:
+    assert audit._should_checkpoint(14951, 14952) is False
+
+
+def test_the_first_event_of_all_does_not_anchor_on_a_bare_id() -> None:
+    """`prev_id` is 0 on an empty chain; event 1 is not a cadence point."""
+    assert audit._should_checkpoint(0, 1) is False
+    assert audit._should_checkpoint(0, audit.CHECKPOINT_EVERY) is True
+
+
+def test_the_tail_returns_the_id_as_well_as_the_hash(db) -> None:
+    """The whole reason the crossing test costs no extra query."""
+    assert audit._tail(db) == (0, audit.GENESIS_HASH) or isinstance(audit._tail(db)[0], int)
+    _events(db, 1, "tail")
+    tail_id, tail_hash = audit._tail(db)
+    assert tail_id > 0 and len(tail_hash) == 64
+
+
+def test_the_modulo_form_is_gone() -> None:
     """A guard on the shape, because the old form reads perfectly reasonable."""
     import pathlib
 
     source = pathlib.Path(audit.__file__).read_text(encoding="utf-8")
-    body = source[source.index("def record("):source.index("def _crossed_a_boundary")]
+    body = source[source.index("def record("):source.index("def checkpoint(")]
     assert "% CHECKPOINT_EVERY == 0" not in body, (
         "the cadence is back to landing on a multiple, which the sequence skips"
     )
-    assert "_crossed_a_boundary" in body
+    assert "_should_checkpoint" in body

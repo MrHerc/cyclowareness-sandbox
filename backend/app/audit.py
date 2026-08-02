@@ -65,16 +65,6 @@ logger = logging.getLogger("sandbox.audit")
 #: writes the checkpoint.
 CHECKPOINT_EVERY = 50
 
-#: The highest boundary this process has already anchored, so the crossing test
-#: costs no query per event. Seeded once from the newest checkpoint; `None`
-#: means "not looked up yet".
-#:
-#: Being per-process is safe rather than merely tolerable: two appenders that
-#: both decide to anchor the same boundary race on the unique index, and
-#: `checkpoint()` already treats that `IntegrityError` as "the other one wrote a
-#: checkpoint covering at least as much, so there is nothing to do".
-_last_boundary: int | None = None
-
 #: The ``prev_hash`` of the first event. A real hash never collides with it, so
 #: "this row claims to be the genesis" is unforgeable in the same way every
 #: other link is.
@@ -315,11 +305,39 @@ def compute_hash(event: AuditEvent) -> str:
     ).hexdigest()
 
 
-def _tail_hash(db: Session) -> str:
+def _tail(db: Session) -> tuple[int, str]:
+    """The id and hash of the newest event, or ``(0, GENESIS_HASH)`` if none.
+
+    It used to return only the hash. The id comes back from the same row for
+    free, and the cadence needs it: knowing the PREVIOUS id is what turns
+    "did this land on a multiple of fifty" into "did the chain cross one".
+    """
     last = db.execute(
-        select(AuditEvent.entry_hash).order_by(AuditEvent.id.desc()).limit(1)
-    ).scalar_one_or_none()
-    return last or GENESIS_HASH
+        select(AuditEvent.id, AuditEvent.entry_hash)
+        .order_by(AuditEvent.id.desc())
+        .limit(1)
+    ).first()
+    if last is None:
+        return 0, GENESIS_HASH
+    return int(last[0]), (last[1] or GENESIS_HASH)
+
+
+def _should_checkpoint(prev_id: int, new_id: int) -> bool:
+    """Did the chain CROSS a cadence point, rather than land on one?
+
+    `new_id % CHECKPOINT_EVERY == 0` was the shipped test, and it silently
+    missed a boundary every time PostgreSQL burned a sequence value on a
+    rollback -- which `record()` does on both of its error arms. Measured on the
+    live chain: 34 of the 305 multiples of fifty were never written, five of
+    them in consecutive pairs, and the largest gap actually observed between two
+    checkpoints was 93 events.
+
+    Crossing has no such hole: if 14950 never becomes a row, 14951 still crosses
+    the boundary at 14950 and the checkpoint is written.
+    """
+    if new_id <= 0:
+        return False
+    return new_id // CHECKPOINT_EVERY > max(prev_id, 0) // CHECKPOINT_EVERY
 
 
 def record(
@@ -360,7 +378,7 @@ def record(
         db: Session | None = None
         try:
             db = session_scope()
-            prev_hash = _tail_hash(db)
+            prev_id, prev_hash = _tail(db)
             event = AuditEvent(
                 occurred_at=occurred_at,
                 tenant_id=_column(tenant or "default", 64),
@@ -384,7 +402,7 @@ def record(
             # action either -- `checkpoint` never raises, but obtaining the id
             # after a commit can, and the rule here is that audit bookkeeping is
             # never the reason an upload is refused.
-            if event.id and _crossed_a_boundary(db, event.id):
+            if event.id and _should_checkpoint(prev_id, event.id):
                 checkpoint(db)
             return event
         except IntegrityError:
@@ -568,40 +586,6 @@ def _checkpoint_tail(db: Session) -> str:
         .limit(1)
     ).scalar_one_or_none()
     return last or GENESIS_HASH
-
-
-def _crossed_a_boundary(db: Session, event_id: int) -> bool:
-    """Has this event taken the chain past the next multiple of CHECKPOINT_EVERY?
-
-    The predicate the cadence needs is "we are now in a later block than the one
-    we last anchored", not "this id is exactly on a boundary". The second is
-    what shipped, and it silently skipped 34 of 305 boundaries on the live chain
-    because a rolled-back insert still consumes its sequence value.
-
-    Costs one query the first time a process asks, and none afterwards. It never
-    raises: a checkpoint that cannot be scheduled must not fail the analyst's
-    action, which is the rule the whole module follows.
-    """
-    global _last_boundary
-
-    boundary = event_id // CHECKPOINT_EVERY
-    if _last_boundary is None:
-        try:
-            newest = db.execute(
-                select(func.max(AuditCheckpoint.head_id))
-            ).scalar_one_or_none()
-        except Exception:  # noqa: BLE001
-            # Unknown is treated as "anchor now": writing one checkpoint too many
-            # is a duplicate the unique index absorbs, while writing one too few
-            # is a gap in the evidence.
-            _last_boundary = boundary - 1
-            return True
-        _last_boundary = int(newest or 0) // CHECKPOINT_EVERY
-
-    if boundary > _last_boundary:
-        _last_boundary = boundary
-        return True
-    return False
 
 
 def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:

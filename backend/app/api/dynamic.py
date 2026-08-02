@@ -31,7 +31,7 @@ from ..config import Settings, get_settings
 from ..db import get_db
 from ..remote import client_ip
 from ..safejson import json_safe
-from ..engine import identify, scoring
+from ..engine import identify, native, scoring
 from ..engine.contracts import IOCs, AnalyzerResult, Signal
 from ..engine.models import JobSource, JobStatus, SandboxJob
 from ..engine.storage import quarantine_root
@@ -45,7 +45,12 @@ router = APIRouter(prefix="/api/dynamic", tags=["dynamic"])
 #: Families a dynamic worker can meaningfully detonate/emulate.
 #: An RTF exploit and a LNK command line are exactly what a detonation shows,
 #: and both families were absent — so nine real samples were never offered.
-_DYNAMIC_FAMILIES = {"pe", "elf", "script", "office", "pdf", "rtf", "lnk"}
+#:
+#: Defined once, in `engine.native`, because the pipeline's tier text has to
+#: promise exactly what this filter offers. It used to be a second copy here,
+#: and 719 completed reports promised a detonation for families this set does
+#: not contain. See `native.DETONABLE_FAMILIES`.
+_DYNAMIC_FAMILIES = native.DETONABLE_FAMILIES
 
 #: THIS SEAM IS DEPLOYMENT-WIDE, NOT TENANT-SCOPED, ON PURPOSE.
 #:
