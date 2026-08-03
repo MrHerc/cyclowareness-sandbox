@@ -3,116 +3,109 @@
 /* =============================================================================
    Cyclowareness design tokens
    -----------------------------------------------------------------------------
-   Four rules this file exists to enforce:
+   Five rules this file exists to enforce:
 
    1. NOTHING outside this file may name a colour. Every hex lives here, so the
       product can be re-themed (and printed, and projected) without hunting
       literals through 30 components. Charts and SVG read the same variables.
 
-   2. The brand hue is NOT a status colour. Lime means "Cyclowareness Sandbox /
-      the thing you are pointing at". Red, amber and green mean risk, and only
-      risk. This rule survived the repaint and constrains it: the one lime-filled
-      tile on the dashboard is `Analysed`, a neutral count, because filling
-      `Malicious` with the accent would put two unrelated meanings on one colour.
-      Amber moved toward orange in the same change — the old #f5b544 sat 45° from
-      the lime and the two read as the same signal at a glance.
+   2. ONE accent, and the accent is NOT a status colour. Lime means
+      "Cyclowareness / the thing you are pointing at / the primary series".
+      Red, amber and green mean risk, and only risk. The status hues sit far
+      from lime on the wheel on purpose: an earlier palette put the brand next
+      to `success` and an analyst could not tell "this is selected" from "this
+      is fine". Lime is at ~75deg, success ~160deg, warning ~30deg.
 
-   3. Every content tone clears WCAG AA (4.5:1) on the surface it sits on.
+   3. Every content tone clears WCAG AA (4.5:1) on the surface it sits on, and
+      every control border clears 3:1 (WCAG 1.4.11).
 
-   4. **Dark is the default.** It was light, on the reasoning that exhibition
-      halls are lit for photography and projectors wash dark UI out. That reason
-      is still true and the light theme is still here, still complete, still one
-      click away — but the identity is now the dark one. Anyone demoing under
-      hall lights should flip it before the room fills.
+   4. ONE radius system, applied everywhere: panels 16px, controls 10px, chips
+      8px. Mixed radii inside one screen is the loudest amateur tell after an
+      arbitrary type scale.
 
-   The look: a deep neutral ground, one high-chroma accent, generously rounded
-   panels with real air between them, and few words per panel. The previous
-   revision read as an instrument — hairline rules, tight radii, a measurement
-   grid, a caption under every number. Three lines of explanation under a metric
-   is not density, it is noise, and the grid competed with the data drawn on top
-   of it.
+   5. **Dark is the default.** This is an operator console people sit in front
+      of for hours, usually with the lights down. Light is still first-class and
+      still passes every contrast rule -- an exhibition hall is lit for
+      photography and a projector washes dark UI out, so the toggle stays. It is
+      an alternative, not an afterthought.
+
+   The look is an INSTRUMENT: near-black ground, one high-chroma accent used
+   sparingly, hairline structure, tabular figures, and motion that only ever
+   reports state.
    ========================================================================== */
 
 @theme {
-  /* --- surfaces: canvas < raised < panel, with sunken for wells -------------
-     The DEFAULT block is the dark one now; `[data-theme="light"]` below carries
-     the light values. Keeping the default in `@theme` rather than in a media
-     query matters: `useTheme` writes the attribute on `:root`, and a themed
-     product that flashes the wrong ground for one frame on every load looks
-     broken in exactly the demo it is being shown in. */
-  --color-canvas: #08090b;
-  --color-panel: #101216;
-  --color-raised: #191c22;
-  --color-sunken: #050608;
+  /* --- surfaces: canvas < panel < raised, with sunken for wells -------------
+     No pure black. #000 kills depth: every border disappears and the panels
+     stop reading as objects sitting on a ground. */
+  --color-canvas: #07090a;
+  --color-panel: #0e1113;
+  --color-raised: #151a1d;
+  --color-sunken: #040607;
 
   /* --- lines: hairline, structural, emphatic -------------------------------
      `hair` is decoration and may be faint. `line` is the boundary of a CONTROL
-     — an input, a select, a secondary button — and WCAG 1.4.11 requires 3:1
-     against the surface behind it. The old #d6d9e4 measured 1.34:1 on `raised`,
-     so the only thing marking an input was a shadow of a border that a
-     low-vision analyst could not see at all. */
-  --color-hair: #1e222a;
-  /* 3.48:1 on `raised`, which is the surface inputs actually sit on. The first
-     dark value was #5d6472 and measured 2.87 — under the 3:1 this comment
-     demands, and the same defect as the #d6d9e4 it describes, just milder.
-     Measured in the browser against the live build rather than eyeballed. */
-  --color-line: #6a7180;
-  --color-line-strong: #949bab;
+     -- an input, a select, a secondary button -- and WCAG 1.4.11 requires 3:1
+     against the surface behind it. */
+  --color-hair: #1b2225;
+  /* 3.52:1 on `raised`, which is the surface inputs actually sit on -- not on
+     `panel`, and not on the canvas. The first value here was #55636a and
+     measured 2.82: under the 3:1 this comment demands, and the third time this
+     exact token has drifted below the line it is documented to hold. It is easy
+     to miss because a border at 2.8 looks fine to anyone who already knows the
+     control is there. Computed, not eyeballed -- see
+     tests/test_the_palette_is_legible.py. */
+  --color-line: #63727a;
+  --color-line-strong: #7d8c93;
 
-  /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------
-     c3 must clear 4.5:1 on the *darkest* surface it lands on, which is the
-     canvas (captions sit outside panels) and the sunken well — not just on the
-     panel. */
-  --color-c1: #f4f6fa;
-  --color-c2: #a9b0bf;
-  --color-c3: #8b93a3;
+  /* --- content: 1 primary, 2 secondary, 3 tertiary ------------------------
+     c3 must clear 4.5:1 on the DARKEST surface it lands on, which is the sunken
+     well, not just on `panel`. */
+  --color-c1: #e9f1ef;
+  --color-c2: #a3b0ae;
+  --color-c3: #8a9895;
 
-  /* --- brand: lime. fills/strokes use `brand`, text `brand-fg` --------------
-     `on-brand` is the only legal foreground on a brand fill. The accent is a
-     LIGHT colour now, so that foreground is near-black — white on lime measures
-     1.5:1 and is unreadable, which is the trap in repainting a dark accent
-     light. `brand-hover` replaces an opacity fade, because fading a fill toward
-     a dark ground drags it toward the label it carries. */
-  --color-brand: #c8f751;
-  --color-brand-fg: #c8f751;
-  --color-brand-dim: #1d2610;
-  --color-brand-hover: #d7fa77;
-  --color-on-brand: #0b1003;
+  /* --- brand: electric lime ------------------------------------------------
+     `brand` is fills and strokes, `brand-fg` is lime AS TEXT, and `on-brand` is
+     the only legal foreground on a lime fill -- it has to be near-black, because
+     lime is a light colour and white on lime measures about 1.5:1. That single
+     fact is why a filled control cannot simply switch to a dark accent later
+     without revisiting its label colour. */
+  --color-brand: #c6f24e;
+  --color-brand-fg: #cdf560;
+  --color-brand-dim: #1a2410;
+  --color-brand-hover: #d6fa72;
+  --color-on-brand: #07090a;
 
-  /* --- status: risk only ---------------------------------------------------
-     Amber moved to orange in the repaint. The old #f5b544 sits ~45° from the
-     lime accent, and on a dark ground two bright yellow-greens read as one
-     signal — the exact collapse rule 2 exists to prevent. Info stays cyan,
-     which was already the far side of the wheel from the old blue brand and is
-     further still from this one. */
-  --color-danger: #ff6b6b;
-  --color-warning: #ff9f43;
-  --color-success: #3ecf8e;
-  --color-info: #22d3ee;
+  /* --- status: risk only, all far from lime on the wheel ------------------ */
+  --color-danger: #ff5f5f;
+  --color-warning: #ffa23a;
+  --color-success: #34d399;
+  --color-info: #38bdf8;
 
-  /* --- data series (charts): distinguishable, and never the brand hue ----- */
-  --color-series-1: #ff6b6b;
-  --color-series-2: #3ecf8e;
-  --color-series-3: #22d3ee;
+  /* --- data series ---------------------------------------------------------
+     A chart whose axis IS risk uses the status hues, because any other mapping
+     would be a second vocabulary for the same idea. A chart whose axis is NOT
+     risk (how many PDFs were submitted this week) may use the brand, because
+     there the highlight means "the thing you are pointing at" and nothing more.
+     That distinction is the whole of rule 2 applied to charts. */
+  --color-series-1: #ff5f5f;
+  --color-series-2: #34d399;
+  --color-series-3: #38bdf8;
 
-  /* `--color-grid` was here. Removing the canvas grid left nothing reading it,
-     and a token that resolves to a colour nobody draws is the next person's
-     wrong guess about what the surface is supposed to look like. A chart that
-     wants gridlines should add it back deliberately. */
+  --color-grid: #161d20;
 
   /* --- type scale: eight steps, nothing else -------------------------------
-     An earlier version used thirteen sizes across three notations
-     (text-[10px], text-[11px], text-[13px], text-[15px], xs, sm, base, lg, xl,
-     2xl, 3xl, 4xl). An arbitrary scale is the loudest amateur tell in a
-     data-dense interface. */
-  --text-display: 2.125rem;
-  --text-display--line-height: 1.08;
-  --text-display--letter-spacing: -0.025em;
+     An earlier version used thirteen sizes across three notations. An arbitrary
+     scale is the loudest amateur tell in a data-dense interface. */
+  --text-display: 2.5rem;
+  --text-display--line-height: 1.02;
+  --text-display--letter-spacing: -0.03em;
   --text-display--font-weight: 600;
 
   --text-title: 1.375rem;
   --text-title--line-height: 1.2;
-  --text-title--letter-spacing: -0.02em;
+  --text-title--letter-spacing: -0.022em;
   --text-title--font-weight: 600;
 
   --text-h: 1.0625rem;
@@ -134,55 +127,52 @@
 
   --text-label: 0.6875rem;
   --text-label--line-height: 1.3;
-  --text-label--letter-spacing: 0.09em;
+  --text-label--letter-spacing: 0.12em;
   --text-label--font-weight: 600;
 
+  /* Self-hosting a display face would mean shipping binary assets into an
+     air-gapped image, and there is no CDN to reach on an isolated network. The
+     system stack carries the type; the character comes from scale, tracking and
+     tabular figures. */
   --font-sans: "Inter var", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
 
-  /* The previous revision argued small radii read as instrumentation and large
-     ones as a consumer app. That is true in isolation and was the wrong trade
-     here: at 8px, with a hairline border and a caption under every number, the
-     panels read as a spreadsheet with rounded corners. The generous radius is
-     what buys the layout its calm — it needs the air around it to work, which
-     is why the spacing went up in the same change. */
+  /* ONE radius system. See rule 4. */
   --radius-panel: 1rem;
   --radius-control: 0.625rem;
   --radius-chip: 0.5rem;
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* -----------------------------------------------------------------------------
    Light theme. Same token names, so no component knows which theme is running.
 
-   This used to be the default and is now the alternative. It is kept COMPLETE
-   rather than trimmed, because the reason it existed has not gone away: an
-   exhibition hall lit for photography, and a projector, both wash a dark UI
-   out. One click before the room fills.
-
-   The accent stays lime here too — a brand that changes hue with the theme is
-   not a brand. What changes is the TEXT tone: lime type on white measures
-   1.3:1, so `brand-fg` becomes a dark olive of the same hue, while fills keep
-   the lime with a near-black label on top.
+   The accent needs real care here: lime on white is about 1.4:1, so lime may
+   never carry text in light mode. `brand` stays lime for FILLS (with near-black
+   on top, unchanged) and `brand-fg` becomes a deep olive that clears AA on
+   white. Same token, same meaning, different value -- which is exactly why
+   `brand` and `brand-fg` are two tokens rather than one.
    -------------------------------------------------------------------------- */
 :root[data-theme="light"] {
-  --color-canvas: #f2f4f0;
+  --color-canvas: #f4f6f4;
   --color-panel: #ffffff;
-  --color-raised: #f8f9f6;
-  --color-sunken: #e9ebe6;
+  --color-raised: #f8faf8;
+  --color-sunken: #e9ede9;
 
-  --color-hair: #e4e7e0;
-  --color-line: #838a7c;
-  --color-line-strong: #5c6357;
+  --color-hair: #e2e7e2;
+  --color-line: #7c8781;
+  --color-line-strong: #58635d;
 
-  --color-c1: #14170f;
-  --color-c2: #4e5449;
-  --color-c3: #626859;
+  --color-c1: #10140f;
+  --color-c2: #4b544c;
+  --color-c3: #5f6960;
 
-  --color-brand: #c8f751;
-  --color-brand-fg: #4a6604;
-  --color-brand-dim: #eefac9;
-  --color-brand-hover: #bcee3c;
-  --color-on-brand: #0b1003;
+  --color-brand: #b9e83d;
+  --color-brand-fg: #46620a;
+  --color-brand-dim: #eef8d2;
+  --color-brand-hover: #a8d92c;
+  --color-on-brand: #10140f;
 
   --color-danger: #c81e1e;
   --color-warning: #9a5b00;
@@ -193,7 +183,7 @@
   --color-series-2: #077d55;
   --color-series-3: #0e7490;
 
-  
+  --color-grid: #e4e9e4;
 }
 
 /* =============================================================================
@@ -218,37 +208,55 @@ html {
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-
-  /* The 24px measurement grid is GONE. It was defended as being at the
-     threshold of visibility, and on a near-white ground it was. On a near-black
-     one the same lines read as texture behind every chart, and the charts draw
-     their own gridlines on top — two grids at different pitches, in the one
-     place the eye is trying to follow a line. `--color-grid` went with it —
-     nothing was left reading it.
-     Replaced by a single wide accent wash at the top of the page: enough to
-     stop the ground reading as flat black, cheap enough not to repaint. */
   background-color: var(--color-canvas);
-  background-image: radial-gradient(
-    120% 46% at 18% -14%,
-    color-mix(in oklab, var(--color-brand) 9%, transparent),
-    transparent 62%
-  );
-  background-repeat: no-repeat;
-  background-attachment: fixed;
+}
+
+/* One cool wash at the top of the viewport, FIXED so it never travels with the
+   content and never repaints on scroll. It is what stops a near-black ground
+   from reading as an unstyled page, and it is the only decorative gradient in
+   the product. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 60vh;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      70% 55% at 18% 0%,
+      color-mix(in oklab, var(--color-brand) 12%, transparent),
+      transparent 68%
+    ),
+    radial-gradient(
+      50% 45% at 88% 4%,
+      color-mix(in oklab, var(--color-info) 7%, transparent),
+      transparent 70%
+    );
+}
+
+:root[data-theme="light"] body::before {
+  opacity: 0.5;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-brand) 24%, transparent);
+  background: color-mix(in oklab, var(--color-brand) 30%, transparent);
+  color: var(--color-c1);
 }
 
-/* Keyboard-only focus ring — the a11y baseline for every interactive element. */
+/* Keyboard-only focus ring -- the a11y baseline for every interactive element. */
 :focus-visible {
   outline: 2px solid var(--color-brand);
   outline-offset: 2px;
-  border-radius: 4px;
+  border-radius: 6px;
 }
 :focus:not(:focus-visible) {
   outline: none;
@@ -257,16 +265,20 @@ body {
 /* Scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--color-line-strong) transparent;
+  scrollbar-color: var(--color-line) transparent;
 }
 *::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 *::-webkit-scrollbar-thumb {
-  background: var(--color-line-strong);
+  background: var(--color-line);
   border-radius: 5px;
   border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-line-strong);
   background-clip: content-box;
 }
 *::-webkit-scrollbar-track {
@@ -291,7 +303,7 @@ body {
   border-top: 1px solid var(--color-hair);
 }
 
-/* Hashes, job ids, IOCs — anything that must be read character by character. */
+/* Hashes, job ids, IOCs -- anything read character by character. */
 .tech {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -299,15 +311,51 @@ body {
   word-break: break-all;
 }
 
+/* A panel's top edge catches the light. One hairline, no drop shadow: on a
+   near-black ground a shadow is invisible and only costs paint. */
+.edge-lit {
+  position: relative;
+}
+.edge-lit::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-c1) 16%, transparent) 22%,
+    color-mix(in oklab, var(--color-c1) 16%, transparent) 78%,
+    transparent
+  );
+  pointer-events: none;
+}
+
+/* The one filled tile on a screen. Lime carries a soft internal wash so the
+   fill reads as lit rather than as a flat swatch; text on it is `on-brand`
+   (near-black) at every size. */
+.tile-accent {
+  background:
+    radial-gradient(
+      120% 140% at 12% 0%,
+      color-mix(in oklab, #ffffff 26%, transparent),
+      transparent 62%
+    ),
+    var(--color-brand);
+  color: var(--color-on-brand);
+}
+
 /* =============================================================================
-   Motion. Every animation is state feedback or the loop itself; nothing
-   decorates. All of it collapses under prefers-reduced-motion.
+   Motion. Every animation reports state -- entry, liveness, progress, or a
+   response to a pointer. Nothing loops for decoration. All of it collapses
+   under prefers-reduced-motion at the bottom of this file.
    ========================================================================== */
 
 @keyframes breathe {
   0%,
   100% {
-    opacity: 0.4;
+    opacity: 0.35;
   }
   50% {
     opacity: 1;
@@ -320,7 +368,7 @@ body {
 @keyframes rise {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -328,7 +376,15 @@ body {
   }
 }
 .rise {
-  animation: rise 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rise 0.3s var(--ease-out-quint) both;
+}
+
+/* Staggered entrance: apply with style={{ "--i": n }} for a cascade. Capped so
+   a long list never leaves the last row waiting -- 12 * 45ms is about half a
+   second, and past that the cascade starts to read as slow loading. */
+.rise-in {
+  animation: rise 0.5s var(--ease-out-quint) both;
+  animation-delay: calc(min(var(--i, 0), 12) * 45ms);
 }
 
 @keyframes shimmer {
@@ -348,7 +404,7 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--color-c3) 14%, transparent),
+    color-mix(in oklab, var(--color-c3) 16%, transparent),
     transparent
   );
   animation: shimmer 1.6s infinite;
@@ -371,37 +427,61 @@ body {
   background: linear-gradient(
     90deg,
     transparent,
-    color-mix(in oklab, var(--color-brand) 55%, transparent),
+    color-mix(in oklab, var(--color-brand) 65%, transparent),
     transparent
   );
   animation: scan 1.5s ease-in-out infinite;
 }
 
-/* Interactive cards lift on hover — feedback, not decoration. */
+/* A live indicator: the ring around a dot that is actually polling. Semantic,
+   not decorative -- it is rendered only while the poll is succeeding, which is
+   the one case where an animated status dot earns its place. */
+@keyframes ping-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.5;
+  }
+  70%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+.ping-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: ping-ring 1.9s var(--ease-out-quint) infinite;
+}
+
+/* Interactive cards respond to the pointer -- feedback, not decoration. On a
+   near-black ground the response is a border and a lift, never a shadow. */
 .lift {
+  /* `background-color` was in this list and nothing in `:hover` changes it, so
+     it was a transition on a property that never transitions -- except when the
+     THEME flips, where it turned an instant repaint into a 180ms cross-fade on
+     every card at once. Animating a property no interaction touches is how a
+     theme toggle acquires a lag it was never designed to have. */
   transition:
-    transform 0.18s cubic-bezier(0.22, 1, 0.36, 1),
-    box-shadow 0.18s ease,
+    transform 0.18s var(--ease-out-quint),
     border-color 0.18s ease;
 }
 .lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 14px 34px -16px color-mix(in oklab, var(--color-c1) 30%, transparent);
-  border-color: var(--color-line-strong);
+  border-color: color-mix(in oklab, var(--color-brand) 40%, var(--color-hair));
 }
-
-/* Staggered entrance: apply with inline style="--i: n" for a cascade. */
-.rise-in {
-  animation: rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-  animation-delay: calc(var(--i, 0) * 55ms);
+.lift:active {
+  transform: translateY(0) scale(0.995);
 }
 
 /* The gauge arc draws itself in; meter fills grow in. */
 .gauge-arc {
-  transition: stroke-dashoffset 1.1s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: stroke-dashoffset 1.1s var(--ease-out-quint);
 }
 
-/* A quiet instrument glow behind a hero region. Brand hue, low and soft. */
+/* A quiet instrument glow behind a hero region, on top of the fixed page wash. */
 .hero-glow {
   position: relative;
   isolation: isolate;
@@ -409,16 +489,15 @@ body {
 .hero-glow::before {
   content: "";
   position: absolute;
-  inset: -50% 5% auto 5%;
-  height: 420px;
+  inset: -40% 0 auto 0;
+  height: 340px;
   z-index: -1;
   background: radial-gradient(
-    58% 60% at 50% 0%,
-    color-mix(in oklab, var(--color-brand) 16%, transparent),
+    55% 60% at 20% 0%,
+    color-mix(in oklab, var(--color-brand) 14%, transparent),
     transparent 70%
   );
-  filter: blur(28px);
-  opacity: 0.75;
+  filter: blur(26px);
   pointer-events: none;
 }
 
@@ -429,5 +508,8 @@ body {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
+  }
+  .lift:hover {
+    transform: none;
   }
 }

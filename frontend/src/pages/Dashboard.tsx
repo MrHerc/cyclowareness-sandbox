@@ -82,7 +82,11 @@ function StatTile({
     <div
       className={cx(
         'rise-in lift rounded-panel border px-5 py-5',
-        hero ? 'border-brand bg-brand' : 'border-hair bg-panel',
+        // `tile-accent` rather than a flat `bg-brand`: the fill carries a soft
+        // internal wash so it reads as lit rather than as a swatch. A flat
+        // high-chroma rectangle beside four dark panels looks like a rendering
+        // error; the same colour with a light source in it looks deliberate.
+        hero ? 'tile-accent border-brand' : 'edge-lit border-hair bg-panel',
       )}
       style={{ '--i': i } as CSSProperties}
       title={hint}
@@ -256,8 +260,22 @@ export function Dashboard() {
 
       {/* Never claim "live" while the polls are failing — that promise is the
           reason an outage went unnoticed for a whole session. */}
-      <p className={cx('flex items-center justify-center gap-1.5 text-xs', stale ? 'text-warning' : 'text-c3')}>
-        <Activity size={12} aria-hidden />
+      <p className={cx('flex items-center justify-center gap-2 text-xs', stale ? 'text-warning' : 'text-c3')}>
+        {stale ? (
+          <Activity size={12} aria-hidden />
+        ) : (
+          // The one animated status dot in the product, and the only kind that
+          // earns the pixels: it is rendered from the SAME condition as the
+          // sentence beside it, so the ring pulses when — and only when — a poll
+          // is actually landing. A dot that pulses regardless of state is
+          // decoration pretending to be telemetry, and this page has been the
+          // scene of that mistake before: it once claimed "live" through a whole
+          // session of failing polls.
+          <span aria-hidden className="relative flex h-1.5 w-1.5 text-success">
+            <span className="ping-ring absolute inset-0" />
+            <span className="relative h-1.5 w-1.5 rounded-full bg-success" />
+          </span>
+        )}
         {stale ? 'Not live — the last update did not reach the API' : 'Live — updates every few seconds'}
       </p>
     </div>
