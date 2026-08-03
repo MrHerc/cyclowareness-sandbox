@@ -22,6 +22,7 @@ from sqlalchemy import text
 from .. import metrics, retention, sovereignty
 from ..auth import _secure_equals, require_admin, require_analyst
 from ..config import get_settings
+from .dynamic_state import dynamic_state
 from ..db import session_scope
 from ..engine import native
 from ..engine import scoring
@@ -87,6 +88,7 @@ def health(response: Response):
 @router.get("/api/capabilities")
 def capabilities():
     settings = get_settings()
+    _dynamic_available, _dynamic_reason = dynamic_state(settings)
     from ..engine import analyzers
 
     yara_status: dict = {"loaded": 0}
@@ -122,7 +124,11 @@ def capabilities():
         "static_analyzers": list(analyzers.all_names()),
         "unavailable_analyzers": analyzers.unavailable_analyzers(),
         "yara": yara_status,
-        "dynamic_worker": native.dynamic_available(),
+        # BOTH switches, not the flag alone — see `dynamic_state`. Reading only
+        # `SANDBOX_DYNAMIC_WORKER` advertised a behavioural tier on a deployment
+        # whose own ingest endpoints answered 503 to every request.
+        "dynamic_worker": _dynamic_available,
+        "dynamic_unavailable_reason": _dynamic_reason,
         # The sovereignty posture, with the refusal COUNT. The count is the part
         # that matters here: "no data leaves" is a claim, "we refused 14 outbound
         # calls" is evidence, and this is the endpoint an operator points an
