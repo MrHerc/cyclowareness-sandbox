@@ -44,28 +44,61 @@ const TONE_TEXT: Record<string, string> = {
   neutral: 'text-c1',
 }
 
+/**
+ * One tile may be `hero` — filled with the accent, the way the reference fills
+ * its headline metric. It is `Analysed`, and it is deliberately the boring one.
+ *
+ * `Malicious` would have been the striking choice and it is the one the palette
+ * forbids: the accent is not a status colour (rule 2 in index.css), and filling
+ * the malware count with it teaches a viewer that lime means danger, three
+ * inches from a red `Malicious` chip that also means danger. A neutral total
+ * carries the accent without claiming anything.
+ *
+ * Captions are one or two words now. Each tile used to carry a full sentence —
+ * "flagged or unclassified above the floor" under a number — and four of those
+ * across a row is a paragraph pretending to be a metric strip. The sentence
+ * moved to the `title` attribute, where it is still available on hover and no
+ * longer competes with the figure it explains.
+ */
 function StatTile({
   label,
   value,
   tone = 'neutral',
   caption,
+  hint,
+  hero = false,
   i = 0,
 }: {
   label: string
   value: number
   tone?: keyof typeof TONE_TEXT
   caption?: string
+  hint?: string
+  hero?: boolean
   i?: number
 }) {
   const v = useCountUp(value)
   return (
     <div
-      className="rise-in lift rounded-panel border border-hair bg-panel px-4 py-3.5"
+      className={cx(
+        'rise-in lift rounded-panel border px-5 py-5',
+        hero ? 'border-brand bg-brand' : 'border-hair bg-panel',
+      )}
       style={{ '--i': i } as CSSProperties}
+      title={hint}
     >
-      <div className="label text-c3">{label}</div>
-      <div className={cx('mt-1 text-display font-semibold tabular-nums', TONE_TEXT[tone])}>{Math.round(v)}</div>
-      {caption && <div className="text-xs mt-1 text-c3">{caption}</div>}
+      <div className={cx('label', hero ? 'text-on-brand/70' : 'text-c3')}>{label}</div>
+      <div
+        className={cx(
+          'mt-2.5 text-display font-semibold tabular-nums',
+          hero ? 'text-on-brand' : TONE_TEXT[tone],
+        )}
+      >
+        {Math.round(v)}
+      </div>
+      {caption && (
+        <div className={cx('text-xs mt-1.5', hero ? 'text-on-brand/70' : 'text-c3')}>{caption}</div>
+      )}
     </div>
   )
 }
@@ -130,7 +163,7 @@ export function Dashboard() {
       {stale && <StaleNotice error={error} onRetry={refresh} />}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile label="Analysed" value={total} caption="completed jobs" i={0} />
+        <StatTile label="Analysed" value={total} caption="completed" hero i={0} />
         <StatTile
           label="Malicious"
           value={bucketCount('malicious')}
@@ -142,10 +175,13 @@ export function Dashboard() {
           label="Needs attention"
           value={attention}
           tone={attention ? 'warning' : 'neutral'}
-          // Not only those two: the API also counts a completed job that
+          caption="flagged"
+          // Not only the flagged ones: the API also counts a completed job that
           // scored at or above the attention floor without reaching a verdict.
-          // Excluding it would hide the "could not classify, looks bad" case.
-          caption="flagged or unclassified above the floor"
+          // Excluding it would hide the "could not classify, looks bad" case —
+          // so the caption is short and the full rule is on hover, rather than
+          // the rule being dropped to make the caption short.
+          hint="Flagged by the engine, or completed above the attention floor without reaching a verdict"
           i={2}
         />
         <StatTile label="Analysing now" value={running} tone={running ? 'brand' : 'neutral'} caption="in the queue" i={3} />

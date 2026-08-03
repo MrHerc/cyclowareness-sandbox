@@ -48,23 +48,26 @@ export function Panel({
       className={cx('rounded-panel border', tones[tone], className)}
       {...rest}
     >
+      {/* 24px, up from 20. A 16px radius eats the corner of a 20px inset and
+          the first character of a heading sits visually closer to the edge than
+          the last one does — the gap has to clear the curve. */}
       {(title || actions) && (
         <header
           className={cx(
             'flex items-start justify-between gap-4',
-            padded ? 'px-5 pt-4' : 'px-0 pt-0',
-            children ? 'pb-3' : 'pb-4',
+            padded ? 'px-6 pt-5' : 'px-0 pt-0',
+            children ? 'pb-4' : 'pb-5',
           )}
         >
           <div className="min-w-0">
             {title && <h2 className="text-h truncate">{title}</h2>}
-            {subtitle && <p className="text-sm mt-0.5 text-c2">{subtitle}</p>}
+            {subtitle && <p className="text-sm mt-1 text-c3">{subtitle}</p>}
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
         </header>
       )}
-      <div className={cx(padded && (title || actions ? 'px-5 pb-5' : 'p-5'))}>{children}</div>
-      {footer && <div className={cx('border-t border-hair', padded && 'px-5 py-3')}>{footer}</div>}
+      <div className={cx(padded && (title || actions ? 'px-6 pb-6' : 'p-6'))}>{children}</div>
+      {footer && <div className={cx('border-t border-hair', padded && 'px-6 py-4')}>{footer}</div>}
     </section>
   )
 }

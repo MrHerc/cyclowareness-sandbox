@@ -1,7 +1,12 @@
 /**
  * The wordmark. An inset containment square — the visual idea of the product:
- * something hostile held inside a boundary and inspected. Brand violet, never a
+ * something hostile held inside a boundary and inspected. Brand hue, never a
  * status hue. No emoji, no raster logo.
+ *
+ * It names no colour: `stroke-brand` and `fill-brand` follow the token, so the
+ * repaint from blue to lime did not touch this file. The comment said "violet",
+ * which the accent had not been for two revisions — a stale colour name in a
+ * comment is how the next person picks the wrong one.
  */
 export function Brand({ size = 22, withText = true }: { size?: number; withText?: boolean }) {
   return (

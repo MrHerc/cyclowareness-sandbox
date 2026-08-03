@@ -47,7 +47,7 @@ export function Login() {
 
         <form
           onSubmit={onSubmit}
-          className="rise rounded-panel border border-hair bg-panel p-5 shadow-sm"
+          className="rise rounded-panel border border-hair bg-panel p-6 shadow-sm"
         >
           <div className="space-y-4">
             <Input

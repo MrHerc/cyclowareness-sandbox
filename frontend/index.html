@@ -3,17 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark light" />
     <title>Cyclowareness Sandbox</title>
     <script>
-      // Apply the stored theme before React mounts, so there is no flash. Light
-      // is the unconditional default — the OS dark preference does not override.
+      // Apply the stored theme before React mounts, so there is no flash. Dark
+      // is the unconditional default — the OS light preference does not
+      // override. Must stay in lockstep with `read()` in lib/useTheme.ts: if
+      // these two disagree the page paints one ground and then swaps.
       (function () {
         try {
           var t = localStorage.getItem('csbx_theme')
-          document.documentElement.dataset.theme = t === 'dark' ? 'dark' : 'light'
+          document.documentElement.dataset.theme = t === 'light' ? 'light' : 'dark'
         } catch (e) {
-          document.documentElement.dataset.theme = 'light'
+          document.documentElement.dataset.theme = 'dark'
         }
       })()
     </script>

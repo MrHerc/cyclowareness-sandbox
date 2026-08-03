@@ -5,14 +5,19 @@ export type Theme = 'dark' | 'light'
 const KEY = 'csbx_theme'
 
 /**
- * Light is the product's identity, so it is the unconditional default. A
- * visitor who has never chosen gets the near-white instrument — the OS dark
- * preference does NOT auto-select dark, because the whole look was designed
- * light-first. Dark stays available for anyone who toggles to it.
+ * Dark is the product's identity, so it is the unconditional default. A visitor
+ * who has never chosen gets the dark ground — the OS *light* preference does
+ * NOT auto-select light, for the same reason the old comment gave in reverse:
+ * the look is designed around one ground, and the other is a supported
+ * alternative rather than a second identity.
+ *
+ * Anyone who had toggled to light keeps light: the stored value is still read,
+ * so the repaint does not reach into a browser and overrule a choice already
+ * made. Only the never-chosen case moved.
  */
 function read(): Theme {
   const stored = localStorage.getItem(KEY)
-  return stored === 'dark' ? 'dark' : 'light'
+  return stored === 'light' ? 'light' : 'dark'
 }
 
 /** Applied before React mounts too — see the inline script in index.html. */

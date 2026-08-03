@@ -9,30 +9,41 @@
       product can be re-themed (and printed, and projected) without hunting
       literals through 30 components. Charts and SVG read the same variables.
 
-   2. The brand hue is NOT a status colour. A professional blue means
-      "Cyclowareness Sandbox / the thing you are pointing at". Red, amber and
-      green mean risk, and only risk. Because the accent is blue, the info tone
-      is cyan (a clearly separate hue), never the brand — an earlier palette
-      reused one colour for brand AND status and they became indistinguishable.
+   2. The brand hue is NOT a status colour. Lime means "Cyclowareness Sandbox /
+      the thing you are pointing at". Red, amber and green mean risk, and only
+      risk. This rule survived the repaint and constrains it: the one lime-filled
+      tile on the dashboard is `Analysed`, a neutral count, because filling
+      `Malicious` with the accent would put two unrelated meanings on one colour.
+      Amber moved toward orange in the same change — the old #f5b544 sat 45° from
+      the lime and the two read as the same signal at a glance.
 
    3. Every content tone clears WCAG AA (4.5:1) on the surface it sits on.
 
-   4. **Light is the default.** The instrument reads on a near-white ground:
-      exhibition halls are lit for photography, projectors wash dark UI out, and
-      the first screenshot of this product usually lands on a white slide. Dark
-      is a supported alternative, not the identity.
+   4. **Dark is the default.** It was light, on the reasoning that exhibition
+      halls are lit for photography and projectors wash dark UI out. That reason
+      is still true and the light theme is still here, still complete, still one
+      click away — but the identity is now the dark one. Anyone demoing under
+      hall lights should flip it before the room fills.
 
-   The look is meant to read as an INSTRUMENT — cool neutrals, hairline rules, a
-   fine measurement grid, tabular figures, high-chroma accent used sparingly —
-   rather than as a soft pastel dashboard.
+   The look: a deep neutral ground, one high-chroma accent, generously rounded
+   panels with real air between them, and few words per panel. The previous
+   revision read as an instrument — hairline rules, tight radii, a measurement
+   grid, a caption under every number. Three lines of explanation under a metric
+   is not density, it is noise, and the grid competed with the data drawn on top
+   of it.
    ========================================================================== */
 
 @theme {
-  /* --- surfaces: canvas < raised < panel, with sunken for wells ----------- */
-  --color-canvas: #f3f4f8;
-  --color-panel: #ffffff;
-  --color-raised: #f8f9fc;
-  --color-sunken: #eaecf3;
+  /* --- surfaces: canvas < raised < panel, with sunken for wells -------------
+     The DEFAULT block is the dark one now; `[data-theme="light"]` below carries
+     the light values. Keeping the default in `@theme` rather than in a media
+     query matters: `useTheme` writes the attribute on `:root`, and a themed
+     product that flashes the wrong ground for one frame on every load looks
+     broken in exactly the demo it is being shown in. */
+  --color-canvas: #08090b;
+  --color-panel: #101216;
+  --color-raised: #191c22;
+  --color-sunken: #050608;
 
   /* --- lines: hairline, structural, emphatic -------------------------------
      `hair` is decoration and may be faint. `line` is the boundary of a CONTROL
@@ -40,42 +51,48 @@
      against the surface behind it. The old #d6d9e4 measured 1.34:1 on `raised`,
      so the only thing marking an input was a shadow of a border that a
      low-vision analyst could not see at all. */
-  --color-hair: #e6e8f0;
-  --color-line: #82899e;
-  --color-line-strong: #5b6274;
+  --color-hair: #1e222a;
+  --color-line: #5d6472;
+  --color-line-strong: #858c9c;
 
   /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------
-     c3 must clear 4.5:1 on the *darkest* light surface it lands on, which is
-     the canvas (captions sit outside panels) and the sunken well — not just on
-     white. The old #6c7385 measured 4.31:1 on canvas. */
-  --color-c1: #12141c;
-  --color-c2: #4d5364;
-  --color-c3: #636a7c;
+     c3 must clear 4.5:1 on the *darkest* surface it lands on, which is the
+     canvas (captions sit outside panels) and the sunken well — not just on the
+     panel. */
+  --color-c1: #f4f6fa;
+  --color-c2: #a9b0bf;
+  --color-c3: #8b93a3;
 
-  /* --- brand: professional blue. fills/strokes use `brand`, text `brand-fg`
-     `on-brand` is the only legal foreground on a brand fill, and `brand-hover`
-     replaces an opacity fade: fading the fill toward the surface moves it
-     *toward* the label in light mode, and `bg-brand/85` dropped the primary CTA
-     to 3.98:1 on hover. The hover step darkens (light) / lightens (dark). */
-  --color-brand: #2563eb;
-  --color-brand-fg: #1d4ed8;
-  --color-brand-dim: #e7eefe;
-  --color-brand-hover: #1d4ed8;
-  --color-on-brand: #ffffff;
+  /* --- brand: lime. fills/strokes use `brand`, text `brand-fg` --------------
+     `on-brand` is the only legal foreground on a brand fill. The accent is a
+     LIGHT colour now, so that foreground is near-black — white on lime measures
+     1.5:1 and is unreadable, which is the trap in repainting a dark accent
+     light. `brand-hover` replaces an opacity fade, because fading a fill toward
+     a dark ground drags it toward the label it carries. */
+  --color-brand: #c8f751;
+  --color-brand-fg: #c8f751;
+  --color-brand-dim: #1d2610;
+  --color-brand-hover: #d7fa77;
+  --color-on-brand: #0b1003;
 
-  /* --- status: risk only (info is cyan, kept distinct from the blue brand) - */
-  --color-danger: #c81e1e;
-  --color-warning: #9a5b00;
-  --color-success: #077d55;
-  --color-info: #0e7490;
+  /* --- status: risk only ---------------------------------------------------
+     Amber moved to orange in the repaint. The old #f5b544 sits ~45° from the
+     lime accent, and on a dark ground two bright yellow-greens read as one
+     signal — the exact collapse rule 2 exists to prevent. Info stays cyan,
+     which was already the far side of the wheel from the old blue brand and is
+     further still from this one. */
+  --color-danger: #ff6b6b;
+  --color-warning: #ff9f43;
+  --color-success: #3ecf8e;
+  --color-info: #22d3ee;
 
   /* --- data series (charts): distinguishable, and never the brand hue ----- */
-  --color-series-1: #c81e1e;
-  --color-series-2: #077d55;
-  --color-series-3: #0e7490;
+  --color-series-1: #ff6b6b;
+  --color-series-2: #3ecf8e;
+  --color-series-3: #22d3ee;
 
-  /* --- the measurement grid laid over the canvas ------------------------- */
-  --color-grid: #dfe2ec;
+  /* --- chart gridlines. No longer laid over the canvas: see `body`. ------- */
+  --color-grid: #1a1e26;
 
   /* --- type scale: eight steps, nothing else -------------------------------
      An earlier version used thirteen sizes across three notations
@@ -117,49 +134,60 @@
   --font-sans: "Inter var", "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Mono", ui-monospace, Consolas, monospace;
 
-  /* Small radii read as instrumentation; large ones read as a consumer app. */
-  --radius-panel: 0.5rem;
-  --radius-control: 0.375rem;
-  --radius-chip: 0.25rem;
+  /* The previous revision argued small radii read as instrumentation and large
+     ones as a consumer app. That is true in isolation and was the wrong trade
+     here: at 8px, with a hairline border and a caption under every number, the
+     panels read as a spreadsheet with rounded corners. The generous radius is
+     what buys the layout its calm — it needs the air around it to work, which
+     is why the spacing went up in the same change. */
+  --radius-panel: 1rem;
+  --radius-control: 0.625rem;
+  --radius-chip: 0.5rem;
 }
 
 /* -----------------------------------------------------------------------------
-   Dark theme. Same token names, so no component knows which theme is running.
-   Kept for low-light demo rooms and for anyone who prefers it.
+   Light theme. Same token names, so no component knows which theme is running.
+
+   This used to be the default and is now the alternative. It is kept COMPLETE
+   rather than trimmed, because the reason it existed has not gone away: an
+   exhibition hall lit for photography, and a projector, both wash a dark UI
+   out. One click before the room fills.
+
+   The accent stays lime here too — a brand that changes hue with the theme is
+   not a brand. What changes is the TEXT tone: lime type on white measures
+   1.3:1, so `brand-fg` becomes a dark olive of the same hue, while fills keep
+   the lime with a near-black label on top.
    -------------------------------------------------------------------------- */
-:root[data-theme="dark"] {
-  --color-canvas: #0a0b0f;
-  --color-panel: #131520;
-  --color-raised: #1b1e2b;
-  --color-sunken: #080910;
+:root[data-theme="light"] {
+  --color-canvas: #f2f4f0;
+  --color-panel: #ffffff;
+  --color-raised: #f8f9f6;
+  --color-sunken: #e9ebe6;
 
-  --color-hair: #212432;
-  --color-line: #656c85;
-  --color-line-strong: #868da8;
+  --color-hair: #e4e7e0;
+  --color-line: #838a7c;
+  --color-line-strong: #5c6357;
 
-  --color-c1: #f2f3f8;
-  --color-c2: #a3a8bb;
-  --color-c3: #8d93a8;
+  --color-c1: #14170f;
+  --color-c2: #4e5449;
+  --color-c3: #626859;
 
-  --color-brand: #5b8cff;
-  --color-brand-fg: #8fb0ff;
-  --color-brand-dim: #16233f;
-  --color-brand-hover: #7ba1ff;
-  /* White on the dark brand is 3.16:1 — a fail on the one control that appears
-     on every page. The dark theme's brand is a light blue, so its foreground
-     has to be dark. */
-  --color-on-brand: #0a0b0f;
+  --color-brand: #c8f751;
+  --color-brand-fg: #4a6604;
+  --color-brand-dim: #eefac9;
+  --color-brand-hover: #bcee3c;
+  --color-on-brand: #0b1003;
 
-  --color-danger: #ff6b6b;
-  --color-warning: #f5b544;
-  --color-success: #3ecf8e;
-  --color-info: #22d3ee;
+  --color-danger: #c81e1e;
+  --color-warning: #9a5b00;
+  --color-success: #077d55;
+  --color-info: #0e7490;
 
-  --color-series-1: #ff6b6b;
-  --color-series-2: #3ecf8e;
-  --color-series-3: #22d3ee;
+  --color-series-1: #c81e1e;
+  --color-series-2: #077d55;
+  --color-series-3: #0e7490;
 
-  --color-grid: #191c28;
+  --color-grid: #dfe2d9;
 }
 
 /* =============================================================================
@@ -175,11 +203,11 @@ html {
      tabular figures everywhere is cheaper than remembering `tabular-nums` at
      forty call sites. */
   font-variant-numeric: tabular-nums;
-  color-scheme: light;
+  color-scheme: dark;
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
+:root[data-theme="light"] {
+  color-scheme: light;
 }
 
 body {
@@ -188,16 +216,22 @@ body {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 
-  /* A 24px measurement grid, at the threshold of visibility. It is what makes
-     the near-white ground read as an instrument surface rather than as blank
-     paper — present when you look for it, absent when you read. Panels sit
-     opaque on top, so it never interferes with data. */
+  /* The 24px measurement grid is GONE. It was defended as being at the
+     threshold of visibility, and on a near-white ground it was. On a near-black
+     one the same lines read as texture behind every chart, and the charts draw
+     their own gridlines on top — two grids at different pitches, in the one
+     place the eye is trying to follow a line. `--color-grid` is still a token;
+     it now means what its name says and nothing more.
+     Replaced by a single wide accent wash at the top of the page: enough to
+     stop the ground reading as flat black, cheap enough not to repaint. */
   background-color: var(--color-canvas);
-  background-image:
-    linear-gradient(to right, var(--color-grid) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-grid) 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-position: -1px -1px;
+  background-image: radial-gradient(
+    120% 46% at 18% -14%,
+    color-mix(in oklab, var(--color-brand) 9%, transparent),
+    transparent 62%
+  );
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 ::selection {
