@@ -201,11 +201,26 @@ def test_health_and_metrics_stay_available_under_load(client) -> None:
 # unauthenticated caller -- the one most likely to be reading them.
 
 def test_the_limit_and_remaining_headers_come_from_one_bucket(client) -> None:
-    response = client.get("/api/health")
+    """The headers this asserts on were never on the response it asked for.
+
+    It probed `/api/health`, which is in `EXEMPT_PATHS` and therefore carries no
+    rate-limit headers at all, so the `pytest.skip` fired on every run since the
+    test was written. A skip reads as "not applicable here" and this one meant
+    "this test has never executed". The defect it guards -- `limit` and
+    `remaining` computed from two different buckets, which only ever misled the
+    unauthenticated caller -- was free to come back.
+
+    `/api/jobs` is metered, and the unauthenticated case is asserted on purpose:
+    that is the caller the original defect affected.
+    """
+    response = client.get("/api/jobs")
     limit = response.headers.get("x-ratelimit-limit")
     remaining = response.headers.get("x-ratelimit-remaining")
-    if limit is None or remaining is None:
-        pytest.skip("this route is not rate limited")
+    assert limit is not None and remaining is not None, (
+        "/api/jobs is not exempt and must carry both headers; if the exemption "
+        "list changed, point this test at another metered route rather than "
+        "letting it skip"
+    )
     assert int(remaining) <= int(limit), (
         f"remaining {remaining} exceeds limit {limit}: the two describe "
         "different buckets"

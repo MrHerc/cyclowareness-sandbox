@@ -129,16 +129,43 @@ def test_hostile_der_raises_rather_than_crashing(payload) -> None:
 
 def test_deep_nesting_does_not_reach_the_stack() -> None:
     """Built iteratively for this reason: 5000 nested SEQUENCEs would end a
-    recursive walker with a RecursionError, which is a crash, not a verdict."""
+    recursive walker with a RecursionError, which is a crash, not a verdict.
+
+    THE LOOP USED TO STOP AT 64 LEVELS AND ASSERT NOTHING. It read
+
+        payload = bytes([0x30, len(payload) & 0x7F]) + payload if len(payload) < 0x80 else payload
+
+    and once the payload passed 0x80 bytes the conditional assigned `payload` to
+    itself -- so 4936 of the 5000 iterations were no-ops, the depth never left
+    short-form DER, and the body contained no assertion at all. It could not
+    fail. `authenticode._read`/`_find` parse attacker-controlled DER out of a
+    PE certificate table on every signed sample, so the crash this is named
+    after is reachable from a file someone uploads.
+
+    Long-form lengths keep the nesting real past 127 bytes, and the outcome is
+    asserted rather than inferred from the absence of an exception.
+    """
     payload = b""
     for _ in range(5000):
-        payload = bytes([0x30, len(payload) & 0x7F]) + payload if len(payload) < 0x80 else payload
+        length = len(payload)
+        # 0x82 = definite long form, two length octets.
+        payload = bytes([0x30, 0x82, (length >> 8) & 0xFF, length & 0xFF]) + payload
+
+    # The premise, before the thing under test: a payload that did not actually
+    # nest would make the rest of this vacuous in a new way. Four bytes of
+    # header per level, so the length is exact and states the depth directly --
+    # a `>` bound here was off by one against its own arithmetic.
+    assert len(payload) == 5000 * 4, f"the fixture nested to {len(payload) // 4} levels"
+
     try:
         node = authenticode._read(payload, 0, len(payload))
         for _e, _l in authenticode._find(payload, node, [200_000]):
             pass
     except authenticode.DerError:
+        # The parser rejecting it is a verdict, and an acceptable one.
         pass
+    except RecursionError:  # pragma: no cover - the defect this guards
+        pytest.fail("the DER walker recursed on nested SEQUENCEs: 5000 levels crashed it")
 
 
 def test_a_file_that_is_not_a_pe_is_simply_unsigned() -> None:
@@ -386,14 +413,42 @@ def test_a_verified_publisher_is_not_called_a_backdoor() -> None:
 def test_a_signed_malicious_sample_keeps_its_accusing_name() -> None:
     """Deliberately narrow: signed malware exists — eight samples on the
     detonation host are signed — so a `malicious` verdict keeps its category."""
+    # THE FIXTURE HAS TO REACH `malicious`, because that is the branch under
+    # test. The Riskware rewrite at verdict.py:719 is gated on
+    # `verdict == "suspicious"`, and these four behavioural signals alone score
+    # to `suspicious` -- so the test was exercising the branch it exists to
+    # prove is NOT taken, and its `if` swallowed the result.
+    #
+    # A named family is how a signed sample really reaches `malicious` here: the
+    # sandbox recognising the strain is an identity claim, and identity outranks
+    # the score. That is also the real-world shape of this case -- signed
+    # ransomware whose family CAPE knows.
+    identified = Signal(
+        id="capev2.detection.wanacry",
+        title="CAPE identified WanaCry",
+        severity="critical",
+        detail="",
+        evidence={"family": "WanaCry"},
+    )
     heavy = [_signal("capev2.mass_data_encryption"),
              _signal("capev2.deletes_shadow_copies"),
              _signal("capev2.credential_dumping"),
              _signal("capev2.persistence_autorun"),
+             identified,
              VERIFIED]
     got = _classify(heavy)
-    if got.verdict == "malicious":
-        assert got.category != "Riskware", got.to_dict()
+    # THE PREMISE, ASSERTED. This read `if got.verdict == "malicious":` around
+    # its only assertion, and the fixture stopped reaching `malicious` at some
+    # point after it was written -- so the guard swallowed the whole test and it
+    # went green while checking nothing. A premise that stops holding must fail
+    # loudly, because the rule underneath it is live: `verdict.classify` still
+    # rewrites a Ransom category to Riskware whenever `pe.signature_verified` is
+    # present, and that rewrite is what this exists to bound.
+    assert got.verdict == "malicious", (
+        "the fixture no longer reaches a malicious verdict, so the category rule "
+        f"below is untested: {got.to_dict()}"
+    )
+    assert got.category != "Riskware", got.to_dict()
 
 
 def test_the_structural_list_holds_no_behaviour() -> None:

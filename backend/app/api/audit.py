@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from .. import __version__, audit
@@ -150,7 +150,7 @@ def export(
     for the window it has not seen yet, and an unbounded export is a memory
     profile an attacker can trigger with one authenticated request.
     """
-    _total, events = audit.query(
+    total, events = audit.query(
         db,
         actor=actor,
         action=action,
@@ -160,7 +160,38 @@ def export(
         limit=limit,
         offset=offset,
     )
+    # THE TOTAL WAS COMPUTED AND THROWN AWAY, and this is the chain of custody.
+    #
+    # A SIEM asking for the export got `count: 1000` out of 14,044 events with
+    # nothing in the body or the headers to say a page boundary had been hit.
+    # A poller that trusts `count` stops there, and the gap it leaves is
+    # invisible: an audit log that is silently short is worse than one that is
+    # missing, because the short one still looks complete.
+    #
+    # `count` keeps its meaning (rows in THIS response) so an existing consumer
+    # does not change behaviour; `total`, `offset` and `has_more` are the new
+    # facts. The headers carry the same three, because `format=cef` returns
+    # plain text and a CEF collector has nowhere else to read them.
+    remaining = max(0, total - (offset + len(events)))
+    headers = {
+        "X-Total-Count": str(total),
+        "X-Result-Offset": str(offset),
+        "X-Has-More": "true" if remaining else "false",
+    }
     if format == "cef":
         body = "\n".join(audit.to_cef(e, product_version=__version__) for e in events)
-        return PlainTextResponse(content=body + "\n" if body else "", media_type="text/plain")
-    return {"count": len(events), "items": [event.to_dict() for event in events]}
+        return PlainTextResponse(
+            content=body + "\n" if body else "",
+            media_type="text/plain",
+            headers=headers,
+        )
+    return JSONResponse(
+        content={
+            "count": len(events),
+            "total": total,
+            "offset": offset,
+            "has_more": bool(remaining),
+            "items": [event.to_dict() for event in events],
+        },
+        headers=headers,
+    )

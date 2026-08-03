@@ -267,7 +267,12 @@ def _family_token(signals: list, family: str | None = None) -> str:
     return (token or "Agent")[:20]
 
 
-def _worst(signals: list, family: str | None = None) -> str:
+def _worst(
+    signals: list,
+    family: str | None = None,
+    *,
+    dynamic_attributable: bool = True,
+) -> str:
     """The worst severity that may drive an engine's verdict.
 
     Reads `scoring.effective_severity`, not `signal.severity`, so an ambient
@@ -275,6 +280,24 @@ def _worst(signals: list, family: str | None = None) -> str:
     score said "clean" and the engine panel still headlined the file with
     `hardware_id_profiling` at high — one number and one label disagreeing about
     the same sample.
+
+    AND THE SAME SENTENCE APPLIES ONE AXIS OVER. `effective_severity` takes two
+    independent guards, and this function forwarded only one of them: `family`
+    carries the calibration axis, and `dynamic_attributable` — "Windows cannot
+    run this file, so the guest's behaviour is the guest's" — was left at its
+    default of True. So on a sample the engine had already decided may not
+    accuse, the `CS-dynamic.capev2` row published the raw CAPE severity.
+
+    Measured over the 839 detonated jobs on the live deployment: 90 engine rows
+    stored `high` where the score had banded every one of their signals `low`.
+    One of them is a file called LICENSE. The signed evidence bundle for it
+    carries, three keys apart, `"severity": "high"` on the row and a
+    `dynamic_not_attributable` block stating those findings are "excluded from
+    the score" — the same document asserting both.
+
+    Invisible on screen, because the UI hides the chip on an undetected row.
+    Present in every machine-readable artifact, which is the half that leaves
+    the building.
     """
     if not signals:
         return "info"
@@ -283,8 +306,12 @@ def _worst(signals: list, family: str | None = None) -> str:
     alone = uncorroborated(signals)
     signed = publisher_verified(signals)
     return max(
-        (effective_severity(s, alone, verified_publisher=signed, family=family)
-         for s in signals),
+        (effective_severity(
+            s, alone,
+            verified_publisher=signed,
+            family=family,
+            dynamic_attributable=dynamic_attributable,
+        ) for s in signals),
         key=lambda sev: SEVERITY_ORDER.get(sev, 0),
     )
 
@@ -436,7 +463,12 @@ def classify(
             continue
         if name is None:
             name = f"CS-{result.analyzer}"
-        worst = _worst(result.signals, family)
+        # THE ONE CALL THAT SEES RAW DYNAMIC SIGNALS. Every other `_worst` call
+        # in this function is handed a list the exclusions have already been
+        # applied to (`admissible`, `identification`, static-only reputation
+        # ids); this one is the analyzer's own list, so it is the only place the
+        # attributability axis has to be threaded by hand.
+        worst = _worst(result.signals, family, dynamic_attributable=attributable)
         if result.analyzer.startswith('dynamic.'):
             # A detonation ALWAYS produces medium-or-worse signals — every
             # program that runs performs discovery, touches the registry and
@@ -505,7 +537,15 @@ def classify(
         "engine": "CS-Heuristic",
         "detected": bool(accusing),
         "result": threat_name if accusing else "undetected",
-        "severity": _worst(all_signals, family) if accusing else "info",
+        # `all_signals`, so the same axis has to be passed here. Zero live rows
+        # are wrong today — `accusing` is empty on every job that carries
+        # `dynamic_not_attributable` — which makes this the latent half of the
+        # same defect rather than a second one, and exactly the kind that ships
+        # the day a capability set widens.
+        "severity": (
+            _worst(all_signals, family, dynamic_attributable=attributable)
+            if accusing else "info"
+        ),
     })
 
     # Sandbox identification. Distinct from every engine above, because those

@@ -72,6 +72,17 @@ export interface MitreTechnique {
   name: string
   tactic: string
   evidence: string[]
+  /**
+   * What the mapping rested on. `signal-id` means the signal's own identifier
+   * carried the keyword — a structured fact. `description` means only the
+   * sandbox's prose sentence did, and that prose hedges: "can be used to adapt
+   * C2 network behaviour" is how a FIPS policy query came to assert T1071.
+   *
+   * 22% of stored assertions are `description`. Deleting them was measured
+   * twice and costs 603-1105 techniques on malicious samples against a bar of
+   * 28, so the claim stays and its footing is shown instead.
+   */
+  basis?: 'signal-id' | 'description'
 }
 
 export interface JobSummary {

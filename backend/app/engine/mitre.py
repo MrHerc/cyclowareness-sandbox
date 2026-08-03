@@ -164,20 +164,74 @@ def map_techniques(
     for signal in signals:
         if _is_anti_analysis(signal):
             tid, name, tactic = _ANTI_TECHNIQUE
+            # `_is_anti_analysis` matches whole underscore/dot tokens of the ID
+            # (mitre.py:136), never the prose, so this branch is id-backed by
+            # construction. Stated rather than left absent, because a missing
+            # `basis` on one branch is how a consumer learns to treat the field
+            # as optional and then stops rendering it.
             entry = found.setdefault(
-                tid, {"technique_id": tid, "name": name, "tactic": tactic, "evidence": []}
+                tid,
+                {
+                    "technique_id": tid, "name": name, "tactic": tactic,
+                    "evidence": [], "basis": "signal-id",
+                },
             )
+            entry["basis"] = "signal-id"
             if signal.id not in entry["evidence"]:
                 entry["evidence"].append(signal.id)
             continue
-        hay = f"{signal.id} {signal.title}".lower()
+        # WHAT THE MATCH RESTED ON IS PART OF THE CLAIM.
+        #
+        # The rule table is matched against the signal id AND its prose title,
+        # and the title is where a sandbox writes its hypotheses. Measured over
+        # 751 stored jobs: 1,012 of 4,551 technique assertions (22%) rest on the
+        # description alone, and the descriptions doing it hedge --
+        #
+        #   "Queried the FIPS cryptography policy, can be used to adapt C2
+        #    network behaviour"                                    -> T1071
+        #   "Queries registry mount points to identify historical or connected
+        #    removable drives"                                     -> T1091
+        #   "Performs high-volume NtQueryInformationToken calls"   -> T1486
+        #
+        # -- the last one on PsInfo64.exe, which the engine calls clean.
+        #
+        # TWO REPAIRS WERE MEASURED AND BOTH WERE WORSE THAN THE DISEASE.
+        # Matching ids only costs 897-1,105 techniques on MALICIOUS samples;
+        # ignoring hedged titles costs 603. The bar this codebase already set is
+        # 28 (mitre.py:148, and the severity gate rejected at that price). The
+        # mapping's coverage genuinely rests on prose, so deleting prose deletes
+        # the mapping.
+        #
+        # So the claim is kept and its FOOTING is published. `basis` is
+        # "signal-id" when the identifier itself carries the keyword -- a
+        # structured, stable fact -- and "description" when only the sandbox's
+        # sentence did. A reader can then weigh a technique instead of being
+        # asked to trust it, which is the same move this product makes wherever
+        # it cannot measure something: state the limit rather than hide it.
+        low_id = signal.id.lower()
+        low_title = str(signal.title or "").lower()
         for keys, tid, name, tactic in _RULES:
-            if any(k in hay for k in keys):
-                entry = found.setdefault(
-                    tid, {"technique_id": tid, "name": name, "tactic": tactic, "evidence": []}
-                )
-                if signal.id not in entry["evidence"]:
-                    entry["evidence"].append(signal.id)
+            in_id = any(k in low_id for k in keys)
+            in_title = any(k in low_title for k in keys)
+            if not (in_id or in_title):
+                continue
+            entry = found.setdefault(
+                tid,
+                {
+                    "technique_id": tid,
+                    "name": name,
+                    "tactic": tactic,
+                    "evidence": [],
+                    "basis": "description",
+                },
+            )
+            # One id-backed signal is enough to make the whole technique
+            # id-backed: the strongest available footing wins, and it is a
+            # property of the claim, not of the last signal that touched it.
+            if in_id:
+                entry["basis"] = "signal-id"
+            if signal.id not in entry["evidence"]:
+                entry["evidence"].append(signal.id)
     # Stable order: by tactic then technique id.
     _TACTIC_ORDER = [
         "Initial Access", "Execution", "Persistence", "Privilege Escalation",

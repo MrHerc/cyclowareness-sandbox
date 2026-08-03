@@ -135,9 +135,32 @@ def test_a_nested_archive_carries_it_up_every_level(db) -> None:
     inner = _zip_of("payload.txt", b"quiet inner payload text for the test")
     job = _run_archive(db, _zip_of("inner.zip", inner), name="outer.zip")
     everything = _children(db, job)
-    deepest = max(everything, key=lambda d: len((d.archive_path or "").split("/")))
-    if deepest.parent_job_id == job.id:
-        return                                   # no nesting on this platform
+
+    # DEPTH IS THE PARENT CHAIN, NOT THE NUMBER OF SLASHES IN A NAME.
+    #
+    # This selected the deepest member by counting "/" in `archive_path`, and
+    # the grandchild of a zip-in-a-zip is stored with a flat path -- so `max`
+    # returned a direct child, `deepest.parent_job_id == job.id` was true, and
+    # the function returned before reaching a single assertion. Every run since
+    # has been green without testing the multi-level walk at all. 184 grandchild
+    # rows exist on the live deployment, so this is a routine shape, not an edge
+    # case the fixture failed to reach.
+    def _depth(row) -> int:
+        n, seen = 0, set()
+        while row.parent_job_id and row.parent_job_id not in seen:
+            seen.add(row.parent_job_id)
+            row = db.get(type(row), row.parent_job_id)
+            if row is None:
+                break
+            n += 1
+        return n
+
+    deepest = max(everything, key=_depth)
+    assert _depth(deepest) >= 2, (
+        "the fixture no longer nests: a zip inside a zip must produce a "
+        f"grandchild, got depth {_depth(deepest)} over {len(everything)} members. "
+        "Fix the fixture -- do not skip, the walk is the thing under test."
+    )
 
     deepest.verdict = {
         "verdict": "malicious", "threat_name": "Win32.Trojan.Deep", "detection_ratio": "1 / 7",

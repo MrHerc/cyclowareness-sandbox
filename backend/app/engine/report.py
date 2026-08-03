@@ -1029,6 +1029,42 @@ def as_pdf(job) -> bytes:
         TableStyle,
     )
 
+    # THE PDF WAS THE ONE EXPORT THAT DID NOT SCRUB THE ESTATE.
+    #
+    # `as_json` routes every job-derived structure through
+    # `_without_infrastructure` (report.py:508-529) and `as_stix` does it at 783.
+    # `as_pdf` read `_top_reasons`, `_tiers_summary`, `_analysis`, `_verdict` and
+    # `_tier_caveats` raw -- and the PDF is the export most likely to be attached
+    # to a mail. Measured on the live deployment: 397 jobs carry the detonation
+    # host's name in `tiers.dynamic.detail`, and 12 of 12 rendered PDFs printed
+    # it. A reader learned the hostname of the machine this organisation runs
+    # live malware on, from a document about a file.
+    #
+    # Scrubbed ONCE here, through local accessors, rather than at each of the
+    # five call sites. Five call sites is how the sixth one gets added without
+    # the scrub -- which is the shape of this defect in the first place.
+    _own_names = _infrastructure_names(job)
+
+    def _pdf_verdict():
+        return _without_infrastructure(_verdict(job), _own_names)
+
+    def _pdf_top_reasons():
+        return _without_infrastructure(_top_reasons(job), _own_names)
+
+    def _pdf_tiers():
+        # `machine` means "which of our guests ran this" in the dynamic tier and
+        # "what architecture the binary targets" in `pe`/`elf`, so it is removed
+        # here and nowhere else -- same rule `as_json` follows.
+        return _without_infrastructure(
+            _tiers_summary(job), _own_names, extra_keys=_DYNAMIC_ONLY_KEYS
+        )
+
+    def _pdf_caveats():
+        return _without_infrastructure(_tier_caveats(job), _own_names)
+
+    def _pdf_analysis():
+        return _without_infrastructure(_analysis(job), _own_names)
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
@@ -1080,7 +1116,7 @@ def as_pdf(job) -> bytes:
     #
     # A job that never reached a verdict still has a band, so the band is the
     # fallback — the same rule the UI applies.
-    verdict_word = (_verdict(job).get("verdict") or "").strip()
+    verdict_word = (_pdf_verdict().get("verdict") or "").strip()
     verdict_tbl = Table(
         [
             [
@@ -1138,7 +1174,7 @@ def as_pdf(job) -> bytes:
     # The three analyst-facing outputs. The engine computed all of them and the
     # PDF showed none, so an exported case file carried no threat name, no impact
     # rating and no ATT&CK mapping — the report was strictly worse than the screen.
-    verdict = _verdict(job)
+    verdict = _pdf_verdict()
     impact = _impact(job)
     techniques = _mitre(job)
     if verdict or impact or techniques:
@@ -1178,18 +1214,37 @@ def as_pdf(job) -> bytes:
     if techniques:
         flow.append(Paragraph("<b>MITRE ATT&amp;CK techniques</b>", body))
         for technique in techniques[:MAX_PDF_TECHNIQUES]:
+            # A technique mapped from the sandbox's PROSE is marked here, in the
+            # document that leaves the building. 22% of stored assertions are in
+            # that position, and two attempts to delete them were measured at
+            # 603-1105 lost techniques on malicious samples against a bar of 28,
+            # so the honest move is to label the footing rather than drop the
+            # claim.
+            inferred = technique.get("basis") == "description"
+            mark = " <i>(inferred from the signal's description)</i>" if inferred else ""
             flow.append(
                 Paragraph(
                     f"&bull; <b>{esc(technique.get('technique_id', ''))}</b> "
-                    f"{esc(technique.get('name', ''))} &mdash; {esc(technique.get('tactic', ''))}",
+                    f"{esc(technique.get('name', ''))} &mdash; {esc(technique.get('tactic', ''))}"
+                    f"{mark}",
                     small,
                 )
             )
         if len(techniques) > MAX_PDF_TECHNIQUES:
             flow.append(Paragraph(f"&hellip; and {len(techniques) - MAX_PDF_TECHNIQUES} more", small))
+        inferred_count = sum(1 for t in techniques if t.get("basis") == "description")
+        if inferred_count:
+            flow.append(
+                Paragraph(
+                    f"{inferred_count} of these {len(techniques)} techniques were matched on a "
+                    "signal's description rather than its identifier. The sandbox worded those as "
+                    "a possibility rather than something it observed.",
+                    small,
+                )
+            )
 
     flow.append(Paragraph("Top reasons for this verdict", h2))
-    reasons = _top_reasons(job)
+    reasons = _pdf_top_reasons()
     if reasons:
         for i, reason in enumerate(reasons[:3], 1):
             sev = reason.get("severity") or "info"
@@ -1209,7 +1264,7 @@ def as_pdf(job) -> bytes:
 
     # The tiers claim — stated plainly on page one.
     flow.append(Paragraph("What was and was not analysed", h2))
-    for tier in _tiers_summary(job):
+    for tier in _pdf_tiers():
         state = "ran" if tier["ran"] else "DID NOT RUN"
         color = _sev_color("low") if tier["ran"] else _sev_color("high")
         flow.append(
@@ -1225,7 +1280,7 @@ def as_pdf(job) -> bytes:
     # weight: the annex overleaf lists `[high]` behavioural rows that contributed
     # nothing to the score, and without this the two pages contradict each other
     # with no way to tell which is right.
-    caveats = [c for c in _tier_caveats(job) if c]
+    caveats = [c for c in _pdf_caveats() if c]
     if caveats:
         flow.append(Spacer(1, 4))
         warn = _sev_color("high").hexval()
@@ -1262,7 +1317,7 @@ def as_pdf(job) -> bytes:
 
     # Per-analyzer signals
     flow.append(Paragraph("Per-analyzer results", h2))
-    analysis = _analysis(job)
+    analysis = _pdf_analysis()
     if not analysis:
         flow.append(Paragraph("No analyzer results recorded.", body))
     for name, payload in analysis.items():

@@ -163,6 +163,8 @@ export function JobDetail() {
   const detection = verdict ? job.verdict ?? null : null
   const impact = impactOf(job)
   const mitre = Array.isArray(job.mitre) ? job.mitre : []
+  // How many of them rest on the sandbox's prose rather than a signal id.
+  const mitreInferred = mitre.filter((t) => t.basis === 'description').length
 
   return (
     <div className="space-y-6">
@@ -468,7 +470,15 @@ export function JobDetail() {
             {/* MITRE ATT&CK */}
             <Panel
               title="MITRE ATT&CK"
-              subtitle={`${mitre.length} technique${mitre.length === 1 ? '' : 's'} mapped from observed evidence`}
+              subtitle={
+                // "mapped from observed evidence" was the whole subtitle, and
+                // for 22% of assertions the evidence is the sandbox's prose
+                // guess rather than an observation. The count of those is
+                // stated here rather than left for a reader to discover.
+                mitreInferred > 0
+                  ? `${mitre.length} technique${mitre.length === 1 ? '' : 's'}, ${mitreInferred} inferred from a signal's description rather than its identifier`
+                  : `${mitre.length} technique${mitre.length === 1 ? '' : 's'} mapped from observed evidence`
+              }
             >
               {mitre.length === 0 ? (
                 <p className="text-sm text-c2">
@@ -482,11 +492,20 @@ export function JobDetail() {
                       <div className="space-y-2">
                         {techniques.map((t) => (
                           <div key={t.technique_id} className="min-w-0">
-                            <p className="text-body font-medium text-c1">
+                            <p className="flex flex-wrap items-center gap-2 text-body font-medium text-c1">
                               <span className="tech text-brand-fg">{t.technique_id}</span> {t.name}
+                              {t.basis === 'description' && (
+                                <Chip tone="warning">inferred</Chip>
+                              )}
                             </p>
                             {t.evidence?.length > 0 && (
                               <p className="tech text-c3">{t.evidence.join(', ')}</p>
+                            )}
+                            {t.basis === 'description' && (
+                              <p className="text-xs text-c3">
+                                Matched on the signal&rsquo;s description, not its identifier. The
+                                sandbox worded this as a possibility rather than something it saw.
+                              </p>
                             )}
                           </div>
                         ))}
