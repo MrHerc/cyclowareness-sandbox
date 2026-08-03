@@ -450,6 +450,26 @@ def effective_severity(
     `STRUCTURAL_SIGNALS` (`verified_publisher` from `publisher_verified()`) and
     `FAMILY_AMBIENT_SIGNALS` (`family` — the interpreter is not the script).
     """
+    # A detonation on a platform whose signal set has never been measured
+    # against benign software observed something real and cannot yet say what it
+    # means. See DYNAMIC_UNCALIBRATED_FAMILIES for the measurements behind this.
+    #
+    # `info`, NOT `low`: `info` weighs 0.0, which is what "recorded, not counted
+    # against the file" already means elsewhere here (`pdf.open_action`,
+    # `pdf.embedded_file`). Deliberately stricter than the `dynamic_attributable`
+    # rule below, which stops at `low` — that one is about ONE sample that could
+    # not execute, this is about a whole platform nobody has calibrated.
+    #
+    # And it sits BEFORE the early return below, because that return is what a
+    # `low` signal hits first and `low` weighs 4, not 0.
+    #
+    # Measured twice on the same sample. Demoting only medium/high/critical took
+    # it from 31.4 to 31.1 against a static-only 29.5 — the two signals CAPE
+    # itself reported at `low` (`stealth_network`, `reads_files`) never reached
+    # the rule at all and kept contributing. An uncalibrated platform has to
+    # contribute nothing whatever severity it arrives at.
+    if _dynamic(signal.id) and dynamic_uncalibrated(family):
+        return "info"
     if signal.severity not in ("medium", "high", "critical"):
         return signal.severity
     if signal.id in AMBIENT_SIGNALS or signal.id in alone:
@@ -463,25 +483,6 @@ def effective_severity(
     # what the guest did — but they may not accuse a file that never ran.
     if not dynamic_attributable and _dynamic(signal.id):
         return "low"
-    # The same sentence, one platform wider: a detonation on a platform whose
-    # signal set has never been measured against benign software observed
-    # something real and cannot yet say what it means. See
-    # DYNAMIC_UNCALIBRATED_FAMILIES for the three measurements behind this.
-    #
-    # `info`, NOT `low`, and the difference is the whole claim. `low` weighs 4
-    # and saturates like any other severity; measured on the first real Linux
-    # detonation, five demoted signals moved a sample from 29.5 to 31.4 — while
-    # the commit that introduced them said they "do not move the number". They
-    # do, at `low`. `info` weighs 0.0, which is what "recorded, not counted
-    # against the file" already means everywhere else in this engine
-    # (`pdf.open_action`, `pdf.embedded_file`).
-    #
-    # This is deliberately stricter than the `dynamic_attributable` rule above,
-    # which stops at `low`. That one is about ONE sample that could not execute;
-    # this one is about a whole platform nobody has calibrated, and a small
-    # nudge from an uncalibrated source is still an uncalibrated verdict.
-    if _dynamic(signal.id) and dynamic_uncalibrated(family):
-        return "info"
     return signal.severity
 
 

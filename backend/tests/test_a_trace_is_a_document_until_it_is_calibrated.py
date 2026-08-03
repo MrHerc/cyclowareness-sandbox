@@ -153,3 +153,64 @@ def test_a_calibrated_platform_still_maps() -> None:
     from app.engine import mitre
 
     assert mitre.map_techniques([STEALTH, DELETES], exclude=None)
+
+
+def test_a_signal_that_arrives_low_is_also_gagged() -> None:
+    """The leak that survived the first correction.
+
+    `effective_severity` returns early for anything that is not
+    medium/high/critical, so a signal CAPE itself reports at `low` never reached
+    the rule — and `low` weighs 4, not 0. Measured on one sample: static-only
+    29.5, with the detonation 31.4 before the first fix and still 31.1 after it,
+    because `stealth_network` and `reads_files` arrive at `low`.
+
+    An uncalibrated platform contributes nothing at whatever severity it
+    arrives.
+    """
+    low_signal = Signal(
+        id="capev2.stealth_network", title="low from CAPE",
+        severity="low", detail="", evidence={},
+    )
+    assert scoring.effective_severity(low_signal, family="elf") == "info"
+    assert scoring.effective_severity(low_signal, family="pe") == "low"
+
+    info_signal = Signal(
+        id="capev2.reads_files", title="info from CAPE",
+        severity="info", detail="", evidence={},
+    )
+    assert scoring.effective_severity(info_signal, family="elf") == "info"
+
+
+def test_the_whole_detonation_contributes_exactly_nothing() -> None:
+    """The claim, asserted as arithmetic rather than as prose.
+
+    Score the static findings alone, then score them with a full detonation
+    folded in. The two numbers have to be identical.
+    """
+    static = [
+        Signal(id="elf.packed", title="packed", severity="high", detail="", evidence={}),
+        Signal(id="elf.no_sections", title="stripped", severity="medium", detail="", evidence={}),
+    ]
+    detonation = [
+        Signal(id="capev2.stealth_network", title="", severity="low", detail="", evidence={}),
+        Signal(id="capev2.reads_files", title="", severity="low", detail="", evidence={}),
+        Signal(id="capev2.drops_files", title="", severity="medium", detail="", evidence={}),
+        Signal(id="capev2.writes_files", title="", severity="medium", detail="", evidence={}),
+        Signal(id="capev2.deletes_files", title="", severity="high", detail="", evidence={}),
+    ]
+
+    alone = scoring.assess(
+        [AnalyzerResult(analyzer="elf", ran=True, signals=static)],
+        ioc_total=0, family="elf",
+    )
+    with_trace = scoring.assess(
+        [
+            AnalyzerResult(analyzer="elf", ran=True, signals=static),
+            _dynamic_result(*detonation),
+        ],
+        ioc_total=0, family="elf",
+    )
+    assert with_trace.rule_score == alone.rule_score, (
+        "the detonation moved the rule score from %s to %s"
+        % (alone.rule_score, with_trace.rule_score)
+    )
