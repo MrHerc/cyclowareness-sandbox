@@ -31,7 +31,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-from .contracts import SEVERITY_ORDER, AnalyzerResult, Signal, risk_level
+from .contracts import SEVERITY_ORDER, IOCs, AnalyzerResult, Signal, risk_level
 
 # --- rule component -----------------------------------------------------------
 
@@ -462,6 +462,38 @@ def capability_exclusions(family: str | None, signals: "Iterable[Signal]") -> fr
 def dynamic_uncalibrated(family: str | None) -> bool:
     """Is this family's dynamic tier observed but not yet believed?"""
     return (family or "").lower() in DYNAMIC_UNCALIBRATED_FAMILIES
+
+
+def scorable_ioc_total(results: "Iterable[AnalyzerResult]", family: str | None) -> int:
+    """How many indicators the SCORE is allowed to count.
+
+    Not the same number as the report shows. `job.iocs` keeps every indicator
+    the analysis produced, including the trace's, because a Linux detonation
+    that resolved a domain is evidence worth reading even when nothing may be
+    concluded from it — this only decides what reaches `ioc_density`.
+
+    It exists because the guard leaked a fifth way. `assess` takes `ioc_total`,
+    feeds it to the `ioc_density` term (model weight 0.9) and so into `ai_score`
+    and `final_score`, and both callers computed it by merging every analyzer's
+    indicators, dynamic tier included. Measured on the live image: an ELF whose
+    trace contributed 25 indicators scored 26.2 against the same sample's 24.0
+    static-only — 2.2 points, from a tier every other consumer ignores. It
+    survived the guard's tests because `rule_score` never moves (37.0 in both),
+    and those tests asserted on `rule_score`.
+
+    Shared rather than fixed twice on purpose: the same duplication between
+    `verdict.classify` and `impact.assess` is what let the rating leak into the
+    signed evidence after the score had already been fixed.
+    """
+    merged = IOCs()
+    skip_dynamic = dynamic_uncalibrated(family)
+    for result in results:
+        if not result.ran:
+            continue
+        if skip_dynamic and result.analyzer.startswith("dynamic."):
+            continue
+        merged = merged.merge(result.iocs)
+    return merged.total()
 
 
 #: Prefixes of the signals a detonation produces.

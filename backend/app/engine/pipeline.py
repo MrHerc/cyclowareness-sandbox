@@ -902,7 +902,10 @@ def run(
         detonated = any(r.analyzer.startswith("dynamic.") and r.ran for r in results)
         assessment = scoring.assess(
             results,
-            ioc_total=merged.total(),
+            # NOT `merged.total()`: an uncalibrated platform's indicators are
+            # shown in the report and kept in `job.iocs`, and may not move the
+            # number. See `scoring.scorable_ioc_total`.
+            ioc_total=scoring.scorable_ioc_total(results, sample.family),
             tiers=tiers,
             family=sample.family,
             dynamic_attributable=attributable,

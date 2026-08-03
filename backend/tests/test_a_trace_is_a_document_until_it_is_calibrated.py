@@ -29,11 +29,26 @@ from __future__ import annotations
 import pytest
 
 from app.engine import scoring, verdict
+from app.engine.capabilities import detect_capabilities
 from app.engine.contracts import AnalyzerResult, IOCs, Signal
 
 
 def _dynamic_result(*signals: Signal) -> AnalyzerResult:
     return AnalyzerResult(analyzer="dynamic.capev2", ran=True, signals=list(signals))
+
+
+#: What `opensource.py` emits when CAPE names a family outright.
+IDENTIFIED = Signal(
+    id="capev2.detection.mirai",
+    title="CAPE identified Mirai",
+    severity="critical",
+    detail="",
+    evidence={"family": "Mirai"},
+)
+STATIC = [
+    Signal(id="elf.packed", title="Packed", severity="high", detail="", evidence={}),
+    Signal(id="elf.no_sections", title="No sections", severity="medium", detail="", evidence={}),
+]
 
 
 DELETES = Signal(
@@ -80,7 +95,24 @@ def test_a_linux_detonation_names_no_capability_and_no_threat() -> None:
     yield `injection` while every row read `low`."""
     result = verdict.classify("elf", "application/x-elf", [_dynamic_result(DELETES, STEALTH)],
                               IOCs(), 0.0)
-    assert not getattr(result, "capabilities", []) or "destruction" not in result.capabilities
+    # This line used to read
+    #
+    #     assert not getattr(result, "capabilities", []) or "destruction" not in ...
+    #
+    # and `VerdictResult` has no `capabilities` field, so `getattr` returned the
+    # default `[]`, `not []` was True, and the assertion passed without ever
+    # evaluating its right-hand side. It tested nothing at all — a green line in
+    # the file that documents this guard. Assert on what `classify` really
+    # returns: `category` is derived from the capability set, so an empty set is
+    # observable as `Clean`, and the heuristic engine's row must say so too.
+    assert result.category == "Clean", result.category
+    heuristic = next(r for r in result.engines if r["engine"] == "CS-Heuristic")
+    assert heuristic["detected"] is False, heuristic
+    # And the capability set itself, through the shared exclusion rather than a
+    # second copy of the rule.
+    excluded = scoring.capability_exclusions("elf", [DELETES, STEALTH])
+    caps = detect_capabilities([s for s in (DELETES, STEALTH) if s.id not in excluded], IOCs())
+    assert "destruction" not in caps, caps
     assert "DeletesFiles" not in result.threat_name, result.threat_name
     assert result.verdict == "clean", result.verdict
 
@@ -97,6 +129,79 @@ def test_the_evidence_itself_is_untouched() -> None:
     assert reported, "the detonation must still appear in the engine panel"
     # And the Signal objects were not mutated by scoring.
     assert DELETES.severity == "high" and STEALTH.severity == "high"
+
+
+def test_an_uncalibrated_platform_may_not_name_the_family_either() -> None:
+    """The fourth leak, and the widest of them.
+
+    `if identification: verdict = "malicious"` outranks the score entirely, and
+    `classify` built `identification` from `all_signals`. So a tier every other
+    consumer ignores still published the most confident sentence the product can
+    say. Measured on the live image before the fix:
+
+        elf  verdict=malicious  Linux.Malware.Mirai  detected=True  sev=info
+
+    at `final_score` 0.0 — the number and the label disagreeing about the same
+    file, in the exact shape this file exists to prevent, and the CS-SandboxID
+    row contradicting itself in a single line.
+
+    `_family_token` read the same evidence, which is the `Mirai` in that string:
+    the threat NAME leaked even in the runs where the verdict did not.
+    """
+    result = verdict.classify(
+        "elf", "application/x-elf",
+        [AnalyzerResult(analyzer="elf", ran=True, signals=list(STATIC)),
+         _dynamic_result(DELETES, STEALTH, IDENTIFIED)],
+        IOCs(), 0.0,
+    )
+    sandbox_id = next(r for r in result.engines if r["engine"] == "CS-SandboxID")
+    assert sandbox_id["detected"] is False, sandbox_id
+    assert sandbox_id["severity"] == "info", sandbox_id
+    assert "Mirai" not in result.threat_name, result.threat_name
+    assert result.verdict != "malicious", result.verdict
+
+
+def test_a_calibrated_platform_still_trusts_an_identification() -> None:
+    """The same identification on PE, where it was measured: 8/8 malware and
+    0/3 benign. This is a statement about Linux, not a retreat from CAPE."""
+    result = verdict.classify(
+        "pe", "application/x-dosexec",
+        [_dynamic_result(DELETES, IDENTIFIED)], IOCs(), 0.0,
+    )
+    sandbox_id = next(r for r in result.engines if r["engine"] == "CS-SandboxID")
+    assert sandbox_id["detected"] is True, sandbox_id
+    assert result.verdict == "malicious", result.verdict
+    assert "Mirai" in result.threat_name, result.threat_name
+
+
+def test_the_traces_indicators_do_not_move_the_number() -> None:
+    """The fifth leak, and the one the guard's own tests were blind to.
+
+    `ioc_total` reaches `ioc_density` (model weight 0.9), so a Linux detonation
+    that resolved twenty-five hosts moved `final_score` even with every one of
+    its signals demoted to `info`. Measured before the fix: 24.0 static-only
+    against 26.2 with the trace's indicators — 2.2 points.
+
+    It survived because `rule_score` is 37.0 in both cases, and the tests that
+    were supposed to catch this asserted on `rule_score`. So this one asserts on
+    `final_score`, and on the number a caller is actually allowed to pass.
+    """
+    results = [
+        AnalyzerResult(analyzer="elf", ran=True, signals=list(STATIC),
+                       iocs=IOCs(domains=["example.org"], ips=["203.0.113.1"])),
+        AnalyzerResult(analyzer="dynamic.capev2", ran=True, signals=[DELETES, STEALTH],
+                       iocs=IOCs(domains=[f"host{n}.example.net" for n in range(25)])),
+    ]
+    assert scoring.scorable_ioc_total(results, "elf") == 2
+    #: The control: on a calibrated platform every indicator counts.
+    assert scoring.scorable_ioc_total(results, "pe") == 27
+
+    detonated = scoring.assess(results, ioc_total=scoring.scorable_ioc_total(results, "elf"),
+                               family="elf").final_score
+    static_only = scoring.assess(results[:1], ioc_total=2, family="elf").final_score
+    assert detonated == pytest.approx(static_only), (
+        f"the detonation moved final_score by {detonated - static_only:+.2f}"
+    )
 
 
 def test_static_elf_findings_still_accuse() -> None:

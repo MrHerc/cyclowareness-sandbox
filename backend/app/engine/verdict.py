@@ -351,19 +351,27 @@ def classify(
     # `impact.assess` cannot go on using a different set — which it did, and the
     # rating leaked into the signed evidence for it.
     excluded = capability_exclusions(family, all_signals)
-    caps = detect_capabilities(
-        [s for s in all_signals if s.id not in excluded] if excluded else all_signals,
-        iocs,
-    )
+    #: Every consumer below reads THIS, not `all_signals`. Applying the exclusion
+    #: to `caps` alone was not enough, and the sweep found the gap three ways in
+    #: one function: `_family_token` still read the excluded signals' evidence,
+    #: so an uncalibrated Linux detonation named the family anyway; `identification`
+    #: was built from `all_signals`, and `if identification: verdict = "malicious"`
+    #: outranks the score — so a trace the score is ignoring completely still
+    #: decided the verdict, at `final_score` 0.0, with the CS-SandboxID row
+    #: reading `detected: true` beside `severity: info`. Measured on the live
+    #: image before the fix: an ELF carrying `capev2.detection.mirai` came out
+    #: `malicious / Linux.Malware.Mirai` with a score of nothing at all.
+    admissible = [s for s in all_signals if s.id not in excluded] if excluded else all_signals
+    caps = detect_capabilities(admissible, iocs)
 
     platform = _platform(family, mime)
-    category = _category_for(caps, all_signals)
+    category = _category_for(caps, admissible)
     #: A file we found no capability in is not "Suspicious" — it is a file we
     #: found nothing in. Naming it after its worst informational signal is how
     #: a Microsoft-signed binary became "Win32.Downloader.TimestampAnomaly".
     if category is None:
         category = "Clean"
-    fam = _family_token(all_signals, family)
+    fam = _family_token(admissible, family)
     threat_name = f"{platform}.{category}.{fam}" if category != "Clean" else f"{platform}.Clean"
 
     # Build the engine panel.
@@ -522,8 +530,19 @@ def classify(
     # That is the same mistake as the three before it, in a fourth costume:
     # counting an observation as a detection. A rule matched is an observation.
     # It still raises the score; it no longer decides the verdict.
+    # An identity claim from an UNCALIBRATED platform is still only a claim.
+    # This reads `admissible` for the same reason the score does: the Linux
+    # signature set has never been measured against a corpus here, and an
+    # identification is the most confident thing the product can say. If CAPE
+    # mis-names a Linux sample, reading it from `all_signals` publishes
+    # `malicious / Linux.<Family>` off a tier whose every other output is
+    # deliberately ignored. The signal is still recorded and shown in full — as
+    # with the 226 inert detonations, the evidence is kept and simply may not
+    # accuse. Cost of the exclusion on this deployment, measured rather than
+    # assumed: of 9 ELF samples that really detonated, 0 carry a family
+    # identification and 0 carry a config, so no verdict changes today.
     identification = [
-        s for s in all_signals if (getattr(s, "evidence", None) or {}).get("family")
+        s for s in admissible if (getattr(s, "evidence", None) or {}).get("family")
     ]
     engines.append({
         "engine": "CS-SandboxID",

@@ -516,7 +516,11 @@ def ingest_report(
     attributable = _dynamic_is_attributable(job)
     assessment = scoring.assess(
         results,
-        ioc_total=merged.total(),
+        # NOT `merged.total()` — see `scoring.scorable_ioc_total`. This is the
+        # path that matters most for it: `merged` here always contains the
+        # trace's indicators, because this function only runs when a report has
+        # landed.
+        ioc_total=scoring.scorable_ioc_total(results, job.family),
         tiers=tiers,
         family=job.family,
         dynamic_attributable=attributable,
