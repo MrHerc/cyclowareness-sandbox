@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 
 from app.engine import scoring, verdict
-from app.engine.capabilities import detect_capabilities
+from app.engine.capabilities import detect as detect_capabilities
 from app.engine.contracts import AnalyzerResult, IOCs, Signal
 
 
