@@ -45,12 +45,22 @@ def _families(module: Any) -> tuple[str, ...]:
 
 
 class Registered:
-    __slots__ = ("name", "families", "fn")
+    #: `module` is kept so `unavailable_analyzers()` can ask it whether it is
+    #: able to run at all — see that function for why importing is not the same
+    #: question as being ready.
+    __slots__ = ("name", "families", "fn", "module")
 
-    def __init__(self, name: str, families: tuple[str, ...], fn: Callable[[Sample], AnalyzerResult]):
+    def __init__(
+        self,
+        name: str,
+        families: tuple[str, ...],
+        fn: Callable[[Sample], AnalyzerResult],
+        module: Any = None,
+    ):
         self.name = name
         self.families = families
         self.fn = fn
+        self.module = module
 
     def handles(self, family: str) -> bool:
         return "*" in self.families or family in self.families
@@ -79,15 +89,53 @@ def registry() -> list[Registered]:
         if not callable(fn):
             _import_failures[mod_name] = "module exposes no analyze() function"
             continue
-        found.append(Registered(getattr(module, "NAME", mod_name), _families(module), fn))
+        found.append(
+            Registered(getattr(module, "NAME", mod_name), _families(module), fn, module)
+        )
 
     _registry = found
     return _registry
 
 
 def unavailable_analyzers() -> dict[str, str]:
-    registry()
-    return dict(_import_failures)
+    """Every analyzer that cannot produce a finding here, and why.
+
+    TWO REASONS, NOT ONE. An analyzer can fail to import — a missing wheel, a
+    broken parser — and it can import perfectly and still be unable to run,
+    because this deployment withholds what it needs. Sovereign mode blocks the
+    VirusTotal lookup; an unset `VT_API_KEY` does the same.
+
+    Reporting only import failures made `/api/capabilities` contradict itself in
+    a single response: `static_analyzers` listed `virustotal` and
+    `unavailable_analyzers` was empty — "nothing is unavailable" — while the
+    `sovereignty` block three keys later said `virustotal: allowed: false`. An
+    operator reading the capability panel concluded hash reputation was running.
+    It was not, and could not be.
+
+    The per-job report was always honest about it: `intel.analyze` returns
+    `AnalyzerResult.unavailable(name, reason)` with the real reason on every
+    sample. Only the deployment-level claim was wrong, which is the one a buyer
+    reads first.
+
+    An analyzer declares this by exposing `readiness() -> str | None`. Returning
+    the reason means "I am here and I cannot run"; returning None, or not having
+    the function at all, means it is ready.
+    """
+    entries = dict(_import_failures)
+    for entry in registry():
+        if entry.name in entries:
+            continue
+        check = getattr(entry.module, "readiness", None)
+        if not callable(check):
+            continue
+        try:
+            reason = check()
+        except Exception as exc:  # noqa: BLE001 — a readiness probe must never
+            # take the capability endpoint down with it.
+            reason = f"readiness check raised {type(exc).__name__}"
+        if reason:
+            entries[entry.name] = str(reason)
+    return entries
 
 
 def run_all(sample: Sample, family: str) -> list[AnalyzerResult]:

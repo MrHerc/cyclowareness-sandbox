@@ -24,6 +24,29 @@ NAME = "virustotal"
 FAMILY = "*"
 
 
+def readiness() -> str | None:
+    """Why this analyzer cannot run here, or None when it can.
+
+    Read by the registry so `/api/capabilities` stops listing VirusTotal as an
+    available analyzer on a deployment that will refuse every lookup it makes.
+    The per-sample answer in `analyze` was always honest; this is the same truth
+    one level up, where an operator reads it before submitting anything.
+
+    Deliberately mirrors `analyze`'s order, including the reason the key is
+    checked first: the refusal tally is the operator's proof of what sovereign
+    mode actually stopped, so an unconfigured deployment must not report itself
+    as "blocked by sovereignty" when the truth is simply that nobody set a key.
+    """
+    if not os.environ.get("VT_API_KEY", "").strip():
+        return "VT_API_KEY not set — hash reputation is not checked"
+    if not sovereignty.allowed("virustotal"):
+        return (
+            "sovereign mode blocks the outbound lookup — no sample hash leaves "
+            "this deployment, so hash reputation is not checked"
+        )
+    return None
+
+
 def analyze(sample: Sample) -> AnalyzerResult:
     key = os.environ.get("VT_API_KEY", "").strip()
     if not key:
