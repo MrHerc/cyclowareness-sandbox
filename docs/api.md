@@ -209,10 +209,32 @@ its database reported healthy while answering 500 to every real request.
 
 Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining` and
 `X-RateLimit-Scope: process`. A `429` carries `Retry-After` and the usual
-`{"detail": str}`. Limits: 20/60s on `POST /api/analyze*`, 10/300s on
-`POST /api/auth/login`, 60/60s on `/api/jobs*`, 240/60s elsewhere. Exempt:
-`GET /api/health`, `GET /metrics`, and `/api/dynamic/*` with a valid worker
-token. See DEPLOY.md for how a request's identity is decided.
+`{"detail": str}`.
+
+Each rule has TWO ceilings, and a request is charged to both:
+
+| Path | Per credential | Per address |
+| --- | --- | --- |
+| `POST /api/analyze*` | 20 / 60s | 100 / 60s |
+| `POST /api/auth/login` | 10 / 300s | 10 / 300s |
+| `/api/jobs*` | 60 / 60s | 600 / 60s |
+| everything else | 240 / 60s | 2400 / 60s |
+
+The credential ceiling is the product's limit — how much one API key or session
+may do. The address ceiling only stops a caller minting a fresh credential
+bucket per request, so it is deliberately looser: with `TRUST_PROXY_HEADERS`
+off (the default), every analyst in an organisation shares one address, and a
+tight one would throttle the third person to open the Queue page. Login keeps
+them equal on purpose.
+
+`X-RateLimit-Limit` reports the ceiling of whichever bucket is **tightest for
+this caller**, which is not always the credential one — an anonymous caller on a
+read path is bounded by the address bucket. Do not assume the header always
+matches the credential column above; it is the number that will actually stop
+you.
+
+Exempt: `GET /api/health`, `GET /metrics`, and `/api/dynamic/*` with a valid
+worker token. See DEPLOY.md for how a request's identity is decided.
 
 ### `GET /api/capabilities`
 Auth: none. What this deployment can honestly do: YARA rules loaded, static
