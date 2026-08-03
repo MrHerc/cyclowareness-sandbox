@@ -142,6 +142,13 @@ export function JobDetail() {
   const dynamicTier = job.tiers?.dynamic
   const model = job.score_breakdown?.model
   const rule = job.score_breakdown?.rule
+  // Reasons a tier RAN and may not be concluded from. Mirrors
+  // `report._excluded_tier_caveats` on the backend — same two keys, same order,
+  // so the screen and the PDF say the same thing in the same words.
+  const excludedTierReasons = [
+    job.score_breakdown?.dynamic_uncalibrated?.reason,
+    job.score_breakdown?.dynamic_not_attributable?.reason,
+  ].filter((r): r is string => Boolean(r))
   const iocEntries = Object.entries(job.iocs || {}).filter(([, v]) => v && v.length)
   // THREE STATES, NOT TWO. The analyzer either ran and matched, ran and matched
   // nothing, or did not run at all — and this used to collapse the last two into
@@ -547,6 +554,18 @@ export function JobDetail() {
               </div>
             </div>
           </Panel>
+
+          {/* A TIER THAT RAN AND MAY NOT BE CONCLUDED FROM.
+              Placed OUTSIDE the behaviour panel's condition on purpose: that
+              panel needs a non-empty timeline, and a detonation can produce
+              signals with no timeline at all. Rendered there, the disclosure
+              would inherit the same blind spot it exists to close — and the
+              signals still appear in the Signals panel above either way. */}
+          {excludedTierReasons.map((reason, i) => (
+            <Callout key={i} tone="warning" title="These behavioural findings did not count toward the score">
+              {reason}
+            </Callout>
+          ))}
 
           {/* Behaviour graph (dynamic) */}
           {job.dynamic?.ran && job.dynamic.timeline && job.dynamic.timeline.length > 0 && (

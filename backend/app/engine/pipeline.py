@@ -184,12 +184,26 @@ def _result_from_stored(name: str, payload: dict[str, Any]) -> AnalyzerResult:
     )
 
 
+#: Why the queue will never offer this job. "" means it will be.
+#:
+#: These are THREE different facts and they were one boolean. `detonable=False`
+#: printed "no dynamic engine accepts the '<family>' family" for every one of
+#: them, which is true of `archive`, `unknown`, `diskimage`, `jar` and `apk` —
+#: and FALSE of `script`, because `script` is in `DETONABLE_FAMILIES`. The real
+#: reason a man page or a README is not offered is that Windows cannot execute
+#: it. Measured on the live deployment: **277 script rows** asserted a reason
+#: that is not the reason, in a field the PDF and the signed bundle both carry.
+NOT_OFFERED_FAMILY = "family"
+NOT_OFFERED_NO_EXECUTION_PATH = "no-execution-path"
+NOT_OFFERED_ENCRYPTED = "encrypted"
+
+
 def _tier_record(
     static_ran: bool,
     analyzer_gaps: dict[str, str],
     *,
     family: str = "",
-    detonable: bool = True,
+    not_offered: str = "",
 ) -> dict[str, Any]:
     dynamic_on = native.dynamic_available()
     return {
@@ -231,16 +245,31 @@ def _tier_record(
         "dynamic": {
             "ran": False,
             "detail": (
-                (
-                    "Queued for detonation on the attached isolated worker; behaviour "
-                    "will be merged into this report when the worker posts it."
-                    if detonable
-                    else (
+                {
+                    "": (
+                        "Queued for detonation on the attached isolated worker; behaviour "
+                        "will be merged into this report when the worker posts it."
+                    ),
+                    NOT_OFFERED_FAMILY: (
                         "Not detonated: no dynamic engine accepts the "
                         f"'{family or 'unknown'}' family, so this job is never offered "
                         "to the worker queue. Static analysis read every byte."
-                    )
-                )
+                    ),
+                    # Deliberately the same sentence the score breakdown uses for
+                    # `dynamic_not_attributable`, because it is the same fact. Two
+                    # wordings for one rule is how a reader concludes there are two
+                    # rules.
+                    NOT_OFFERED_NO_EXECUTION_PATH: (
+                        "Not detonated: Windows has no way to run a file of this type, so "
+                        "everything a guest did with it would belong to the guest and not "
+                        "to this sample. Static analysis read every byte."
+                    ),
+                    NOT_OFFERED_ENCRYPTED: (
+                        "Not detonated: this archive is encrypted and no password has been "
+                        "supplied, so nothing has been unpacked to analyse yet. Submit the "
+                        "password to continue."
+                    ),
+                }[not_offered]
                 if dynamic_on
                 else native.unavailable_reason()
             ),
@@ -744,6 +773,20 @@ def run(
             job.status = JobStatus.AWAITING_PASSWORD
             job.stage = "awaiting password"
             job.completed_at = None
+            # EVERYTHING BELOW IS SKIPPED, INCLUDING THE TIER RECORD.
+            #
+            # So the row kept whatever tiers a previous run had left on it, and
+            # for three encrypted archives on the live deployment that was the
+            # pre-232e5de promise "Queued for detonation ... will be merged into
+            # this report" — for `archive`, which no worker will ever take. A
+            # re-analysis could not correct it either: it returns here too, which
+            # is why those three survived a pass that rewrote 1638 other jobs.
+            job.tiers = _tier_record(
+                static_ran=False,
+                analyzer_gaps=analyzers.unavailable_analyzers(),
+                family=sample.family,
+                not_offered=NOT_OFFERED_ENCRYPTED,
+            )
             db.flush()
             return job
 
@@ -842,15 +885,23 @@ def run(
         # computed again below for scoring; this is the cheap half of it and
         # duplicating the expression is better than reordering a scoring block
         # to reach it.
-        offerable = sample.family in native.DETONABLE_FAMILIES and (
-            sample.family != "script"
-            or identify_mod.has_execution_path(sample.claimed_extension, sample.mime)
-        )
+        # The two halves of `_needs_dynamic`, kept apart so the report can say
+        # WHICH one applies. Collapsed into one boolean they printed one reason
+        # for both, and the one they printed was wrong for `script`.
+        if sample.family not in native.DETONABLE_FAMILIES:
+            not_offered = NOT_OFFERED_FAMILY
+        elif sample.family == "script" and not identify_mod.has_execution_path(
+            sample.claimed_extension, sample.mime
+        ):
+            not_offered = NOT_OFFERED_NO_EXECUTION_PATH
+        else:
+            not_offered = ""
+        offerable = not not_offered
         tiers = _tier_record(
             static_ran=any(r.ran for r in results),
             analyzer_gaps=gaps,
             family=sample.family,
-            detonable=offerable,
+            not_offered=not_offered,
         )
         # A carried-forward detonation keeps the tier it earned. `_tier_record`
         # hard-codes `ran: False` — correctly, because a fresh static pass has
@@ -924,6 +975,17 @@ def run(
                     "and excluded from the score."
                 ),
             }
+        # The sibling disclosure, for the OTHER axis. Written here and in
+        # `api/dynamic.ingest_report`, both, because that pair has drifted before
+        # — the impact rating leaked into the signed evidence precisely because
+        # one of the two forgot.
+        # NOT `all_signals` — that name is bound 30 lines below this point, and
+        # reading it here is a NameError, not a subtle wrong answer.
+        uncalibrated = scoring.uncalibrated_note(
+            sample.family, [s for r in results if r.ran for s in r.signals]
+        )
+        if uncalibrated and detonated:
+            assessment.breakdown["dynamic_uncalibrated"] = uncalibrated
 
         # A container is at least as dangerous as the worst thing anywhere
         # inside it. Signals alone do not guarantee that — they are severity

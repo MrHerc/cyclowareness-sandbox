@@ -542,6 +542,15 @@ def ingest_report(
             ),
         }
 
+    # The sibling key, on the OTHER axis. Both paths write both, because this
+    # exact pair of call sites is where the impact rating leaked once already.
+    uncalibrated = scoring.uncalibrated_note(
+        # Same trap as in the pipeline: `all_signals` is bound further down.
+        job.family, [s for r in results if r.ran for s in r.signals]
+    )
+    if uncalibrated and report.ran:
+        assessment.breakdown["dynamic_uncalibrated"] = uncalibrated
+
     job.analysis = {r.analyzer: r.to_dict() for r in results}
     job.iocs = merged.to_dict()
     job.tiers = tiers

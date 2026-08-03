@@ -555,6 +555,16 @@ def _evidence(job) -> dict[str, Any]:
                 "produced is absent from this record."
                 for tier in not_run
             ]
+            # A TIER THAT RAN AND MAY NOT BE CONCLUDED FROM IS A LIMITATION.
+            #
+            # This list fell through to "All configured analysis tiers ran." for
+            # every ELF detonation and every detonation of a file Windows cannot
+            # execute. Each word of that sentence was true and the record it
+            # produced was not: the tiers had all run, and the behavioural half
+            # of the evidence was excluded from every conclusion in the document.
+            # This is the export designed to be handed to a regulator, so it is
+            # the last place an unstated exclusion belongs.
+            + report_mod._excluded_tier_caveats(job)
             + _retention_limitation(job)
             or ["All configured analysis tiers ran."]
         ),

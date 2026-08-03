@@ -490,6 +490,51 @@ def capability_exclusions(
     return frozenset(uncorroborated(signals) | family_ambient(family) | inadmissible)
 
 
+def uncalibrated_note(family: str | None, signals: "Iterable[Signal]") -> dict | None:
+    """The sentence a report owes an analyst when a trace is shown but not believed.
+
+    Nothing said so anywhere. Every guard in this module is invisible outside it:
+    on the nine ELF jobs that have really detonated, no surface — the JSON API,
+    the React UI, the PDF case file, the STIX bundle, the DORA/NIS2 record or the
+    Ed25519-signed evidence — contains a word about calibration.
+
+    AND THE ROWS DO NOT LOOK DEMOTED. `effective_severity` is a scoring function;
+    it does not rewrite the stored signal, and it must not — CAPE reported
+    `deletes_files` at severity 3 and a signed artifact has to keep saying so.
+    The consequence is that the PDF prints `[high] Deletes files from disk` in
+    the exported case file while that same row contributes 0.0 to the score,
+    names no capability, sets no verdict and maps to no technique. A reader has
+    no way to tell those two facts apart, and the report never mentions that
+    there is anything to tell apart.
+
+    The regulatory record was worse than silent. `incident._evidence` fell back
+    to the literal "All configured analysis tiers ran." — every tier HAD run, so
+    the sentence was true and the impression it left was not.
+
+    Deliberately NOT a severity rewrite. The fix is to explain the row, not to
+    edit the evidence.
+
+    Lives in `scoring` because the guard test forbids `capev2.` from appearing in
+    pipeline.py, api/dynamic.py, verdict.py and impact.py — one definition of
+    what an uncalibrated platform may assert, in one module.
+    """
+    ids = uncalibrated_dynamic_ids(family, signals)
+    if not ids:
+        return None
+    return {
+        "family": (family or "").lower(),
+        "signal_count": len(ids),
+        "reason": (
+            "The behavioural findings in this report were observed on a platform "
+            "whose signature set this deployment has not yet measured against "
+            "benign software. They are recorded in full, and excluded from the "
+            "score, the capability list, the threat name and the ATT&CK mapping "
+            "— including any row shown below at medium or high severity. The "
+            "severities are the sandbox's own and have been left untouched."
+        ),
+    }
+
+
 def inadmissible_dynamic_ids(
     family: str | None,
     signals: "Iterable[Signal]",

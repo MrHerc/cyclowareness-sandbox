@@ -167,7 +167,8 @@ def test_a_family_the_queue_never_offers_is_not_promised_a_detonation(monkeypatc
     # A worker IS attached; the family is what makes this job unofferable.
     monkeypatch.setattr(native, "dynamic_available", lambda: True)
     tiers = pipeline._tier_record(
-        static_ran=True, analyzer_gaps={}, family="archive", detonable=False
+        static_ran=True, analyzer_gaps={}, family="archive",
+        not_offered=pipeline.NOT_OFFERED_FAMILY,
     )
     detail = tiers["dynamic"]["detail"]
 
@@ -184,7 +185,7 @@ def test_a_detonable_family_still_says_it_is_queued(monkeypatch) -> None:
 
     monkeypatch.setattr(native, "dynamic_available", lambda: True)
     tiers = pipeline._tier_record(
-        static_ran=True, analyzer_gaps={}, family="pe", detonable=True
+        static_ran=True, analyzer_gaps={}, family="pe", not_offered=""
     )
     assert "Queued for detonation" in tiers["dynamic"]["detail"]
     assert tiers["dynamic"]["ran"] is False
@@ -196,8 +197,64 @@ def test_with_no_worker_the_reason_is_still_the_worker_one(monkeypatch) -> None:
     from app.engine import native, pipeline
 
     monkeypatch.setattr(native, "dynamic_available", lambda: False)
-    for detonable in (True, False):
+    for not_offered in ("", pipeline.NOT_OFFERED_FAMILY,
+                        pipeline.NOT_OFFERED_NO_EXECUTION_PATH,
+                        pipeline.NOT_OFFERED_ENCRYPTED):
         detail = pipeline._tier_record(
-            static_ran=True, analyzer_gaps={}, family="archive", detonable=detonable
+            static_ran=True, analyzer_gaps={}, family="archive", not_offered=not_offered
         )["dynamic"]["detail"]
         assert detail == native.unavailable_reason()
+
+
+def test_a_script_is_not_told_that_no_engine_accepts_scripts(monkeypatch) -> None:
+    """The reason has to be the REASON.
+
+    `script` is in `DETONABLE_FAMILIES`. A README, a man page or a `.txt` is not
+    offered because Windows has no way to run it — attributability, not family.
+    One boolean printed the family sentence for both, so 277 live rows asserted
+    "no dynamic engine accepts the 'script' family" about a family the queue
+    offers hundreds of times a day.
+    """
+    from app.engine import native, pipeline
+
+    monkeypatch.setattr(native, "dynamic_available", lambda: True)
+    detail = pipeline._tier_record(
+        static_ran=True, analyzer_gaps={}, family="script",
+        not_offered=pipeline.NOT_OFFERED_NO_EXECUTION_PATH,
+    )["dynamic"]["detail"]
+
+    assert "no dynamic engine accepts" not in detail, detail
+    assert "windows has no way to run" in detail.lower(), detail
+    assert "queued" not in detail.lower(), detail
+
+
+def test_an_encrypted_archive_is_not_promised_anything(monkeypatch) -> None:
+    """A job parked at `awaiting_password` returns before the tier record is
+    written, so it kept whatever a previous run left — for three live archives,
+    a promise of detonation for a family no worker takes. A re-analysis returns
+    at the same line, which is why they survived a pass over 1638 other jobs."""
+    from app.engine import native, pipeline
+
+    monkeypatch.setattr(native, "dynamic_available", lambda: True)
+    detail = pipeline._tier_record(
+        static_ran=False, analyzer_gaps={}, family="archive",
+        not_offered=pipeline.NOT_OFFERED_ENCRYPTED,
+    )["dynamic"]["detail"]
+
+    assert "queued" not in detail.lower(), detail
+    assert "will be merged" not in detail.lower(), detail
+    assert "password" in detail.lower(), detail
+
+
+def test_every_not_offered_reason_has_a_sentence() -> None:
+    """A `KeyError` here is better than a wrong sentence, but only if the set is
+    complete. This fails the moment someone adds a reason and forgets the text."""
+    from app.engine import pipeline
+
+    for reason in ("", pipeline.NOT_OFFERED_FAMILY,
+                   pipeline.NOT_OFFERED_NO_EXECUTION_PATH,
+                   pipeline.NOT_OFFERED_ENCRYPTED):
+        detail = pipeline._tier_record(
+            static_ran=True, analyzer_gaps={}, family="script", not_offered=reason
+        )["dynamic"]["detail"]
+        assert detail and isinstance(detail, str)

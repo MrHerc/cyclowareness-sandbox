@@ -280,14 +280,49 @@ def _tiers_phrase(job) -> str:
     return " and ".join(ran) + " analysis"
 
 
+#: `score_breakdown` keys that record a tier which RAN and may not be concluded
+#: from. Each carries a `reason` written for a reader, not for the engine.
+#:
+#: A tier that did not run was the only blind spot this function knew about, and
+#: it is the easy half: the report says "did not run" and a reader draws the
+#: right conclusion. The hard half is a tier that ran, is printed in full, and is
+#: excluded from every number on the page — which described every ELF detonation
+#: on this deployment and every detonation of a file Windows cannot execute. The
+#: PDF prints `[high] Deletes files from disk` in the exported case file, the
+#: score counts it as 0.0, and nothing anywhere connected the two.
+_RAN_BUT_EXCLUDED_KEYS = ("dynamic_uncalibrated", "dynamic_not_attributable")
+
+
+def _excluded_tier_caveats(job) -> list[str]:
+    """Reasons a tier that RAN may not be concluded from.
+
+    Separate from the not-run sentences because `incident._evidence` builds its
+    own not-run wording and needs only these. Selecting them out of a combined
+    list by string prefix was the first attempt and was wrong on its first
+    input: the calibration sentence also begins with "The".
+    """
+    breakdown = getattr(job, "score_breakdown", None) or {}
+    reasons = []
+    for key in _RAN_BUT_EXCLUDED_KEYS:
+        entry = breakdown.get(key)
+        if isinstance(entry, dict) and entry.get("reason"):
+            reasons.append(str(entry["reason"]))
+    return reasons
+
+
 def _tier_caveats(job) -> list[str]:
-    """One sentence per tier that did not run, in the words the JSON export uses."""
+    """Every reason a reader should not take this report at face value.
+
+    One sentence per tier that did not run, plus one per tier that ran and is
+    excluded. STIX picks both up with no edit — it is the only other consumer of
+    this function — and the PDF and the incident record now call it too.
+    """
     return [
         f"The {t['tier']} analysis tier did not run. Any finding that tier would "
         "have produced is absent from this assessment."
         for t in _tiers_summary(job)
         if not t.get("ran")
-    ]
+    ] + _excluded_tier_caveats(job)
 
 
 def _archive_tree(job) -> list[dict[str, Any]]:
@@ -1125,6 +1160,18 @@ def as_pdf(job) -> bytes:
                 body,
             )
         )
+    # A TIER THAT RAN CAN STILL BE A BLIND SPOT, and this page is where a reader
+    # decides how much to trust the rest of the document. Printed in the same
+    # warning colour a tier that did not run gets, because it carries the same
+    # weight: the annex overleaf lists `[high]` behavioural rows that contributed
+    # nothing to the score, and without this the two pages contradict each other
+    # with no way to tell which is right.
+    caveats = [c for c in _tier_caveats(job) if c]
+    if caveats:
+        flow.append(Spacer(1, 4))
+        warn = _sev_color("high").hexval()
+        for caveat in caveats:
+            flow.append(Paragraph(f"<font color='{warn}'><b>&#9679;</b></font> {esc(caveat)}", body))
     flow.append(Spacer(1, 4))
     flow.append(
         Paragraph(

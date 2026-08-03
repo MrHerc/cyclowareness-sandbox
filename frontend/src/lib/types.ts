@@ -195,6 +195,22 @@ export interface ScoreBreakdown {
   }
   top_reasons?: { id: string; title: string; severity: string; detail: string }[]
   tiers?: Record<string, TierInfo>
+  /**
+   * A tier that RAN and may not be concluded from. Both keys have been written
+   * by the backend for a while; neither was in this interface, which is why
+   * neither was ever rendered — the API carried the sentence and the UI had no
+   * name for it.
+   *
+   * `dynamic_uncalibrated` — the platform's signatures were never measured
+   * against benign software. `dynamic_not_attributable` — Windows cannot run
+   * this file, so the guest's behaviour is the guest's.
+   *
+   * They matter on screen because the trace is rendered at its RAW severity: a
+   * row reads `high` while contributing 0.0 to the score, and nothing else on
+   * the page says why.
+   */
+  dynamic_uncalibrated?: { family: string; signal_count: number; reason: string }
+  dynamic_not_attributable?: { claimed_extension: string; mime: string; reason: string }
 }
 
 export interface JobDetailT extends JobSummary {
