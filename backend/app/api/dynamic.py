@@ -99,9 +99,16 @@ def _dynamic_is_attributable(job: SandboxJob) -> bool:
     """
     if job.family != "script":
         return True
+    # THE SAME DERIVATION THE PIPELINE USES, not a second one that agrees most
+    # of the time. This read `"." + name.rsplit(".", 1)[-1]` while the pipeline
+    # called `identify._claimed_extension`, which steps over a digit-only last
+    # component when a real format is underneath. On `deploy.ps1.2` the pipeline
+    # sees `.ps1` and writes "Queued for detonation on the attached isolated
+    # worker", and this function sees `.2`, returns False, and the queue never
+    # offers the job — a promise in a signed report that nothing will ever keep.
+    # No such name exists on this deployment today; the divergence does.
     name = (job.original_name or job.archive_path or "").rsplit("/", 1)[-1]
-    extension = ("." + name.rsplit(".", 1)[-1].lower()) if "." in name else ""
-    return identify.has_execution_path(extension, job.mime or "")
+    return identify.has_execution_path(identify._claimed_extension(name), job.mime or "")
 
 
 def _needs_dynamic(job: SandboxJob) -> bool:

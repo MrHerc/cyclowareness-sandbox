@@ -258,3 +258,43 @@ def test_every_not_offered_reason_has_a_sentence() -> None:
             static_ran=True, analyzer_gaps={}, family="script", not_offered=reason
         )["dynamic"]["detail"]
         assert detail and isinstance(detail, str)
+
+
+@pytest.mark.parametrize(
+    "name,mime",
+    [
+        ("deploy.ps1.2", "text/plain"),
+        ("install.sh.1", "text/plain"),
+        ("rclone.1", "text/plain"),
+        ("notes.txt", "text/plain"),
+        ("payload.ps1", "text/plain"),
+    ],
+)
+def test_the_queue_and_the_pipeline_read_one_extension(name: str, mime: str) -> None:
+    """Two derivations of "what extension does this name claim" disagreed.
+
+    The pipeline called `identify._claimed_extension`, which steps over a
+    digit-only last component when a real format sits underneath, so it saw
+    `.ps1` in `deploy.ps1.2` and wrote "Queued for detonation on the attached
+    isolated worker". `_dynamic_is_attributable` did `name.rsplit(".", 1)[-1]`,
+    saw `.2`, and the queue never offered the job. A promise nothing would keep,
+    in a field the signed report carries.
+
+    Not caught by a live row — no such name has been submitted here — which is
+    why it is asserted directly rather than measured.
+    """
+    from app.api import dynamic as dynamic_api
+    from app.engine import identify
+
+    class _Job:
+        family = "script"
+        archive_path = None
+
+        def __init__(self, n, m):
+            self.original_name, self.mime = n, m
+
+    queue_side = dynamic_api._dynamic_is_attributable(_Job(name, mime))
+    pipeline_side = identify.has_execution_path(identify._claimed_extension(name), mime)
+    assert queue_side == pipeline_side, (
+        f"{name}: queue says {queue_side}, pipeline says {pipeline_side}"
+    )

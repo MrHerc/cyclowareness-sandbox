@@ -801,16 +801,54 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
     # it shows intent without the sample getting what it wanted. Both go into the
     # IOC buckets; which of the two it was is preserved in facts, because
     # "attempted" and "established" mean different things to an investigator.
+    # AND `hosts` IS NOT THE SET OF ADDRESSES THAT ANSWERED.
+    #
+    # The paragraph above is right about `dead_hosts` and wrong about `hosts`,
+    # and the wrong half is the one that made a claim. CAPE's
+    # `modules/processing/network.py` calls `_add_hosts(connection)` once per
+    # PACKET, unconditionally, outside the TCP/UDP/ICMP branches — so every
+    # destination the guest ever addressed lands in `hosts`, answered or not.
+    # `dead_hosts` is not its complement either: a host is only filed there
+    # after >= 3 unanswered retransmissions, so `hosts` is a strict SUPERSET of
+    # `dead_hosts` and a single unanswered SYN appears in `hosts` alone.
+    #
+    # Reading that as "established" produced, across the 293 stored detonations
+    # on this deployment: 1344 established entries, of which exactly ONE has a
+    # data-bearing flow behind it, and 1326 are simultaneously listed in the
+    # SAME report's `attempted`. The report contradicted itself 1326 times.
+    #
+    # It cannot be otherwise here. The detonation host carries
+    # `-A FORWARD -i virbr0 -o <wan> -j DROP`, so no guest can complete an
+    # outbound handshake by construction, and "established" was asserted 1344
+    # times on a network where it is impossible.
+    #
+    # `network.tcp` is the only evidence CAPE offers of a completed exchange:
+    # `if tcp.data:` is the sole path that appends to `tcp_connections`. HTTP
+    # entries count too — a parsed request means bytes moved.
+    #
+    # UDP is deliberately NOT evidence: CAPE appends a datagram whether or not
+    # anything replied. A genuine UDP C2 that did answer will therefore read
+    # `attempted`. That is the honest under-claim, and asserting the opposite is
+    # the entire defect.
     net = data.get("network", {}) or {}
     established: list[str] = []
     attempted: list[str] = []
 
-    for host in net.get("hosts", []) or []:
-        ip = host if isinstance(host, str) else host.get("ip")
-        if ip:
-            report.add_ioc("ips", ip)
-            established.append(ip)
+    exchanged: set[str] = {
+        flow.get("dst") for flow in (net.get("tcp") or []) if isinstance(flow, dict)
+    }
+    for entry in net.get("http", []) or []:
+        if isinstance(entry, dict):
+            for key in ("dst", "host", "hostname"):
+                value = entry.get(key)
+                if isinstance(value, str) and value:
+                    exchanged.add(value)
+    exchanged.discard(None)
 
+    # `dead_hosts` FIRST, so the `hosts` loop below can tell which addresses are
+    # already accounted for. Ordered the other way the de-duplication does
+    # nothing, which is how the same IP came to sit in both buckets.
+    dead: set[str] = set()
     for entry in net.get("dead_hosts", []) or []:
         if isinstance(entry, (list, tuple)):
             ip = entry[0] if entry else None
@@ -822,6 +860,22 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         if ip:
             report.add_ioc("ips", str(ip))
             attempted.append(f"{ip}:{port}" if port else str(ip))
+            dead.add(str(ip))
+
+    for host in net.get("hosts", []) or []:
+        ip = host if isinstance(host, str) else host.get("ip")
+        if not ip:
+            continue
+        # Unchanged: every address is still an indicator either way. This
+        # decides what the report CALLS it, not whether it is reported.
+        report.add_ioc("ips", ip)
+        if ip in exchanged:
+            established.append(ip)
+        elif str(ip) not in dead:
+            # Same `ip:port` shape `attempted` already uses, so an address does
+            # not change format when it changes bucket.
+            ports = (host.get("ports") or []) if isinstance(host, dict) else []
+            attempted.append(f"{ip}:{ports[0]}" if ports else str(ip))
 
     for dom in net.get("domains", []) or []:
         name = dom if isinstance(dom, str) else dom.get("domain")
@@ -858,11 +912,13 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
         if uri:
             report.add_ioc("urls", uri)
 
-    if established or attempted:
-        report.facts["network_endpoints"] = {
-            "established": established,
-            "attempted": attempted,
-        }
+    # The endpoint facts are written BELOW the baseline filter now, not above
+    # it. `baseline.partition` ran fifteen lines after this block and only over
+    # `report.iocs`, so guest-platform noise was correctly stripped from the
+    # indicators and left standing in the endpoints: `184.86.251.16` is inside
+    # `184.86.251.0/24` in `baseline_networks.txt`, absent from `iocs` on all
+    # 249 jobs that saw it, and present in `network_endpoints.established` on
+    # all 249 of them. One filter, two lists, one of which quietly bypassed it.
 
     # A timeline from process behaviour, if present.
     procs = (data.get("behavior", {}) or {}).get("processes", []) or []
@@ -880,6 +936,19 @@ def _normalise_cuckoo(data: dict, report: Report, prefix: str = "cuckoo") -> Non
             "count": len(suppressed),
             "entries": suppressed[:50],
             "basis": "idle-guest baseline: see worker/engines/baseline.py",
+        }
+
+    # The same filter, over the same addresses, in the other list. An entry is
+    # `ip` or `ip:port`, so the address is split off before it is tested.
+    def _not_baseline(entry: str) -> bool:
+        return not baseline.noise_reason("ips", entry.rsplit(":", 1)[0])
+
+    established = [e for e in established if _not_baseline(e)]
+    attempted = [e for e in attempted if _not_baseline(e)]
+    if established or attempted:
+        report.facts["network_endpoints"] = {
+            "established": established,
+            "attempted": attempted,
         }
 
     if not report.signals:

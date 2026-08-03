@@ -283,7 +283,45 @@ def test_attempted_and_established_are_distinguished(normalised) -> None:
     assert endpoints, "the attempted/established distinction was lost"
     assert "203.0.113.77:443" in endpoints["attempted"]
     assert "198.51.100.23:8080" in endpoints["attempted"]
-    assert "23.52.181.237" in endpoints["established"]
+
+
+def test_an_unanswered_packet_is_not_an_established_connection(normalised) -> None:
+    """This assertion used to read
+
+        assert "23.52.181.237" in endpoints["established"]
+
+    and `23.52.181.237` is the address the test twelve lines above asserts is
+    platform noise and must not appear in the indicators at all. The fixture has
+    no `network.tcp` list, so nothing in it ever exchanged a byte — the suite was
+    pinning the defect in place, and pinning it on an address the product had
+    already decided was not the sample's.
+
+    CAPE fills `network.hosts` from every packet destination, answered or not.
+    Only `network.tcp` (`if tcp.data:`) means bytes moved. On the live
+    deployment that difference was 1344 asserted connections against 1 with a
+    flow behind it, on a host whose firewall drops every forwarded packet.
+    """
+    endpoints = normalised.facts.get("network_endpoints")
+    assert endpoints["established"] == [], endpoints["established"]
+    assert "23.52.181.237" not in str(endpoints), endpoints
+
+
+def test_the_same_address_is_never_in_both_buckets(normalised) -> None:
+    """1326 of 1344 stored entries were in both, because `hosts` is a superset
+    of `dead_hosts` and the two loops did not know about each other."""
+    endpoints = normalised.facts.get("network_endpoints")
+    established = {e.rsplit(":", 1)[0] for e in endpoints["established"]}
+    attempted = {e.rsplit(":", 1)[0] for e in endpoints["attempted"]}
+    assert not (established & attempted), established & attempted
+
+
+def test_the_baseline_reaches_the_endpoints_too(normalised, baseline) -> None:
+    """`baseline.partition` ran after the facts were written and only over the
+    indicators, so guest noise was stripped from one list and left in the other.
+    249 stored jobs had `184.86.251.16` in `established` and not in `iocs`."""
+    endpoints = normalised.facts.get("network_endpoints") or {}
+    for entry in endpoints.get("established", []) + endpoints.get("attempted", []):
+        assert not baseline.noise_reason("ips", entry.rsplit(":", 1)[0]), entry
 
 
 def test_every_removal_is_accounted_for(normalised) -> None:
