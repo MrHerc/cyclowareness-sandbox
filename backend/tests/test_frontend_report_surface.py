@@ -249,7 +249,20 @@ def contrast(a: str, b: str) -> float:
 
 
 def _themes() -> tuple[dict[str, str], dict[str, str]]:
-    """(light, dark) token maps. Dark inherits every token it does not override."""
+    """(light, dark) token maps. Light inherits every token it does not override.
+
+    The default block is the DARK one — the repaint inverted which theme is the
+    product's identity, and this function had the old direction baked in. Left
+    alone it kept passing while testing nothing: it read the default block as
+    light, found no `[data-theme="dark"]` block to override it, and returned the
+    same dark palette under both names. Thirty parametrised contrast assertions
+    would have checked one theme twice and left the other completely unmeasured,
+    with `assert light and dark` still satisfied.
+
+    So the sanity check below is not decoration. It asserts the two maps
+    actually DIFFER, which is the one thing that catches this class of failure
+    whichever direction a future revision flips.
+    """
     css = CSS.read_text(encoding="utf-8")
     theme = re.search(r"@theme\s*\{(.*?)\n\}", css, re.S)
     assert theme, "no @theme block in index.css"
@@ -260,11 +273,20 @@ def _themes() -> tuple[dict[str, str], dict[str, str]]:
             for m in re.finditer(r"--color-([a-z0-9-]+):\s*(#[0-9a-fA-F]{6})", block)
         }
 
-    light = colours(theme.group(1))
-    dark = dict(light)
-    for block in re.findall(r':root\[data-theme="dark"\]\s*\{(.*?)\n\}', css, re.S):
-        dark.update(colours(block))
-    assert light and dark
+    dark = colours(theme.group(1))
+    light = dict(dark)
+    overrides = re.findall(r':root\[data-theme="light"\]\s*\{(.*?)\n\}', css, re.S)
+    assert overrides, (
+        "no :root[data-theme=\"light\"] block found in index.css. If the theme "
+        "blocks were renamed again, update this parser — it silently degrades "
+        "to testing one palette twice."
+    )
+    for block in overrides:
+        light.update(colours(block))
+    assert light != dark, (
+        "the light and dark token maps came out identical, so half the contrast "
+        "suite is testing the same palette twice"
+    )
     return light, dark
 
 

@@ -52,8 +52,12 @@
      so the only thing marking an input was a shadow of a border that a
      low-vision analyst could not see at all. */
   --color-hair: #1e222a;
-  --color-line: #5d6472;
-  --color-line-strong: #858c9c;
+  /* 3.48:1 on `raised`, which is the surface inputs actually sit on. The first
+     dark value was #5d6472 and measured 2.87 — under the 3:1 this comment
+     demands, and the same defect as the #d6d9e4 it describes, just milder.
+     Measured in the browser against the live build rather than eyeballed. */
+  --color-line: #6a7180;
+  --color-line-strong: #949bab;
 
   /* --- content: 1 primary, 2 secondary, 3 tertiary (all AA on panel) ------
      c3 must clear 4.5:1 on the *darkest* surface it lands on, which is the
@@ -91,8 +95,10 @@
   --color-series-2: #3ecf8e;
   --color-series-3: #22d3ee;
 
-  /* --- chart gridlines. No longer laid over the canvas: see `body`. ------- */
-  --color-grid: #1a1e26;
+  /* `--color-grid` was here. Removing the canvas grid left nothing reading it,
+     and a token that resolves to a colour nobody draws is the next person's
+     wrong guess about what the surface is supposed to look like. A chart that
+     wants gridlines should add it back deliberately. */
 
   /* --- type scale: eight steps, nothing else -------------------------------
      An earlier version used thirteen sizes across three notations
@@ -187,7 +193,7 @@
   --color-series-2: #077d55;
   --color-series-3: #0e7490;
 
-  --color-grid: #dfe2d9;
+  
 }
 
 /* =============================================================================
@@ -220,8 +226,8 @@ body {
      threshold of visibility, and on a near-white ground it was. On a near-black
      one the same lines read as texture behind every chart, and the charts draw
      their own gridlines on top — two grids at different pitches, in the one
-     place the eye is trying to follow a line. `--color-grid` is still a token;
-     it now means what its name says and nothing more.
+     place the eye is trying to follow a line. `--color-grid` went with it —
+     nothing was left reading it.
      Replaced by a single wide accent wash at the top of the page: enough to
      stop the ground reading as flat black, cheap enough not to repaint. */
   background-color: var(--color-canvas);
