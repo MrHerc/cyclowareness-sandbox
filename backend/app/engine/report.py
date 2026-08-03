@@ -52,6 +52,53 @@ def _num(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _sample_retained(job) -> bool:
+    """Whether this deployment can still produce the bytes it analysed.
+
+    TWO CONDITIONS, AND ONLY ONE OF THEM WAS CHECKED. `sample_deleted_at` is a
+    record of policy; the disk is the fact. A deployment that never runs the
+    retention sweep — the portal has no sweeper at all — leaves the column NULL
+    for ever, so reading it alone reports every sample as retained no matter
+    what happened to the file.
+    """
+    if getattr(job, "sample_deleted_at", None) is not None:
+        return False
+
+    # NO DIGEST MEANS NOTHING WAS EVER STORED, WHICH IS NOT THE SAME AS LOST.
+    # A queued, failed or password-parked job still produces a record — the
+    # incident export is total by construction — and those jobs have no
+    # `sha256`. Checking the disk for them found nothing and reported the bytes
+    # as missing, which added a limitation about lost evidence to records where
+    # no evidence had ever been written. Caught by
+    # `test_a_clean_job_still_says_every_tier_ran`.
+    digest = getattr(job, "sha256", "") or ""
+    if not digest:
+        return True
+
+    from . import storage
+
+    return storage.sample_exists(digest)
+
+
+def _sample_absent_reason(job) -> str | None:
+    """Why the bytes are gone, or None while they are still here.
+
+    A deletion under policy and a file that simply is not there are different
+    facts about the same missing evidence, and a reader deciding whether the
+    record can still be verified needs to know which one they have.
+    """
+    deleted = getattr(job, "sample_deleted_at", None)
+    if deleted is not None:
+        return "deleted under the data-retention policy"
+    if _sample_retained(job):
+        return None
+    return (
+        "not present in this deployment's quarantine — no retention deletion is "
+        "recorded, so the bytes were lost rather than removed by policy "
+        "(an ephemeral quarantine directory is the usual cause)"
+    )
+
+
 def _utc(value: Any) -> str | None:
     """A timestamp an external system can read without guessing.
 
@@ -500,7 +547,19 @@ def as_json(job) -> dict:
         # while the original had been deleted by policy and nothing said so.
         # "We hold the file" and "we hold a hash of a file we no longer have"
         # are different claims.
-        "sample_retained": getattr(job, "sample_deleted_at", None) is None,
+        #
+        # AND THE COLUMN IS NOT THE ONLY WAY BYTES GO MISSING. This read
+        # `sample_deleted_at is None` alone, which is a claim about policy, not
+        # about the disk. On a deployment whose quarantine sits on ephemeral
+        # storage — `SANDBOX_QUARANTINE=/tmp/...`, which is the portal's own
+        # blueprint — the database rows outlive a redeploy and the files do not.
+        # Nothing stamps the column in that case, so every export of every
+        # pre-redeploy job asserted `sample_retained: true` for bytes that no
+        # longer existed, on the document positioned as regulatory evidence.
+        # `sample_absent_reason` distinguishes the two: a policy deletion has a
+        # date, a vanished file does not.
+        "sample_retained": _sample_retained(job),
+        "sample_absent_reason": _sample_absent_reason(job),
         "sample_deleted_at": _utc(getattr(job, "sample_deleted_at", None)),
         "submitted_at": _utc(getattr(job, "created_at", None)),
         "started_at": _utc(getattr(job, "started_at", None)),

@@ -532,13 +532,28 @@ def _retention_limitation(job) -> list[str]:
     is a document that does not mention it.
     """
     deleted = getattr(job, "sample_deleted_at", None)
-    if deleted is None:
+    if deleted is not None:
+        return [
+            "The sample's bytes are no longer held by this deployment: they were "
+            f"deleted under the data-retention policy on {deleted:%Y-%m-%d}. The "
+            "SHA-256 below still identifies the artifact, but it cannot be "
+            "recomputed here — verification requires a copy of the original file."
+        ]
+
+    # AND THE FILE CAN BE GONE WITHOUT A POLICY HAVING TAKEN IT. This returned
+    # early on a NULL column, which is the state of every job on a deployment
+    # with no retention sweeper — the portal has none — so a quarantine on
+    # ephemeral storage wiped by a redeploy produced a record that said nothing
+    # at all about the missing evidence and still invited the reader to
+    # recompute a hash over it.
+    if report_mod._sample_retained(job):
         return []
     return [
-        "The sample's bytes are no longer held by this deployment: they were "
-        f"deleted under the data-retention policy on {deleted:%Y-%m-%d}. The "
-        "SHA-256 below still identifies the artifact, but it cannot be "
-        "recomputed here — verification requires a copy of the original file."
+        "The sample's bytes are not present in this deployment's quarantine, and "
+        "no retention deletion is recorded for them — so they were lost rather "
+        "than removed under policy. The SHA-256 below still identifies the "
+        "artifact, but it cannot be recomputed here, and this deployment cannot "
+        "produce the file it analysed."
     ]
 
 
@@ -572,9 +587,21 @@ def _evidence(job) -> dict[str, Any]:
         "indicators_of_compromise": {k: v for k, v in iocs.items() if v},
         "signal_count": len(report_mod._all_signals(job)),
         "attack_techniques": report_mod._mitre(job),
+        # The invitation is only honest while the file is here. Printed
+        # unconditionally, it told a regulator to perform a verification this
+        # deployment had already made impossible — see `_retention_limitation`,
+        # which now covers both ways the bytes go missing.
         "note": (
-            "Artifact identity is anchored on the SHA-256 recorded under 'artifact'. "
-            "Recomputing that hash over the original file reproduces this record's subject."
+            (
+                "Artifact identity is anchored on the SHA-256 recorded under 'artifact'. "
+                "Recomputing that hash over the original file reproduces this record's subject."
+            )
+            if report_mod._sample_retained(job)
+            else (
+                "Artifact identity is anchored on the SHA-256 recorded under 'artifact'. "
+                "This deployment no longer holds the file, so that hash cannot be "
+                "recomputed here — see the limitations above."
+            )
         ),
     }
 

@@ -120,6 +120,12 @@ SUBMISSION_KEYS = (
     # sample exported twice legitimately differs here.
     "sample_retained",
     "sample_deleted_at",
+    # WHY they are gone is the same kind of fact and belongs beside them. Adding
+    # it to the report without adding it here put a value that changes after a
+    # sweep into the half that claims byte-identity, and
+    # `test_it_is_a_submission_fact_not_a_reproducible_one` caught it
+    # immediately — which is precisely the leak that test exists to catch.
+    "sample_absent_reason",
 )
 
 #: The parser libraries whose behaviour is an input to the verdict. A YARA or

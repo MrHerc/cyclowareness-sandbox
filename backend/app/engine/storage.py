@@ -128,6 +128,38 @@ def store_bytes(data: bytes, *, max_bytes: int = MAX_SAMPLE_BYTES) -> StoredSamp
     return store_stream(io.BytesIO(data), max_bytes=max_bytes)
 
 
+def sample_path(sha256: str) -> Path | None:
+    """Where a sample's bytes would be, or None if the digest is unusable.
+
+    The content-addressed layout `root / digest[:2] / digest` lived only inside
+    `store_stream`, so anything else that needed to know whether a sample still
+    exists had to re-derive it — and the one caller that needed it instead read
+    a database column, which is how an evidence export came to assert that a
+    file was retained when the disk it lived on had been wiped.
+
+    Returns the path whether or not it exists; `exists()` is the caller's
+    question. None only for a missing or malformed digest, because guessing a
+    path from a bad hash would answer that question wrongly.
+    """
+    digest = (sha256 or "").strip().lower()
+    if len(digest) != 64 or not all(c in "0123456789abcdef" for c in digest):
+        return None
+    return quarantine_root() / digest[:2] / digest
+
+
+def sample_exists(sha256: str) -> bool:
+    """Whether this deployment still holds the bytes. Never raises."""
+    path = sample_path(sha256)
+    if path is None:
+        return False
+    try:
+        return path.is_file()
+    except OSError:
+        # An unreadable quarantine is not a retained sample. Reporting False is
+        # the safe direction: the claim this feeds is "we still hold the file".
+        return False
+
+
 def iter_quarantined() -> Iterator[Path]:
     for shard in quarantine_root().iterdir():
         if shard.is_dir():
