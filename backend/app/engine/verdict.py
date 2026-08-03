@@ -307,6 +307,8 @@ def classify(
     results: Iterable[AnalyzerResult],
     iocs: IOCs | None,
     final_score: float,
+    *,
+    attributable: bool = True,
 ) -> VerdictResult:
     results = list(results)
     all_signals = [s for r in results if r.ran for s in r.signals]
@@ -350,7 +352,7 @@ def classify(
     # Computed by `scoring.capability_exclusions` rather than assembled here, so
     # `impact.assess` cannot go on using a different set — which it did, and the
     # rating leaked into the signed evidence for it.
-    excluded = capability_exclusions(family, all_signals)
+    excluded = capability_exclusions(family, all_signals, attributable=attributable)
     #: Every consumer below reads THIS, not `all_signals`. Applying the exclusion
     #: to `caps` alone was not enough, and the sweep found the gap three ways in
     #: one function: `_family_token` still read the excluded signals' evidence,

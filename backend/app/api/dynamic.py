@@ -520,7 +520,7 @@ def ingest_report(
         # path that matters most for it: `merged` here always contains the
         # trace's indicators, because this function only runs when a report has
         # landed.
-        ioc_total=scoring.scorable_ioc_total(results, job.family),
+        ioc_total=scoring.scorable_ioc_total(results, job.family, attributable=attributable),
         tiers=tiers,
         family=job.family,
         dynamic_attributable=attributable,
@@ -600,10 +600,12 @@ def ingest_report(
     # sample LOWERED its impact rating, because this recomputation replaced the
     # pipeline's rating with one that had forgotten where the file came from.
     impact_res = impact_mod.assess(
-        job.family, all_signals, merged, from_url=(job.source == JobSource.URL)
+        job.family, all_signals, merged,
+        from_url=(job.source == JobSource.URL), attributable=attributable,
     )
     verdict_res = verdict_mod.classify(
-        job.family, job.mime, results, merged, assessment.final_score
+        job.family, job.mime, results, merged, assessment.final_score,
+        attributable=attributable,
     )
     # The same rule the pipeline applies: a clean verdict rates nothing. See
     # `impact.unrated` for why the two can disagree at all.
@@ -619,7 +621,9 @@ def ingest_report(
             # An uncalibrated platform may not assert an ATT&CK technique
             # either. One definition, in scoring, because this decision had
             # four inline copies and the capability one had already drifted.
-            exclude=scoring.uncalibrated_dynamic_ids(job.family, all_signals),
+            exclude=scoring.inadmissible_dynamic_ids(
+                job.family, all_signals, attributable=attributable
+            ),
         )
 
     # AND THE CONTAINER ABOVE IT.

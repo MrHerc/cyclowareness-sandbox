@@ -905,7 +905,9 @@ def run(
             # NOT `merged.total()`: an uncalibrated platform's indicators are
             # shown in the report and kept in `job.iocs`, and may not move the
             # number. See `scoring.scorable_ioc_total`.
-            ioc_total=scoring.scorable_ioc_total(results, sample.family),
+            ioc_total=scoring.scorable_ioc_total(
+                results, sample.family, attributable=attributable
+            ),
             tiers=tiers,
             family=sample.family,
             dynamic_attributable=attributable,
@@ -953,11 +955,16 @@ def run(
         #: below. Kept as the stored dict rather than a rebuilt `ImpactRating`
         #: because that is what was measured on the member's own signals.
         impact_override: dict[str, Any] | None = None
+        # `attributable` reaches BOTH of these now. It was computed 60 lines up,
+        # handed to the score, and then dropped — so the same trace the score
+        # refused to count still named the family and set the verdict.
         impact_res = impact_mod.assess(
-            sample.family, all_signals, merged, from_url=(job.source == JobSource.URL)
+            sample.family, all_signals, merged,
+            from_url=(job.source == JobSource.URL), attributable=attributable,
         )
         verdict_res = verdict_mod.classify(
-            sample.family, sample.mime, results, merged, assessment.final_score
+            sample.family, sample.mime, results, merged, assessment.final_score,
+            attributable=attributable,
         )
 
         # A CONTAINER IS NOT SAFER THAN WHAT IS IN IT.
@@ -1084,7 +1091,12 @@ def run(
             # An uncalibrated platform may not assert an ATT&CK technique
             # either. One definition, in scoring, because this decision had
             # four inline copies and the capability one had already drifted.
-            exclude=scoring.uncalibrated_dynamic_ids(sample.family, all_signals),
+            # Both axes. `map_techniques` reads ids, not severities, so a
+            # non-attributable detonation was still yielding techniques: a man
+            # page came out `T1055 Process Injection`.
+            exclude=scoring.inadmissible_dynamic_ids(
+                sample.family, all_signals, attributable=attributable
+            ),
         )
         job.status = JobStatus.COMPLETED
         job.stage = "complete"

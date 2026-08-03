@@ -419,7 +419,12 @@ def uncalibrated_dynamic_ids(family: str | None, signals: "Iterable[Signal]") ->
     return frozenset(s.id for s in signals if _dynamic(s.id))
 
 
-def capability_exclusions(family: str | None, signals: "Iterable[Signal]") -> frozenset[str]:
+def capability_exclusions(
+    family: str | None,
+    signals: "Iterable[Signal]",
+    *,
+    attributable: bool = True,
+) -> frozenset[str]:
     """Signal ids that must never reach `detect_capabilities`.
 
     ONE DEFINITION, BECAUSE THIS HAS DRIFTED ONCE ALREADY. `verdict.classify`
@@ -440,23 +445,70 @@ def capability_exclusions(family: str | None, signals: "Iterable[Signal]") -> fr
     the impact rating travels inside the Ed25519-signed evidence bundle at
     `report.reproducible.impact`.
 
-    The three terms:
+    The four terms:
 
     * `uncorroborated` — a lone high-consequence signal is a lead, not a finding;
     * `family_ambient` — the interpreter is not the sample;
     * every dynamic id when the platform is uncalibrated — a syscall trace from
-      a platform nobody has measured against benign software is a document.
+      a platform nobody has measured against benign software is a document;
+    * every dynamic id when the detonation is NOT ATTRIBUTABLE — see below.
+
+    THE SECOND AXIS. There are two unrelated reasons a detonation may be shown
+    and may not accuse, and the guard was built for only one of them:
+
+      calibration      the platform's signatures were never measured (`elf`);
+      attributability  Windows cannot execute this file at all, so whatever the
+                       guest did, this sample did not do it.
+
+    `scoring.assess` has taken `dynamic_attributable` since the 226 inert files
+    were detonated, and honours it: measured on the live image, a `script` with
+    three `capev2` signals scores `rule=7.0` not-attributable against `98.0`
+    attributable. Every OTHER consumer took the calibration axis and stopped.
+    So the same trace that the score refuses to count still reached the verdict
+    through the identification branch:
+
+        script / text/html, README.html, three capev2 signals + capev2.detection
+        -> verdict MALICIOUS, threat Script.Malware.Ryuk, SandboxID
+           detected=True severity=critical, at a final_score of 5.9
+
+    A man page came out `T1055 Process Injection` by the same route. The score
+    breakdown says "Windows has no way to run a file of this type… excluded from
+    the score" three keys away from the verdict that used it.
+
+    Why a symmetry test could not catch it: `test_a_second_path_forgot_the_rule`
+    asserts the pipeline and the report handler pass the SAME arguments to
+    `impact.assess` and `verdict.classify`. They did. Both were equally wrong.
 
     `AMBIENT_SIGNALS` is deliberately NOT among them: it is demoted for scoring
     only, and routing it into the capability engine was measured at a cost of 16
     fixture detections.
     """
     signals = list(signals)
-    return frozenset(
-        uncorroborated(signals)
-        | family_ambient(family)
-        | uncalibrated_dynamic_ids(family, signals)
-    )
+    inadmissible = uncalibrated_dynamic_ids(family, signals)
+    if not attributable:
+        inadmissible |= frozenset(s.id for s in signals if _dynamic(s.id))
+    return frozenset(uncorroborated(signals) | family_ambient(family) | inadmissible)
+
+
+def inadmissible_dynamic_ids(
+    family: str | None,
+    signals: "Iterable[Signal]",
+    *,
+    attributable: bool = True,
+) -> frozenset[str]:
+    """Dynamic ids that may not be concluded from — on EITHER axis.
+
+    Narrower than `capability_exclusions` on purpose, and the difference matters.
+    The ATT&CK mapping wants only this: `capability_exclusions` also carries
+    `uncorroborated` and `family_ambient`, and routing those into technique
+    mapping would quietly drop techniques from real malware that this change has
+    no business touching.
+    """
+    signals = list(signals)
+    ids = uncalibrated_dynamic_ids(family, signals)
+    if not attributable:
+        ids |= frozenset(s.id for s in signals if _dynamic(s.id))
+    return ids
 
 
 def dynamic_uncalibrated(family: str | None) -> bool:
@@ -464,7 +516,12 @@ def dynamic_uncalibrated(family: str | None) -> bool:
     return (family or "").lower() in DYNAMIC_UNCALIBRATED_FAMILIES
 
 
-def scorable_ioc_total(results: "Iterable[AnalyzerResult]", family: str | None) -> int:
+def scorable_ioc_total(
+    results: "Iterable[AnalyzerResult]",
+    family: str | None,
+    *,
+    attributable: bool = True,
+) -> int:
     """How many indicators the SCORE is allowed to count.
 
     Not the same number as the report shows. `job.iocs` keeps every indicator
@@ -486,7 +543,10 @@ def scorable_ioc_total(results: "Iterable[AnalyzerResult]", family: str | None) 
     signed evidence after the score had already been fixed.
     """
     merged = IOCs()
-    skip_dynamic = dynamic_uncalibrated(family)
+    #: Both axes, for the same reason `capability_exclusions` carries both: a C2
+    #: address the guest reached while "running" an HTML readme is the guest's,
+    #: not the sample's, and 12 such indicators were still reaching `ioc_density`.
+    skip_dynamic = dynamic_uncalibrated(family) or not attributable
     for result in results:
         if not result.ran:
             continue
