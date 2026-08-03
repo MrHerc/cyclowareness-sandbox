@@ -107,6 +107,36 @@ the socket peer is used, and a warning naming both options is logged at startup 
 the first such request. That is the same over-counting failure as leaving the
 switch off, which is the direction to be wrong in.
 
+### If the database is on the host and the API is in a container
+
+This is the shape the reference deployment uses, and it has one trap that only
+appears on a cold boot.
+
+`postgresql.conf` carries `listen_addresses = 'localhost,172.17.0.1'` so the
+container can reach the cluster, and `172.17.0.1` is the **docker0 bridge** —
+an address that does not exist until `docker.service` has created it. Debian's
+PostgreSQL unit is `After=network.target` only, docker is
+`After=network-online.target` (strictly later), and the unit's `ExecStart`
+carries a leading `-`, so a failure to bind is swallowed rather than reported.
+
+A cold boot can therefore leave the cluster listening on `127.0.0.1` only.
+Nothing re-binds afterwards, and the presentation is confusing: CAPE connects
+over `127.0.0.1` and is completely fine, the guests keep detonating, and only
+the product is blind — `/api/health` answers 503 `"database": "unreachable"`
+while `cyclo-api` restarts forever under its `unless-stopped` policy.
+
+Install the drop-in that orders them:
+
+```bash
+install -D infra/detonation-host/systemd/postgresql-after-docker.conf   /etc/systemd/system/postgresql@18-main.service.d/10-after-docker.conf
+systemctl daemon-reload
+systemctl show postgresql@18-main -p After --value | tr ' ' '
+' | grep docker
+```
+
+Ordering only — no `Requires=`, no `Wants=` — so disabling docker on some other
+host does not stop its database from starting.
+
 ### Configuration an operator has to know exists
 
 Eleven settings were readable only from `backend/app/config.py`: absent from
