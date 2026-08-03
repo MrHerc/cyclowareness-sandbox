@@ -31,9 +31,28 @@ Three properties make this auditable rather than decorative:
    the most recent refusals, so the operator can point at the number and say
    "here is what we stopped", instead of at an absence of log lines.
 
-**Default: on.** A sovereignty guarantee an operator has to remember to switch
-on is a guarantee that fails on the day someone forgets. The deployment that
-wants enrichment opts out explicitly with ``SOVEREIGN_MODE=false``.
+**THE DEFAULT BELONGS TO THE DEPLOYMENT, AND THE TWO DISAGREE ON PURPOSE.** This
+module is shared verbatim by both products, and this paragraph used to assert
+"Default: on" flatly — which is true in one of its two homes and false in the
+other, on the page an auditor reads to find out what this deployment sends
+anywhere.
+
+*The standalone sandbox defaults it ON* (``sovereign_mode: bool = True``). It is
+an appliance whose whole promise is that files never leave the building, and a
+sovereignty guarantee an operator has to remember to switch on is a guarantee
+that fails on the day someone forgets. The deployment that wants enrichment opts
+out explicitly with ``SOVEREIGN_MODE=false``.
+
+*The awareness portal defaults it OFF* (``sovereign_mode: bool = False``), and
+that is a factual difference rather than a weaker posture: the portal calls an
+LLM by design — its CONVERT stage IS a model call — so defaulting this on would
+print "no analysis data leaves this deployment" onto an incident record handed
+to a regulator while posting to a third-party model API. Defaulting it off
+states the truth; an operator who wants the guarantee sets ``SOVEREIGN_MODE=true``
+and the AI provider then refuses rather than lying.
+
+Whichever way it is set, :func:`status` reports the running posture, so no
+reader has to trust this paragraph over the deployment.
 
 **A destination name cannot answer the question on its own.** `capev2` is an
 upload to somebody else's cluster or a loopback call, depending entirely on the
