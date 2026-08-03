@@ -1079,12 +1079,9 @@ def run(
         job.mitre = mitre_mod.map_techniques(
             all_signals,
             # An uncalibrated platform may not assert an ATT&CK technique
-            # either. See scoring.DYNAMIC_UNCALIBRATED_FAMILIES.
-            exclude={
-                s.id for s in all_signals
-                if s.id.startswith("capev2.")
-                and scoring.dynamic_uncalibrated(sample.family)
-            },
+            # either. One definition, in scoring, because this decision had
+            # four inline copies and the capability one had already drifted.
+            exclude=scoring.uncalibrated_dynamic_ids(sample.family, all_signals),
         )
         job.status = JobStatus.COMPLETED
         job.stage = "complete"

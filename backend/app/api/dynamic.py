@@ -613,12 +613,9 @@ def ingest_report(
     job.mitre = mitre_mod.map_techniques(
             all_signals,
             # An uncalibrated platform may not assert an ATT&CK technique
-            # either. See scoring.DYNAMIC_UNCALIBRATED_FAMILIES.
-            exclude={
-                s.id for s in all_signals
-                if s.id.startswith("capev2.")
-                and scoring.dynamic_uncalibrated(job.family)
-            },
+            # either. One definition, in scoring, because this decision had
+            # four inline copies and the capability one had already drifted.
+            exclude=scoring.uncalibrated_dynamic_ids(job.family, all_signals),
         )
 
     # AND THE CONTAINER ABOVE IT.

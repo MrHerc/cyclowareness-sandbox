@@ -400,6 +400,65 @@ def family_ambient(family: str | None) -> frozenset[str]:
 DYNAMIC_UNCALIBRATED_FAMILIES = frozenset({"elf"})
 
 
+def uncalibrated_dynamic_ids(family: str | None, signals: "Iterable[Signal]") -> frozenset[str]:
+    """Dynamic signal ids that may not assert anything, because the platform
+    they came from has never been measured against benign software.
+
+    Empty for every calibrated family, so a caller can apply it unconditionally.
+
+    Its own function because it has three consumers that want DIFFERENT things
+    around it: `capability_exclusions` adds `uncorroborated` and
+    `family_ambient`, while the two `mitre.map_techniques` callers want this
+    term alone — a blanket severity gate on ATT&CK was measured and rejected at
+    a cost of 362 techniques, 28 of them on malicious samples. Written out
+    inline it was already four copies, and copies of this exact decision have
+    drifted twice.
+    """
+    if not dynamic_uncalibrated(family):
+        return frozenset()
+    return frozenset(s.id for s in signals if _dynamic(s.id))
+
+
+def capability_exclusions(family: str | None, signals: "Iterable[Signal]") -> frozenset[str]:
+    """Signal ids that must never reach `detect_capabilities`.
+
+    ONE DEFINITION, BECAUSE THIS HAS DRIFTED ONCE ALREADY. `verdict.classify`
+    and `impact.assess` both build a capability set, and `impact.assess` said in
+    its own comment that its exclusions were "verdict.py's, deliberately and
+    exactly". They were, until `verdict.classify` gained a third term for
+    uncalibrated platforms and `impact.assess` did not.
+
+    Measured on the deployed image, same static findings, once alone and once
+    with the first real Linux detonation folded in:
+
+        family elf   impact 0.0 / none   ->   5.3 / medium
+                     capabilities +Network / C2, +Carries an executable payload
+        family pe    identical numbers, i.e. the guard had NO effect at all
+
+    `detect_capabilities` reads `signal.severity`, not `effective_severity`, so
+    forcing an uncalibrated platform's signals to `info` does nothing here — and
+    the impact rating travels inside the Ed25519-signed evidence bundle at
+    `report.reproducible.impact`.
+
+    The three terms:
+
+    * `uncorroborated` — a lone high-consequence signal is a lead, not a finding;
+    * `family_ambient` — the interpreter is not the sample;
+    * every dynamic id when the platform is uncalibrated — a syscall trace from
+      a platform nobody has measured against benign software is a document.
+
+    `AMBIENT_SIGNALS` is deliberately NOT among them: it is demoted for scoring
+    only, and routing it into the capability engine was measured at a cost of 16
+    fixture detections.
+    """
+    signals = list(signals)
+    return frozenset(
+        uncorroborated(signals)
+        | family_ambient(family)
+        | uncalibrated_dynamic_ids(family, signals)
+    )
+
+
 def dynamic_uncalibrated(family: str | None) -> bool:
     """Is this family's dynamic tier observed but not yet believed?"""
     return (family or "").lower() in DYNAMIC_UNCALIBRATED_FAMILIES

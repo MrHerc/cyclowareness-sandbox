@@ -214,3 +214,98 @@ def test_the_whole_detonation_contributes_exactly_nothing() -> None:
         "the detonation moved the rule score from %s to %s"
         % (alone.rule_score, with_trace.rule_score)
     )
+
+
+# --- the third leak: the IMPACT rating, inside the signed evidence ------------
+#
+# The guard leaked into the score, then past `effective_severity`'s early
+# return, and then here. `impact.assess` built its own exclusion set and its
+# comment said it was "verdict.py's, deliberately and exactly" — which stopped
+# being true the moment `verdict.classify` gained a third term.
+#
+# `detect_capabilities` reads `signal.severity`, not `effective_severity`, so
+# forcing the signals to `info` did nothing at all here. Measured on the
+# deployed image, same static findings, once alone and once with the first real
+# Linux detonation folded in:
+#
+#     family elf   impact 0.0 / none  ->  5.3 / medium
+#                  capabilities  + Network / C2 communication
+#                                + Carries an executable payload
+#     family pe    identical numbers, i.e. the guard had NO effect whatsoever
+#
+# And `report.reproducible.impact` travels inside the Ed25519-signed bundle, so
+# this was a signed claim about an uncalibrated platform.
+
+_STATIC = [
+    Signal(id="elf.packed", title="packed", severity="high", detail="", evidence={}),
+    Signal(id="elf.no_sections", title="no sections", severity="medium", detail="", evidence={}),
+]
+
+#: What the first real Linux detonation on cape4 actually reported.
+_DETONATION = [
+    Signal(id="capev2.stealth_network", title="network without a network call",
+           severity="low", detail="", evidence={}),
+    Signal(id="capev2.reads_files", title="reads files", severity="low", detail="", evidence={}),
+    Signal(id="capev2.drops_files", title="drops files", severity="medium", detail="", evidence={}),
+    Signal(id="capev2.deletes_files", title="deletes files", severity="high", detail="", evidence={}),
+]
+
+
+def _impact(family, signals):
+    from app.engine import impact as impact_mod
+
+    rating = impact_mod.assess(family, signals, IOCs())
+    out = rating.to_dict() if hasattr(rating, "to_dict") else dict(rating)
+    return out.get("base_score"), tuple(sorted(out.get("capabilities") or []))
+
+
+def test_the_detonation_does_not_move_the_impact_rating() -> None:
+    """Asserted as arithmetic, not prose: identical in, identical out."""
+    before = _impact("elf", _STATIC)
+    after = _impact("elf", _STATIC + _DETONATION)
+    assert before == after, (
+        "a Linux detonation moved the impact rating from %r to %r — and that "
+        "rating is inside the signed evidence bundle" % (before, after)
+    )
+
+
+def test_a_calibrated_platform_still_has_its_impact_raised() -> None:
+    """The control. This is a statement about ELF, not a way to mute a tier."""
+    before = _impact("pe", _STATIC)
+    after = _impact("pe", _STATIC + _DETONATION)
+    assert after != before, "the guard leaked onto a calibrated platform"
+    assert after[0] > before[0]
+
+
+def test_one_definition_of_what_an_uncalibrated_platform_may_assert() -> None:
+    """Four inline copies of this decision existed and two of them drifted.
+
+    `verdict.classify`, `impact.assess` and both `mitre.map_techniques` callers
+    must ask the same function, or the next one to gain a term leaves the others
+    behind — which is exactly how the impact rating ended up signed.
+    """
+    import pathlib
+
+    from app.engine import scoring
+
+    assert scoring.uncalibrated_dynamic_ids("elf", _DETONATION) == {
+        s.id for s in _DETONATION
+    }
+    assert scoring.uncalibrated_dynamic_ids("pe", _DETONATION) == frozenset()
+    assert scoring.uncalibrated_dynamic_ids("elf", _STATIC) == frozenset()
+
+    # Walk up rather than counting parents: this module sits at
+    # backend/app/engine/ in the repository and /app/app/engine/ in the image,
+    # and a fixed index is right in exactly one of those.
+    here = pathlib.Path(scoring.__file__).resolve()
+    root = next(
+        parent for parent in here.parents
+        if (parent / "app" / "engine" / "verdict.py").is_file()
+    )
+    for relative in ("app/engine/verdict.py", "app/engine/impact.py",
+                     "app/api/dynamic.py", "app/engine/pipeline.py"):
+        source = (root / relative).read_text(encoding="utf-8")
+        assert 'startswith("capev2.")' not in source, (
+            f"{relative} builds its own uncalibrated-platform set again; use "
+            "scoring.uncalibrated_dynamic_ids so the four cannot drift"
+        )
