@@ -56,6 +56,18 @@ def test_every_served_endpoint_is_documented(verb: str, route: str) -> None:
     # /api/result/{public_id} is satisfied by documenting /api/result/.
     stem = route.split("{")[0].rstrip("/")
     assert stem in doc, f"{verb} {route} is served but absent from docs/api.md"
+    # AND THE PART AFTER THE PARAMETER, which is what actually distinguishes one
+    # export from another. Matching the stem alone meant `/api/jobs/` in the doc
+    # satisfied every `/api/jobs/{id}/export.*` route at once, so `export.signed`
+    # -- the Ed25519 evidence bundle the whole sovereignty pitch rests on -- and
+    # `export.incident` -- the NIS2/DORA record -- were served, reachable and
+    # documented nowhere, while this test stayed green.
+    tail = route.rsplit("}", 1)[-1].lstrip("/") if "}" in route else ""
+    if tail:
+        assert tail in doc, (
+            f"{verb} {route} is served but docs/api.md never mentions {tail!r}; "
+            "the stem alone is satisfied by a sibling route"
+        )
 
 
 def test_the_queue_contract_documents_every_field_it_returns() -> None:

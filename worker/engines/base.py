@@ -104,8 +104,30 @@ class Report:
     def add_signal(self, *args: Any, **kwargs: Any) -> None:
         self.signals.append(signal(*args, **kwargs))
 
-    def add_event(self, t_ms: int, kind: str, detail: str) -> None:
-        self.timeline.append({"t_ms": int(t_ms), "kind": kind, "detail": detail})
+    def add_event(
+        self, t_ms: int, kind: str, detail: str, *, unit: str = "sequence",
+        origin: str = "unknown",
+    ) -> None:
+        """One point on the behaviour timeline.
+
+        `unit` SAYS WHAT THE NUMBER IS, because for most callers it is not a
+        time. Every engine here passes an ordinal -- `idx`, `i`, `len(calls)` --
+        and the field has always been called `t_ms`, so the API, the TypeScript
+        type and the tooltip ("`${e.t_ms} ms`") all reported a list index as a
+        millisecond measurement. A reader comparing two events concluded one
+        happened 3ms after another when the only fact available was that it came
+        next.
+
+        The field keeps its name so stored rows and the API contract do not
+        break; `unit` is what a renderer must read. `sequence` means "the Nth
+        thing observed" and is the honest default, since a sandbox that does not
+        timestamp cannot be made to. `ms` is only correct when the source really
+        carried a clock -- CAPE's `first_seen` does.
+        """
+        self.timeline.append(
+            {"t_ms": int(t_ms), "kind": kind, "detail": detail, "unit": unit,
+             "origin": origin}
+        )
 
     def add_ioc(self, field_name: str, value: str) -> None:
         bucket = self.iocs.setdefault(field_name, [])

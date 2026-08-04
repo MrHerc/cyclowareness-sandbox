@@ -357,8 +357,23 @@ def _timeline(raw: Any) -> list[dict[str, Any]]:
             t_ms = int(float(item.get("t_ms", 0)))
         except (TypeError, ValueError, OverflowError):
             t_ms = 0
+        # WHAT THE NUMBER IS, carried through rather than assumed. Every worker
+        # engine but CAPE passes an ordinal, and the field has always been named
+        # `t_ms`, so the UI printed "3 ms" over a list index. Anything that does
+        # not declare itself is a sequence, because that is what a report
+        # written before this field carried.
+        unit = _as_text(item.get("unit")).strip().lower()
+        # WHOSE process it was. `guest` means the event did not descend from the
+        # analysis root -- an idle Windows box starting svchost, not the sample
+        # doing anything. Recorded rather than dropped, because cmd.exe and
+        # powershell.exe are simultaneously guest chatter and the execution
+        # vectors that matter most, so a name-based filter would delete the best
+        # line in the timeline.
+        origin = _as_text(item.get("origin")).strip().lower()
         out.append({
             "t_ms": max(0, t_ms),
+            "unit": unit if unit in ("ms", "sequence") else "sequence",
+            "origin": origin if origin in ("sample", "guest") else "unknown",
             # "event" rather than "" — the graph groups into one lane per kind,
             # and an empty lane label is a row of dots against nothing.
             "kind": _as_text(item.get("kind")).strip() or "event",

@@ -26,6 +26,9 @@ export function BehaviorGraph({ events }: { events: TimelineEvent[] }) {
   const sorted = [...events].sort((a, b) => a.t_ms - b.t_ms)
   const kinds = Array.from(new Set(sorted.map((e) => e.kind)))
   const maxT = Math.max(1, ...sorted.map((e) => e.t_ms))
+  // A mixed timeline cannot be called milliseconds: one engine that only
+  // counts drags the whole axis back to being a sequence.
+  const isTime = sorted.every((e) => e.unit === 'ms')
 
   const padL = 88
   const padR = 16
@@ -64,7 +67,7 @@ export function BehaviorGraph({ events }: { events: TimelineEvent[] }) {
             <g key={i}>
               <line x1={xx} y1={padT} x2={xx} y2={yy} className="stroke-hair" strokeWidth={1} strokeDasharray="2 4" />
               <text x={xx} y={yy + 15} textAnchor="middle" className="fill-c3 text-[10px]">
-                {Math.round(t)} ms
+                {isTime ? `${Math.round(t)} ms` : `#${Math.round(t)}`}
               </text>
             </g>
           )
@@ -76,8 +79,17 @@ export function BehaviorGraph({ events }: { events: TimelineEvent[] }) {
           const y = padT + laneIndex * rowH + rowH / 2
           return (
             <g key={i}>
-              <circle cx={x(e.t_ms)} cy={y} r={5} className={toneFor(e.kind)}>
-                <title>{`${e.t_ms} ms · ${e.kind}: ${e.detail}`}</title>
+              <circle
+                cx={x(e.t_ms)}
+                cy={y}
+                r={5}
+                className={toneFor(e.kind)}
+                /* Guest-owned events stay on the chart and stop looking like
+                   the sample's: dropping them would delete cmd.exe and
+                   powershell.exe, which are the two most valuable rows. */
+                opacity={e.origin === 'guest' ? 0.32 : 1}
+              >
+                <title>{`${isTime ? `${e.t_ms} ms` : `step ${e.t_ms}`} · ${e.kind}: ${e.detail}${e.origin === 'guest' ? ' · the guest, not the sample' : ''}`}</title>
               </circle>
             </g>
           )

@@ -366,7 +366,18 @@ def record(
     """
     clean = _sanitise(detail)
     if tenant:
-        clean = {**clean, "tenant": tenant}
+        # `tenant` is the human-readable copy and has been here from the start.
+        # `_tenant` is the RESERVED one the verifier compares against, and it
+        # exists because `tenant` is not unambiguous: an audit detail may carry a
+        # `tenant` field of its own meaning "the tenant this action was ABOUT",
+        # and a verifier that cannot tell the two apart reports tampering on
+        # ordinary records. Underscore-prefixed, written only here, never
+        # sanitised into by a caller.
+        #
+        # Stored in the same truncated form as the column, so the comparison is
+        # like-for-like: `tenant_id` is `String(64)` and a longer name would
+        # otherwise disagree with its own copy for no reason.
+        clean = {**clean, "tenant": tenant, "_tenant": _column(tenant, 64)}
     occurred_at = utcnow()
     # Two attempts: a concurrent append makes the unique prev_hash collide, and
     # the correct response is to re-read the tail and chain onto it. A second
@@ -472,6 +483,36 @@ def verify_chain(db: Session) -> dict[str, Any]:
                 head_hash=previous_hash,
                 broken_at=event.id,
                 reason="entry_hash does not match this record's content — the record was modified",
+            )
+        # THE COLUMN IS NOT HASHED; ITS COPY INSIDE `detail` IS.
+        #
+        # `tenant_id` is deliberately outside the hash so the audit API can index
+        # and filter on it, and `append` writes the same value into `detail`,
+        # which IS hashed. That design only holds if something compares the two:
+        # until it did, `UPDATE audit_events SET tenant_id='other'` moved an
+        # event into another tenant's history and `verify_chain` still answered
+        # ok, because every hash it checked was untouched. Re-attributing an
+        # action is precisely what an audit trail exists to prevent.
+        #
+        # Events written before the `detail` copy existed carry no `tenant` key
+        # and are skipped rather than failed -- a verifier that reports a break
+        # on every historical row is one an operator learns to ignore.
+        detail = event.detail if isinstance(event.detail, dict) else {}
+        hashed_tenant = detail.get("_tenant")
+        if hashed_tenant is not None and str(hashed_tenant) != str(event.tenant_id or ""):
+            return _verdict(
+                ok=False,
+                checked=checked,
+                first_id=first_id,
+                last_id=last_id,
+                head_hash=previous_hash,
+                broken_at=event.id,
+                reason=(
+                    "tenant_id does not match the tenant recorded inside this "
+                    "record's hashed detail — the event was re-attributed to a "
+                    f"different tenant (column {event.tenant_id!r}, hashed "
+                    f"{hashed_tenant!r})"
+                ),
             )
         previous_hash = event.entry_hash
         last_id = event.id

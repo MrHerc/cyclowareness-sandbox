@@ -191,6 +191,37 @@ curl -OJ http://localhost:8000/api/jobs/<id>/export.pdf -H "X-API-Key: demo-key"
 curl http://localhost:8000/api/jobs/<id>/export.stix -H "X-API-Key: demo-key"
 ```
 
+### `GET /api/jobs/{public_id}/export.signed`
+The Ed25519-attested evidence copy: the report, plus a detached signature over a
+canonical subset of it, plus the public key id. A recipient verifies it without
+trusting this deployment or its operator — which is the point, and the reason
+`attestation.py` exists.
+
+The signed half is built by subtraction from `export.json`, so anything that
+export scrubs (the detonation host's name, the guest's address) is absent here
+too. `reproducible_digest` is a single string that changes whenever any scored
+input changes, so two copies of "the same job" taken either side of a
+re-analysis will not compare equal — that is intended.
+
+```bash
+curl http://localhost:8000/api/jobs/<id>/export.signed -H "X-API-Key: demo-key"
+```
+
+### `GET /api/jobs/{public_id}/export.incident`
+The regulator-facing record: NIS2 Article 23(4) stages with the deadlines the
+Directive itself states, and the DORA Article 18/19 classification fields. Every
+determination the tool cannot make — whether the incident is "significant" or
+"major", the client counts, the economic exposure — is emitted as `null` and
+named in `operator_input_required`, and the record carries a disclaimer saying
+it is evidence to be completed and filed, not a filing.
+
+`evidence.limitations` lists every reason not to read it at face value,
+including a tier that ran and may not be concluded from.
+
+```bash
+curl http://localhost:8000/api/jobs/<id>/export.incident -H "X-API-Key: demo-key"
+```
+
 ---
 
 ## Meta
@@ -371,11 +402,16 @@ API key, deliberately: a submit-only credential handed to a pipeline must not be
 able to re-weight scoring for every user of the deployment.
 
 ```bash
-curl -X POST http://localhost:8000/api/auth/login -c cookies.txt \
+# There is no cookie authentication in this API. Every authenticated route
+# takes `Authorization: Bearer <token>`; the token is in the login response
+# body. The previous examples used `-c cookies.txt` / `-b cookies.txt` and
+# could not have worked as printed.
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"analyst","password":"analyst"}'
+  -d '{"username":"analyst","password":"analyst"}' \
+  | python -c 'import json,sys; print(json.load(sys.stdin)["token"])')
 
-curl -X PUT http://localhost:8000/api/admin/weights -b cookies.txt \
+curl -X PUT http://localhost:8000/api/admin/weights -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"rule_weight":0.7,"ai_weight":0.3}'
 ```
@@ -384,7 +420,7 @@ curl -X PUT http://localhost:8000/api/admin/weights -b cookies.txt \
 Restores the default `0.6 / 0.4`.
 
 ```bash
-curl -X POST http://localhost:8000/api/admin/weights/reset -b cookies.txt
+curl -X POST http://localhost:8000/api/admin/weights/reset -H "Authorization: Bearer $TOKEN"
 ```
 
 ### `GET /api/admin/retention`

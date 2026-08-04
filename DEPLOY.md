@@ -11,11 +11,50 @@ docker compose up --build      # http://localhost:8000
 
 `docker-compose.yml` also brings up the optional native-engine worker, Prometheus
 and Grafana. For just the app: `docker build -t cyclowareness-sandbox . &&
-docker run --rm -p 8000:8000 cyclowareness-sandbox`.
+docker run --rm -p 127.0.0.1:8000:8000 cyclowareness-sandbox`.
 
 Verified from a clean clone on 2026-07-29: build, run, log in with
 `analyst` / `analyst`, submit nine files of different shapes, and read every one
 back through all five exports — no configuration of any kind.
+
+### Exposing it to anyone but yourself
+
+Every example on this page binds to **loopback**, and that is not caution. This
+service answers `GET /api/dynamic/sample/{id}` with the raw bytes of a live
+malware sample, authenticated by a bearer token it also accepts in plaintext.
+Published on `0.0.0.0` over HTTP, both are on the network of whoever runs it —
+which is how the reference deployment sat on the public internet with an empty
+`DOCKER-USER` chain until 2026-08-04.
+
+Put TLS in front of it. The reference deployment terminates in an nginx
+container on 8443 with the API bound to `127.0.0.1:8080`:
+
+```bash
+openssl req -x509 -nodes -newkey rsa:2048 -days 825 \
+  -keyout cyclo.key -out cyclo.crt -subj "/CN=your-host" \
+  -addext "subjectAltName=DNS:your-host"
+
+docker network create cyclo-net
+docker run -d --name cyclo-tls --restart unless-stopped -p 8443:8443 \
+  -v /etc/cyclowareness/tls:/etc/cyclowareness/tls:ro \
+  -v /etc/cyclowareness/tls/cyclo-tls.conf:/etc/nginx/conf.d/default.conf:ro \
+  nginx:1.27-alpine
+docker network connect cyclo-net cyclo-tls
+docker network connect cyclo-net cyclo-api      # keep it on the default bridge too
+```
+
+Two things that will bite, both of which cost a rollback here:
+
+* `--network cyclo-net` on `docker run` **replaces** the default bridge, and a
+  host-mounted PostgreSQL is usually reached at `172.17.0.1` — the docker0
+  gateway, which does not exist on a user-defined network. Attach the second
+  network after the container is up rather than starting on it.
+* The proxy resolves the API by container name, so it has to be restarted
+  whenever the API container is replaced.
+
+A self-signed certificate makes a browser warn once. That warning means "nobody
+has vouched for this name", not "this channel is unencrypted". Replace it with
+your own certificate if the deployment has a real name.
 
 ### Working on the interface
 

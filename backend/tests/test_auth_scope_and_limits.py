@@ -97,6 +97,12 @@ def _production_settings(**overrides) -> Settings:
         "analyst_password": "a-real-analyst-password",
         "database_url": "postgresql://sandbox@db/sandbox",
         "api_keys": "b8f1c2d3e4f5a6b7c8d9e0f1a2b3c4d5",
+        # Stated explicitly, like every other credential above it. `conftest`
+        # exports `DYNAMIC_WORKER_TOKEN=test-token` for the whole suite, and a
+        # helper named `_production_settings` inheriting a 10-character test
+        # credential from the environment is how "a fully hardened
+        # configuration" came to include one.
+        "dynamic_worker_token": "3f9a1c7e5b2d8046af31c9e7",
     }
     base.update(overrides)
     return Settings(**base)

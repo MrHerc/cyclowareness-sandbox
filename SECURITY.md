@@ -178,9 +178,21 @@ is safer than one they assume exists.
   currently gated by the worker token and a content-hash path. A production
   deployment should upgrade it to a signed, single-use URL (noted in
   [`native.py`](backend/app/engine/native.py) and the endpoint docstring).
-- **Multi-tenant identity.** Auth is a single configured analyst account plus
-  API keys, sufficient for the exhibition/operator model. Per-user accounts,
-  roles, and rate limiting are out of scope for this build.
+- **Per-user accounts and roles.** Auth is a single configured analyst account
+  plus API keys, sufficient for the exhibition/operator model. Named users and
+  role assignment are out of scope for this build.
+
+  Two things this paragraph used to disclaim are in fact shipped and enforced,
+  and saying otherwise understated the product to the one reader who most needs
+  it to be accurate. **Rate limiting** is implemented in
+  [`backend/app/ratelimit.py`](backend/app/ratelimit.py), applied to every
+  non-exempt route, and reported in `X-RateLimit-*` headers; its honest scope
+  limit is `X-RateLimit-Scope: process`, meaning one instance is one budget and
+  a horizontally-scaled deployment gets a budget per replica. **Multi-tenant
+  identity** exists: `tenant_id` is carried on jobs and audit events, API keys
+  map to tenants, and every read filters on it — the audit chain now verifies
+  the column against the copy inside its own hashed payload, so an event cannot
+  be re-attributed to another tenant without the verifier saying so.
 - **Encryption at rest and transport termination** are deployment concerns
   (disk encryption, TLS at the reverse proxy), not application concerns here.
 - **SIEM export.** STIX 2.1 and the signed report can be exported on demand;

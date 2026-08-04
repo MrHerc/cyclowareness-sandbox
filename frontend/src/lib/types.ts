@@ -175,7 +175,27 @@ export interface TierInfo {
 }
 
 export interface TimelineEvent {
+  /**
+   * NOT ALWAYS A TIME. Read `unit` before labelling this.
+   *
+   * Only CAPE timestamps its processes; every other worker engine passes an
+   * ordinal (`idx`, `len(calls)`), and this field has always been named `t_ms`,
+   * so the axis and the tooltip printed a list index as milliseconds. A reader
+   * concluded one event happened 3ms after another when the only available fact
+   * was that it came next.
+   */
   t_ms: number
+  /** `ms` when the source carried a clock, `sequence` when it did not. */
+  unit?: 'ms' | 'sequence'
+  /**
+   * Whose process this was. `guest` did not descend from the analysis root —
+   * an idle Windows box starts svchost (50% of detonations here), WmiPrvSE
+   * (30%) and SecurityHealthHost (26%) without any sample's help.
+   *
+   * Never filtered by name: cmd.exe (21%), rundll32 (17%) and powershell (14%)
+   * are guest chatter AND the execution vectors that matter most.
+   */
+  origin?: 'sample' | 'guest' | 'unknown'
   kind: string
   detail: string
 }

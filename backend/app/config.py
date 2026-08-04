@@ -238,6 +238,28 @@ class Settings(BaseSettings):
             problems.append("API_KEYS contains a built-in/guessable key")
         if self.database_url.startswith("sqlite"):
             problems.append("DATABASE_URL is SQLite; use PostgreSQL in production")
+        # THE ONE BEARER CREDENTIAL THAT WAS NEVER CHECKED HERE.
+        #
+        # `DYNAMIC_WORKER_TOKEN` authorises `POST /api/dynamic/report/{id}` --
+        # the endpoint that writes a detonation's behaviour into a job and
+        # re-scores it. Every other credential in this method is validated and
+        # this one was not, so a deployment could boot in production with
+        # `changeme` and let anyone who guessed it forge behavioural evidence
+        # into the signed record.
+        #
+        # An EMPTY token is not the hole: `_worker_identity` fails closed with a
+        # 503 when none is configured, which disables ingest rather than opening
+        # it. A weak one is, so that is what this checks. The length floor is 16
+        # -- below a machine-generated secret, above anything a person types.
+        token = self.dynamic_worker_token.strip()
+        if token:
+            if token.lower() in ("changeme", "worker", "secret", "token", "test", "demo"):
+                problems.append("DYNAMIC_WORKER_TOKEN is a guessable placeholder")
+            elif len(token) < 16:
+                problems.append(
+                    f"DYNAMIC_WORKER_TOKEN is {len(token)} characters; it authorises writing "
+                    "detonation evidence into signed records, so use at least 16"
+                )
         # A TENANT NAME IS TRUNCATED ON WRITE AND MATCHED IN FULL ON READ.
         #
         # `tenant_id` is `String(64)` and every writer stores `name[:64]`, while

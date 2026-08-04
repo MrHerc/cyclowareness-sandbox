@@ -16,7 +16,11 @@ services:
     build: .
     image: cyclowareness-sandbox:latest
     ports:
-      - "8000:8000"
+      # LOOPBACK. This port serves /api/dynamic/sample/{id} -- the raw bytes
+      # of a live malware sample -- alongside every session token, and the
+      # service speaks plaintext HTTP. Publishing it on 0.0.0.0 puts both on
+      # the network of whoever runs this. Terminate TLS in front of it.
+      - "127.0.0.1:8000:8000"
     environment:
       APP_ENV: ${APP_ENV:-demo}
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/sandbox.db}
