@@ -64,7 +64,7 @@ and the documents say it is.
 flags break the container's writes, that is a finding of its own — report it,
 do not quietly revert to the documents.
 **Cost** 1–2 hours including a container restart
-- [ ] done
+- [x] done
 
 ### 1A.2 · The Linux strace engine issues a clean bill of health from a parse that produced nothing
 **Where** `worker/engines/native_linux.py:305`
@@ -74,7 +74,7 @@ produce, then reports "No malicious behaviour observed".
 gap, so the tier reports "did not run" instead of "found nothing". Add a test
 that fails if it ever returns `ran=True` without having matched a line.
 **Cost** 1 hour
-- [ ] done
+- [x] done
 
 ### 1A.3 · A NUL byte from a sample makes the whole table un-castable
 **Where** `backend/app/engine/pipeline.py:77`
@@ -129,7 +129,7 @@ fixable — and doing it wrong opens a spoofing hole, so it is a Day 1 item.
 **Fix** Trust `X-Forwarded-For` **only** from a configured trusted-proxy list,
 never blanket. Add a test that an untrusted source cannot spoof it.
 **Cost** half a day
-- [ ] done
+- [x] done
 
 ### 1C.3 · `GET /api/jobs` echoes an offset it ignored
 **Where** `backend/app/api/sandbox.py:407`
@@ -137,11 +137,49 @@ never blanket. Add a test that an untrusted source cannot spoof it.
 **Cost** 1 hour
 - [ ] done
 
-## 1D · Whatever the live pentest confirms
+## 1D · What the live pentest confirmed
 
-Inserted here as it lands, ahead of everything above it if it is worse.
+18 findings survived an agent whose job was to kill them; 1 died with its
+impact falsified. Six are closed below, twelve carry into Day 2.
 
-- [ ] triaged
+- [x] **Containers named and never opened.** `gzip dropper.ps1` -> 1.7 / clean,
+      zero signals. `.gz/.tgz/.bz2/.xz/.tar` are now opened; symlink and device
+      members are refused with a reason; the guard is the invariant that every
+      mime the identifier calls `archive` is one the unpacker opens.
+- [x] **One rate-limit bucket for the whole internet.** Ten requests from
+      anywhere locked every analyst out of `/api/auth/login`. Fixed with
+      `TRUST_PROXY_HEADERS=true` + `PROXY_CLIENT_HEADER=x-real-ip`; verified
+      live with two origins holding separate counters.
+- [x] **The worker token was brute-forceable at 2,400/min** while a password was
+      held to 10 per 300s. Now metered as authentication; a valid token stays
+      exempt.
+- [x] **`change-me-worker-token` passed `validate_production()`.** Structural
+      check now, and the compose default is gone from both services.
+- [x] **512 MB unauthenticated bodies spooled before auth.** nginx ceiling is
+      34m with `limit_req`/`limit_conn`; a 35 MB anonymous upload is 413.
+- [x] **No CSP, non-forward-secret TLS suites, dev CORS origins shipped.** CSP
+      added, ECDHE-only with server preference (verified by a refused TLS 1.2
+      handshake), CORS defaults to empty.
+
+Carried into Day 2, in this order:
+
+- [ ] **7z solid-block bomb**: members the size guard REFUSED are still fully
+      decompressed. 6,900:1 amplification, 42.4 s of one of four analysis
+      threads, no wall-clock ceiling anywhere on the analysis path.
+- [ ] **OOXML parts outside `_CARRIED_FORMATS`** are not read, not listed and
+      not counted -- a payload in `word/` passes with a clean verdict.
+- [ ] **No wall-clock budget on the URL fetcher**: one credential holds ~30 of
+      40 threadpool slots continuously.
+- [ ] **Nothing bounds the quarantine**: no aggregate cap, no free-space check;
+      one API key can fill the host's only data filesystem.
+- [ ] **Attestation canonical form is not injective**: a duplicate JSON key
+      lets a fabricated body ride inside a signature that still verifies.
+- [ ] **The `_tenant` hash fix is prospective**: 14,122 existing audit rows can
+      still be re-attributed, and `ok: true` does not say so.
+- [ ] **Session tokens cannot be revoked**: logout clears localStorage only; a
+      stolen token is valid for 12 hours.
+- [ ] **`/api/capabilities` is unauthenticated** and hands an attacker the
+      upload ceiling, the extension allowlist and the analyzer inventory.
 
 **Day 1 gate**
 * full suite green, no new skips
