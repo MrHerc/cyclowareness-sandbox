@@ -455,6 +455,11 @@ def verify_chain(db: Session) -> dict[str, Any]:
     checked = 0
     first_id: int | None = None
     last_id: int | None = None
+    #: Rows written before `record()` began copying the tenant into the hashed
+    #: detail. For these the column can still be rewritten undetectably, and
+    #: saying so is the difference between `ok: true` meaning "verified" and
+    #: meaning "verified as far as it goes".
+    tenant_unprotected = 0
 
     for event in db.execute(
         select(AuditEvent).order_by(AuditEvent.id)
@@ -468,6 +473,7 @@ def verify_chain(db: Session) -> dict[str, Any]:
                 first_id=first_id,
                 last_id=last_id,
                 head_hash=previous_hash,
+                tenant_unprotected=tenant_unprotected,
                 broken_at=event.id,
                 reason=(
                     "prev_hash does not match the preceding entry — a record was "
@@ -481,6 +487,7 @@ def verify_chain(db: Session) -> dict[str, Any]:
                 first_id=first_id,
                 last_id=last_id,
                 head_hash=previous_hash,
+                tenant_unprotected=tenant_unprotected,
                 broken_at=event.id,
                 reason="entry_hash does not match this record's content — the record was modified",
             )
@@ -499,6 +506,8 @@ def verify_chain(db: Session) -> dict[str, Any]:
         # on every historical row is one an operator learns to ignore.
         detail = event.detail if isinstance(event.detail, dict) else {}
         hashed_tenant = detail.get("_tenant")
+        if hashed_tenant is None:
+            tenant_unprotected += 1
         if hashed_tenant is not None and str(hashed_tenant) != str(event.tenant_id or ""):
             return _verdict(
                 ok=False,
@@ -506,6 +515,7 @@ def verify_chain(db: Session) -> dict[str, Any]:
                 first_id=first_id,
                 last_id=last_id,
                 head_hash=previous_hash,
+                tenant_unprotected=tenant_unprotected,
                 broken_at=event.id,
                 reason=(
                     "tenant_id does not match the tenant recorded inside this "
@@ -524,6 +534,7 @@ def verify_chain(db: Session) -> dict[str, Any]:
         first_id=first_id,
         last_id=last_id,
         head_hash=previous_hash,
+        tenant_unprotected=tenant_unprotected,
         broken_at=None,
         reason=None,
     )
@@ -538,9 +549,23 @@ def _verdict(
     head_hash: str,
     broken_at: int | None,
     reason: str | None,
+    tenant_unprotected: int = 0,
 ) -> dict[str, Any]:
     return {
         "ok": ok,
+        # HOW MANY ROWS THE ATTRIBUTION CHECK COULD NOT COVER.
+        #
+        # `tenant_id` sits outside the hash so the audit API can index and filter
+        # on it, and `record()` writes a `_tenant` copy INSIDE the hashed detail
+        # so `verify_chain` can compare the two. That comparison only works on
+        # rows written since the copy existed: 14,122 of the 14,145 rows on the
+        # live deployment predate it, and for those an `UPDATE` moving an event
+        # into another tenant's history is still undetectable.
+        #
+        # Published beside `ok` rather than left implicit, because `ok: true` on
+        # its own reads as "attribution verified" and for those rows it is not.
+        # A reader can now tell a fully-covered chain from a mostly-covered one.
+        "tenant_unprotected": tenant_unprotected,
         "entries_checked": checked,
         "first_id": first_id,
         "last_id": last_id,

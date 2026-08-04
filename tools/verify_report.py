@@ -114,6 +114,32 @@ def key_id(public_key: str) -> str:
 # exactly the wrong impression to give an auditor.
 
 
+def _reject_duplicate_keys(pairs):
+    """Refuse an object that carries the same key twice.
+
+    DELIBERATELY DUPLICATED from `attestation.reject_duplicate_keys`. This tool
+    is what a RECIPIENT runs, on a machine with none of this product installed,
+    so it imports nothing from the backend -- and the one thing the two copies
+    must agree on is what counts as a valid envelope.
+
+    `json.loads` accepts a repeated key and silently keeps the last one, so a
+    complete fabricated report body can ride inside a signed file as a duplicate
+    key: this verifier would re-encode the surviving value, match the signature,
+    and print OK, while a reader parsing the same bytes with another library --
+    or reading them by eye -- sees the other body. A signature over one of two
+    documents proves nothing about the other.
+    """
+    seen = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(
+                "duplicate key %r: this file parses two ways, so its signature "
+                "cannot speak for either" % (key,)
+            )
+        seen[key] = value
+    return seen
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("path", help="the .signed.json export to check")
@@ -130,7 +156,9 @@ def main(argv=None) -> int:
 
     try:
         with open(args.path, "rb") as handle:
-            envelope = json.loads(handle.read().decode("utf-8"))
+            envelope = json.loads(
+                handle.read().decode("utf-8"), object_pairs_hook=_reject_duplicate_keys
+            )
     except OSError as exc:
         print(f"ERROR: cannot read {args.path}: {exc}")
         return 2

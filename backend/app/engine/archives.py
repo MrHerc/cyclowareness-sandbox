@@ -597,8 +597,29 @@ def _read_7z(path: str, password: str | None, budget: ExpansionBudget) -> Archiv
         result.encrypted = True
         raise PasswordRequired("7z")
 
+    # THE SIZE GUARD BELOW PICKS WHAT IS KEPT, NOT WHAT IS DECOMPRESSED.
+    #
+    # 7z stores members in SOLID BLOCKS: to reach any member of a block, the
+    # whole block is decompressed. So `targets` — the list the per-member limit,
+    # the ratio threshold and the budget have already filtered — only decides
+    # what py7zr HANDS BACK. Everything sharing a block with a target is
+    # inflated anyway, and the members this code explicitly refused are exactly
+    # the expensive ones.
+    #
+    # Measured by an authorised pentest: a 1.19 MiB upload, 6,900:1
+    # amplification, 42.4 seconds of one of four analysis threads, and nothing
+    # anywhere on the analysis path imposes a wall clock. Four such uploads stop
+    # the product.
+    #
+    # `max_extract_size` is py7zr's own ceiling and it is applied during
+    # decompression rather than after it, which is the difference that matters:
+    # it raises `DecompressionBombError` mid-block instead of letting the block
+    # finish. Passed the SUBMISSION's remaining budget, so a tree of nested 7z
+    # files shares one ceiling rather than getting a fresh one each.
     try:
-        with py7zr.SevenZipFile(path, mode="r", password=password) as zf:
+        with py7zr.SevenZipFile(
+            path, mode="r", password=password, max_extract_size=max(0, budget.remaining)
+        ) as zf:
             for info in zf.list()[:MAX_MEMBERS]:
                 result.members.append(
                     Member(
@@ -652,6 +673,33 @@ def _read_7z(path: str, password: str | None, budget: ExpansionBudget) -> Archiv
                 member.stored = store_bytes(data)
     except py7zr.exceptions.PasswordRequired as exc:
         raise PasswordRequired("7z", attempted=bool(password)) from exc
+    except py7zr.exceptions.DecompressionBombError:
+        # The ceiling fired mid-block. Whatever was already stored stays — those
+        # members were real and are worth analysing — and the archive says it
+        # stopped, rather than reporting the members it happened to reach as if
+        # they were all of them.
+        result.truncated = True
+        for member in result.members:
+            if member.stored is None and member.skipped_reason is None:
+                member.skipped_reason = (
+                    "not extracted: the archive expanded past the submission's total "
+                    "budget while decompressing"
+                )
+        result.signals.append(
+            Signal(
+                id="archive.decompression_bomb",
+                title="Archive expands past the analysis budget",
+                severity="high",
+                detail=(
+                    "Decompression was stopped after the submission's total expansion "
+                    "budget was reached. 7z stores members in solid blocks, so reaching "
+                    "one member inflates its whole block — an archive built this way "
+                    "costs analysis time out of all proportion to its size, which is "
+                    "what a decompression bomb is for."
+                ),
+            )
+        )
+        return result
     except Exception as exc:
         # A WRONG password does not announce itself. py7zr hands the ciphertext
         # to LZMA and LZMA says `LZMAError: Corrupt input data` — no mention of a

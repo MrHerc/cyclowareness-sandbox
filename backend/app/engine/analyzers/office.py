@@ -410,8 +410,28 @@ _CARRIED_FORMATS = (
     ".exe", ".dll", ".scr", ".hta", ".lnk", ".js", ".vbs", ".ps1", ".jar",
 )
 
+#: Parts Office itself writes when saving a document.
+#:
+#: A LIST IS THE RIGHT SHAPE HERE AND THE WRONG SHAPE ABOVE, and the difference
+#: is who chooses the name. `_CARRIED_FORMATS` enumerates what an ATTACKER might
+#: call a payload, so it loses to the next extension forever -- which is why a
+#: part matching neither list is now reported as unexamined rather than ignored.
+#: This list enumerates what WORD produces, which is a closed set decided by
+#: Microsoft, stable across versions, and present in every legitimate document.
+#: Without it the unexamined-part signal fires on every .docx ever saved, and a
+#: signal that fires on everything is worth nothing.
+_ORDINARY_RESOURCES = (
+    ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tiff", ".emf", ".wmf", ".svg",
+    ".odttf", ".ttf", ".otf", ".fntdata",
+    ".thmx", ".xlsx", ".vml",
+)
+#: Folders whose contents are resources by construction, whatever the extension.
+_ORDINARY_FOLDERS = ("/media/", "/fonts/", "/theme/", "/customxml/")
 
-def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str, list[str]]:
+
+def _ooxml_relationships_and_body(
+    path: str,
+) -> tuple[list[dict[str, str]], str, list[str], list[str], list[str], list[str]]:
     """Walk the OOXML zip WITHOUT extracting to disk.
 
     Returns (external_relationship_targets, concatenated_body_text, embedded_names).
@@ -431,6 +451,10 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
     embedded: list[str] = []
     carried: list[str] = []
     unreadable: list[str] = []
+    #: Parts this analyzer neither parsed nor recognised as a carried payload.
+    #: Named `unread` rather than `unknown`: the fact is what WE did, not what
+    #: the part is.
+    unread: list[str] = []
 
     # Match a whole <Relationship .../> element, then read its attributes. Single
     # negated-class quantifier — no nested repetition, so no catastrophic case.
@@ -456,6 +480,29 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                 is_rels = lower.endswith(".rels")
                 is_body = lower.endswith(".xml") and not is_rels
                 if not (is_rels or is_body):
+                    # ANYTHING ELSE IS A PART THIS ANALYZER DID NOT READ.
+                    #
+                    # `_CARRIED_FORMATS` is seventeen extensions, and a .docx is
+                    # a ZIP that accepts arbitrary extra parts while every mail
+                    # gateway treats it as a document. A payload named with any
+                    # extension outside that list was not read, not extracted,
+                    # not listed and not counted -- it left with a clean verdict
+                    # and no sentence anywhere saying a part had been skipped.
+                    # The same shape as `gzip dropper.ps1`: a container the
+                    # product names and does not open.
+                    #
+                    # Recorded rather than added to the list, because extending
+                    # a list of known-bad extensions loses to the next extension
+                    # forever. What is knowable here is "there is something in
+                    # this package this analyzer cannot account for", and that
+                    # is worth saying whatever it is called.
+                    ordinary = (
+                        lower.endswith("/")
+                        or lower.endswith(_ORDINARY_RESOURCES)
+                        or any(folder in lower for folder in _ORDINARY_FOLDERS)
+                    )
+                    if not ordinary:
+                        unread.append(_clip(name, 160))
                     continue
                 # A body entry may read only what is left of the aggregate
                 # budget; once it is spent, the entry is not read at all rather
@@ -505,9 +552,16 @@ def _ooxml_relationships_and_body(path: str) -> tuple[list[dict[str, str]], str,
                     body_parts.append(raw.decode("utf-8", "replace"))
                     body_budget -= len(raw)
     except Exception:
-        return external, "", embedded, carried, unreadable
+        return external, "", embedded, carried, unreadable, unread
 
-    return external, "\n".join(body_parts)[:MAX_SCAN_CHARS], embedded, carried, unreadable
+    return (
+        external,
+        "\n".join(body_parts)[:MAX_SCAN_CHARS],
+        embedded,
+        carried,
+        unreadable,
+        unread,
+    )
 
 
 def _ole_embedded_and_body(path: str, raw: bytes) -> tuple[list[str], bool]:
@@ -600,7 +654,7 @@ def analyze(sample: Sample) -> AnalyzerResult:
         # technique.
         try:
             (_ext, _body, _emb, carried_after_failure,
-             unreadable_after_failure) = _ooxml_relationships_and_body(sample.path)
+             unreadable_after_failure, _unread) = _ooxml_relationships_and_body(sample.path)
         except Exception:  # noqa: BLE001 — best effort on an already-broken file
             carried_after_failure, unreadable_after_failure = [], []
         if unreadable_after_failure:
@@ -850,10 +904,11 @@ def analyze(sample: Sample) -> AnalyzerResult:
         # --- OOXML external relationships + body, or OLE2 embedded + body ----
         external_rels: list[dict[str, str]] = []
         embedded: list[str] = []
+        unread_parts: list[str] = []
         body_text = ""
         if is_ooxml:
             (external_rels, body_text, embedded,
-         carried, unreadable_parts) = _ooxml_relationships_and_body(sample.path)
+         carried, unreadable_parts, unread_parts) = _ooxml_relationships_and_body(sample.path)
         else:
             try:
                 raw = sample.read(MAX_OLE_BODY_BYTES)
@@ -897,6 +952,35 @@ def analyze(sample: Sample) -> AnalyzerResult:
                     "envelope and the carried file is the payload."
                 ),
                 evidence={"parts": carried[:16]},
+            ))
+
+        if unread_parts:
+            # A PART NOBODY ACCOUNTED FOR IS THE FINDING.
+            #
+            # `_CARRIED_FORMATS` is seventeen extensions and a .docx is a ZIP
+            # that accepts arbitrary parts, so a payload named `word/x.dat`
+            # left with a clean verdict, a 1.7 score and nothing said. Extending
+            # the extension list would lose to the next extension forever; what
+            # is knowable without guessing is that this analyzer read the XML,
+            # read the relationships, and could not account for these.
+            #
+            # `medium`, not `high`: an unaccounted part is a gap in the
+            # examination rather than proof of a payload, and a benign package
+            # can carry a thumbnail or a custom part. The report says which.
+            signals.append(Signal(
+                id="office.part_not_examined",
+                title="The package holds parts this analyzer did not read",
+                severity="medium",
+                detail=(
+                    "These parts are neither XML nor relationships, and are not one of "
+                    "the formats recognised as a carried payload, so nothing read them: "
+                    + ", ".join(unread_parts[:6])
+                    + ". A .docx is a ZIP that accepts arbitrary extra parts while every "
+                    "mail gateway treats it as a document, so a payload named with any "
+                    "unremarkable extension travels inside one unexamined. This is a "
+                    "gap in the examination, not proof of a payload."
+                ),
+                evidence={"parts": unread_parts[:16], "count": len(unread_parts)},
             ))
 
         if unreadable_parts:

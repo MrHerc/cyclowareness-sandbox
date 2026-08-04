@@ -181,6 +181,45 @@ def _canonical(value: Any) -> Any:
     return str(value)
 
 
+def reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict:
+    """A JSON object hook that refuses a repeated key.
+
+    THE ENCODER IS DETERMINISTIC; THE DECODER WAS NOT INJECTIVE. `canonical_bytes`
+    sorts keys and emits one byte sequence per document, and the signature covers
+    those bytes -- but `json.loads` accepts an object with the same key twice and
+    silently keeps the LAST one. So a whole fabricated report body could be
+    carried inside a signed envelope as a duplicate key: the verifier parsed the
+    file, re-encoded the surviving value, and got bytes that match the signature,
+    while a reader who parses the same file with a different library, or reads it
+    by eye, sees the other one.
+
+    The module's own claim is "not one bit of the report, the manifest or the
+    engine identification has changed since". That is only true if every parse of
+    the envelope yields the same document, which is what this enforces.
+
+    Used by both the backend and `tools/verify_report.py` -- the two must not
+    disagree about what a valid envelope is, and the standalone verifier is the
+    copy a RECIPIENT runs.
+    """
+    seen: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in seen:
+            raise ValueError(
+                f"duplicate key {key!r} in a signed envelope: the same document "
+                "parses two ways, so a signature over one of them proves nothing "
+                "about the other"
+            )
+        seen[key] = value
+    return seen
+
+
+def loads_strict(text: str | bytes) -> Any:
+    """Parse an envelope the way its signature assumes it will be parsed."""
+    if isinstance(text, bytes):
+        text = text.decode("utf-8")
+    return json.loads(text, object_pairs_hook=reject_duplicate_keys)
+
+
 def canonical_bytes(document: Any) -> bytes:
     """The one true byte encoding of a report. Deterministic by construction."""
     return json.dumps(
