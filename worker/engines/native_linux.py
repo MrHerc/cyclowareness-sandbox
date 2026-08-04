@@ -327,6 +327,37 @@ class NativeLinuxEngine(Engine):
                 calls.append((m.group("name"), m.group("args"), m.group("ret")))
 
         report.facts["syscalls_parsed"] = len(calls)
+        report.facts["trace_lines"] = sum(1 for line in trace_text.splitlines() if line.strip())
+
+        # A TRACE THAT PARSED TO NOTHING IS NOT A CLEAN SAMPLE.
+        #
+        # `_CALL_RE` could not match a single line of the format this engine asks
+        # strace to produce (`-f -tt`), so `calls` came back empty on every run,
+        # every accumulator stayed empty, and the tail of this function filed
+        # `native.benign_trace` -- "No malicious behaviour observed in the
+        # trace". A clean bill of health issued by a parse that read nothing.
+        #
+        # Until the parser is fixed against a real captured trace, the engine
+        # says it did not run. The tier then reports "did not run", which is the
+        # honest state and the one the report already knows how to present; a
+        # wrong "clean" is worse than an absent answer, and this path is not
+        # load-bearing today because ELF detonation goes through CAPE.
+        #
+        # The condition is deliberately "lines came in but none parsed", not
+        # "no calls": an empty trace file is a different failure (the jail never
+        # started) and must not be dressed up as a parser bug.
+        if calls == [] and report.facts["trace_lines"] > 0:
+            report.ran = False
+            report.unavailable_reason = (
+                "The strace parser matched none of the "
+                f"{report.facts['trace_lines']} trace lines this engine produced, "
+                "so no behaviour could be read from them. Reporting 'did not run' "
+                "rather than 'nothing found' -- the difference is whether the "
+                "sample was observed to be quiet or was never observed at all."
+            )
+            report.signals.clear()
+            report.timeline.clear()
+            return
 
         # Behaviour accumulators.
         spawned: list[str] = []

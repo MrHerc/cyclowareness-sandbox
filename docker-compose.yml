@@ -22,6 +22,14 @@ services:
       # the network of whoever runs this. Terminate TLS in front of it.
       - "127.0.0.1:8000:8000"
     environment:
+      # NO DEFAULT for DYNAMIC_WORKER_TOKEN. The shipped placeholder
+      # `change-me-worker-token` passed `validate_production()` -- 23
+      # characters, past the length floor and past the word list -- so an
+      # operator running this file with APP_ENV=production booted with a
+      # credential printed in this repository, and that credential buys the
+      # raw bytes of every quarantined sample plus the ability to write
+      # fabricated detonation evidence into signed reports. Empty disables
+      # the dynamic tier (ingest answers 503), which is the safe direction.
       APP_ENV: ${APP_ENV:-demo}
       DATABASE_URL: ${DATABASE_URL:-sqlite:////data/sandbox.db}
       SECRET_KEY: ${SECRET_KEY:-dev-only-insecure-key-change-me}
@@ -32,7 +40,7 @@ services:
       SANDBOX_QUARANTINE: /var/lib/sandbox/quarantine
       # Shared secret the worker presents to claim jobs / fetch bytes / post reports.
       # Empty disables the dynamic tier. CHANGE THIS.
-      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}
+      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-}
       # Optional LLM narrative; the numeric verdict never depends on it.
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
@@ -61,7 +69,7 @@ services:
         condition: service_healthy
     environment:
       SANDBOX_API_URL: http://api:8000
-      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}
+      DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-}
       # POLL_INTERVAL_SECONDS, not WORKER_POLL_SECONDS. This line said the
       # latter for months and `worker/config.py:163` has always read the
       # former, so setting it did nothing and the worker kept its 15 s default.

@@ -60,6 +60,51 @@ def quarantine_root() -> Path:
     return root
 
 
+def quarantine_is_noexec() -> bool | None:
+    """Would the kernel refuse to execute a file in the quarantine?
+
+    THIS WAS A CLAIM IN THREE FILES AND NOWHERE ELSE. `docker-compose.yml`,
+    `SECURITY.md` and `DEPLOY.md` all stated the quarantine is mounted
+    `noexec,nosuid,nodev`; the live deployment had 1,362 samples on a plain
+    `rw,relatime` directory, and a shell script written there ran. The
+    documents described a control nobody had applied.
+
+    So the product reports it rather than asserting it. Read from
+    `/proc/mounts`, longest matching mount point wins -- the same rule the
+    kernel uses -- and `None` on a platform that has no `/proc/mounts`, which is
+    "cannot tell" rather than a guess in either direction.
+
+    Deliberately NOT wired into `validate_production`: the quarantine is a
+    temporary directory under pytest and on any developer machine, so booting
+    would refuse everywhere except the one host that already has it right.
+    `/api/capabilities` publishes it, which puts it in front of the operator
+    without turning a hardening step into an outage.
+    """
+    try:
+        target = quarantine_root().resolve()
+        with open("/proc/mounts", "r", encoding="utf-8", errors="replace") as handle:
+            entries = [line.split() for line in handle]
+    except (OSError, ValueError):
+        return None
+
+    best: tuple[int, str] | None = None
+    for parts in entries:
+        if len(parts) < 4:
+            continue
+        point, options = parts[1], parts[3]
+        try:
+            resolved = Path(point).resolve()
+        except (OSError, ValueError):
+            continue
+        if resolved == target or resolved in target.parents:
+            depth = len(resolved.parts)
+            if best is None or depth > best[0]:
+                best = (depth, options)
+    if best is None:
+        return None
+    return "noexec" in best[1].split(",")
+
+
 def _harden(path: Path) -> None:
     """Owner-read-only, and explicitly not executable.
 

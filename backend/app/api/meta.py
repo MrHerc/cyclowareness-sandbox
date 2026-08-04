@@ -26,6 +26,7 @@ from .dynamic_state import dynamic_state
 from ..db import session_scope
 from ..engine import native
 from ..engine import scoring
+from ..engine import storage
 
 logger = logging.getLogger("sandbox.meta")
 
@@ -124,6 +125,15 @@ def capabilities():
         "static_analyzers": list(analyzers.all_names()),
         "unavailable_analyzers": analyzers.unavailable_analyzers(),
         "yara": yara_status,
+        # WHETHER THE KERNEL WOULD REFUSE TO RUN WHAT IS STORED HERE.
+        #
+        # Three files in this repo stated the quarantine is mounted
+        # `noexec,nosuid,nodev`. The live deployment had 1,362 samples on a
+        # plain `rw,relatime` directory and a script written there executed. A
+        # control that exists only in documentation is not a control, so it is
+        # measured and published: `true`, `false`, or `null` where the platform
+        # cannot say.
+        "quarantine_noexec": storage.quarantine_is_noexec(),
         # BOTH switches, not the flag alone — see `dynamic_state`. Reading only
         # `SANDBOX_DYNAMIC_WORKER` advertised a behavioural tier on a deployment
         # whose own ingest endpoints answered 503 to every request.

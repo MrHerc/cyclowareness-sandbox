@@ -157,7 +157,12 @@ class Settings(BaseSettings):
     entity_contact: str = Field(default="")
 
     # --- CORS (dev only; the Docker image serves API+SPA same-origin) -------
-    cors_origins: str = Field(default="http://localhost:5173,http://127.0.0.1:5173")
+    # EMPTY BY DEFAULT. The production image serves the API and the SPA from
+    # one origin, so it needs no CORS at all -- and shipping the dev origins
+    # as the default meant the production container carried
+    # `http://localhost:5173` in its allowlist with `allow_credentials`.
+    # A developer sets this; a deployment should not have to unset it.
+    cors_origins: str = Field(default="")
 
     # --- derived ------------------------------------------------------------
     @property
@@ -253,8 +258,27 @@ class Settings(BaseSettings):
         # -- below a machine-generated secret, above anything a person types.
         token = self.dynamic_worker_token.strip()
         if token:
-            if token.lower() in ("changeme", "worker", "secret", "token", "test", "demo"):
+            # THE SHIPPED DEFAULT PASSED THIS CHECK. `docker-compose.yml:35`
+            # carries `DYNAMIC_WORKER_TOKEN: ${DYNAMIC_WORKER_TOKEN:-change-me-worker-token}`,
+            # which is 23 characters and cleared both the placeholder list and
+            # the length floor -- so an operator running the repo's own compose
+            # with APP_ENV=production booted, and a credential printed in this
+            # repository unlocked every tenant's raw malware bytes.
+            #
+            # Structural rather than a word list, because the next default will
+            # not be spelled the same way: anything that ASKS to be changed is
+            # a placeholder, whatever its length.
+            import re as _re
+
+            lowered = token.lower()
+            if lowered in ("changeme", "worker", "secret", "token", "test", "demo"):
                 problems.append("DYNAMIC_WORKER_TOKEN is a guessable placeholder")
+            elif _re.search(r"change[-_ ]?me|replace[-_ ]?me|your[-_ ]?token|example", lowered):
+                problems.append(
+                    "DYNAMIC_WORKER_TOKEN is a shipped placeholder that asks to be "
+                    "changed; it authorises reading every quarantined sample and "
+                    "writing detonation evidence into signed records"
+                )
             elif len(token) < 16:
                 problems.append(
                     f"DYNAMIC_WORKER_TOKEN is {len(token)} characters; it authorises writing "

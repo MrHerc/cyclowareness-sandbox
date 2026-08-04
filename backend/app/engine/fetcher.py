@@ -79,17 +79,25 @@ def _is_public(ip: str) -> bool:
         addr = ipaddress.ip_address(ip)
     except ValueError:
         return False
-    return not (
-        addr.is_private
-        or addr.is_loopback
-        or addr.is_link_local
-        or addr.is_reserved
-        or addr.is_multicast
-        or addr.is_unspecified
-        # IPv4-mapped IPv6 (::ffff:127.0.0.1) is the classic bypass.
-        or (isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None
-            and not _is_public(str(addr.ipv4_mapped)))
-    )
+    # ASK THE QUESTION, DO NOT ENUMERATE THE EXCEPTIONS.
+    #
+    # This was a list of exclusions, and a list of exclusions is only ever as
+    # complete as the day it was written: carrier-grade NAT (100.64.0.0/10) is
+    # neither `is_private` nor `is_reserved`, so it read as a public
+    # destination. On this host nothing is routable there and the connection
+    # simply times out -- but the predicate is the control, and "the network
+    # happens to save us" is not the control working.
+    #
+    # `is_global` is the stdlib asking exactly what this function means: is
+    # this address globally routable. It already covers loopback, private,
+    # link-local, reserved, multicast, unspecified, benchmarking, documentation
+    # and carrier NAT, and it keeps covering whatever IANA reserves next.
+    #
+    # The IPv4-mapped IPv6 recursion stays: `::ffff:127.0.0.1` is the classic
+    # bypass, and `is_global` on the v6 form does not look through the mapping.
+    if isinstance(addr, ipaddress.IPv6Address) and addr.ipv4_mapped is not None:
+        return _is_public(str(addr.ipv4_mapped))
+    return bool(addr.is_global)
 
 
 def _resolve_public(host: str) -> list[str]:

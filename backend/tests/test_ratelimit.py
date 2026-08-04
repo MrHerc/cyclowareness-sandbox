@@ -175,10 +175,45 @@ def test_the_analyst_ui_is_not_throttled_in_normal_use(client, auth) -> None:
 
 
 def test_the_worker_seam_is_exempt(client) -> None:
-    """The worker polls continuously by design; throttling it throttles the product."""
-    for _ in range(50):
+    """The worker polls continuously by design; throttling it throttles the product.
+
+    THE EXEMPTION IS FOR THE WORKER, NOT FOR THE PREFIX. This used to send an
+    invalid token fifty times and assert 401 every time, which asserted the
+    opposite of what its name says: a caller who cannot present the token is
+    not the worker, and metering them is the point. That made
+    `/api/dynamic/` a 2,400-guesses-per-minute oracle against the credential
+    `api/dynamic.py` itself calls the widest in the system.
+
+    So the exemption is proved with a VALID token, which is the real invariant,
+    and the metering of an invalid one is asserted below.
+    """
+    from app.config import get_settings
+
+    token = get_settings().dynamic_worker_token
+    assert token, "the suite configures a worker token; without it this proves nothing"
+    for n in range(50):
+        r = client.get("/api/dynamic/queue", headers={"X-Worker-Token": token})
+        assert r.status_code != 429, f"the real worker was throttled at request {n + 1}"
+
+
+def test_a_wrong_worker_token_is_metered_like_a_wrong_password(client) -> None:
+    """The credential that buys every tenant's raw malware bytes was guessable
+    at the default read rate — 240 per 60s — while a wrong password was held to
+    10 per 300s."""
+    import app.ratelimit as ratelimit
+
+    ratelimit.limiter.reset()
+    seen = set()
+    for _ in range(30):
         r = client.get("/api/dynamic/queue", headers={"X-Worker-Token": "wrong"})
-        assert r.status_code == 401, "the dynamic seam must answer on its own terms"
+        seen.add(r.status_code)
+        if r.status_code == 429:
+            break
+    assert 401 in seen, seen
+    assert 429 in seen, (
+        "an invalid worker token is never throttled, so the token can be "
+        f"brute-forced at the default read rate: {seen}"
+    )
 
 
 def test_health_and_metrics_stay_available_under_load(client) -> None:

@@ -28,6 +28,11 @@ os.environ["APP_ENV"] = "demo"
 os.environ["SANDBOX_QUARANTINE"] = _QUARANTINE
 os.environ["DATABASE_URL"] = "sqlite:///" + _DB_FILE.replace("\\", "/")
 os.environ["DYNAMIC_WORKER_TOKEN"] = "test-token"
+# The CORS tests describe "a browser on the Vite dev origin", which used to
+# come free from `cors_origins`'s default. That default is now empty -- the
+# production image serves the API and the SPA from one origin and needs no
+# CORS at all -- so the suite states the origin it is testing.
+os.environ.setdefault("CORS_ORIGINS", "http://localhost:5173")
 # Never let a real dynamic worker be considered "attached" during the suite.
 os.environ.pop("SANDBOX_DYNAMIC_WORKER", None)
 # Deterministic session tokens across the process.

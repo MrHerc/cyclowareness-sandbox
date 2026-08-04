@@ -82,6 +82,20 @@ RULES: tuple[tuple[str, Rule], ...] = (
     # Equal on purpose — see Rule.
     ("/api/auth/login", Rule(10, 300, "authentication", address_limit=10)),
     ("/api/jobs", Rule(60, 60, "job-actions", address_limit=600)),
+    # THE WIDEST CREDENTIAL WAS THE LEAST PROTECTED ONE.
+    #
+    # `/api/dynamic/` fell to DEFAULT_RULE, so an INVALID worker token could be
+    # guessed 2,400 times a minute -- ~3.45 M/day from one address -- against
+    # the credential `api/dynamic.py` itself calls "the widest in the system":
+    # it is deployment-wide rather than tenant-scoped, and it buys the raw bytes
+    # of every quarantined sample plus the ability to write fabricated
+    # detonation evidence into signed reports. A wrong password was metered at
+    # 10 per 300s; a wrong worker token at 240 per 60s.
+    #
+    # Metered as authentication, identically. A VALID token is exempted earlier
+    # by `_is_exempt`, so the real worker's continuous polling is untouched --
+    # this only meters callers who failed to prove they are it.
+    ("/api/dynamic/", Rule(10, 300, "authentication", address_limit=10)),
 )
 DEFAULT_RULE = Rule(240, 60, "read", address_limit=2400)
 

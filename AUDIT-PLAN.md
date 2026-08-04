@@ -1,424 +1,289 @@
-# Remediation plan — the 2026-08-03 seven-lens sweep
+# Remediation plan — two days to a sandbox that survives a pentest
 
-64 findings, produced by seven independent audit passes over the backend, the
-engine, the worker, the API, the frontend, the test suite and the documentation.
-Each was written by one agent and checked by two more whose instructions were to
-refute it.
+64 findings from the 2026-08-03 seven-lens sweep. **18 closed** (`cdc1998`,
+`239b4b8`). **46 open**, laid out below as two days.
 
-**18 are closed** (commits `cdc1998` and `239b4b8`). **46 remain**, laid out
-below as three days of work.
+The split is not arbitrary and it is not by severity. It is by **what a
+penetration tester reaches first**:
 
----
+* **Day 1 — the attack surface.** Anything an attacker touches: what the
+  service accepts, what it executes, what it trusts, what it records about who
+  did it. If a pentest finds a hole, it is in here.
+* **Day 2 — the claims and the guard.** Everything the product asserts about a
+  sample, and the test suite that is supposed to stop those assertions drifting.
+  A pentester does not exploit these; an auditor and a customer do.
 
-## How to use this file
-
-Every open item has the same shape:
-
-```
-### A3 · medium · <one line>
-**Where** file:line
-**What is wrong** the fact, measured
-**Fix** what to change
-**Cost** rough size
-**Your call?** yes/no — whether this needs a decision from you rather than from me
-```
-
-Tick the box when it lands. If you disagree with a fix, write your view under
-the item — several of these are judgement calls where your opinion decides, not
-mine, and they are marked **Your call? yes**.
-
-Three rules carried over from the sweep, because they are why the list is this
-long and this specific:
-
-1. **Nothing ships unmeasured.** Every change that can move a score is measured
-   against the corpora before and after, and the numbers go in the commit.
-2. **A fix that costs detections is not a fix.** Two proposals in this sweep
-   were rejected for exactly that; both are recorded below with their numbers.
-3. **When the truth cannot be recovered, say so.** Labelling a weak claim beats
-   deleting it and beats leaving it unmarked.
+A separate authorised pentest is running against the live deployment in
+parallel — six offensive lenses (authz, file handling, injection and SSRF,
+secrets and signatures, resource limits, the browser surface), each finding
+re-run by a second agent whose job is to kill it. Anything it confirms is
+inserted into Day 1 ahead of what is already there.
 
 ---
 
-## Already closed
+## Decisions taken
 
-Kept here so the list reads as a whole and nothing is done twice.
-
-- [x] `GET /api/audit/export` truncated the chain of custody to 1000 of 14,044
-      events with no total — added `total` / `offset` / `has_more` and headers.
-- [x] `verdict._worst` dropped the attributability axis — 90 signed reports
-      published `high` where the score banded every signal `low`. Now 0.
-- [x] `export.pdf` was the only export not scrubbing the detonation host's name —
-      397 jobs, 12/12 rendered PDFs.
-- [x] Audit `tenant_id` could be rewritten with one `UPDATE` and `verify_chain`
-      still said ok.
-- [x] `DYNAMIC_WORKER_TOKEN` was never validated at boot.
-- [x] The API was on the public internet in plaintext — TLS on 8443, API bound
-      to loopback.
-- [x] Timeline `t_ms` was a list index labelled milliseconds.
-- [x] Guest processes shipped as the sample's behaviour — now attributed by
-      parentage.
-- [x] CAPE severity 4 (its highest) bucketed with severity 1.
-- [x] ATT&CK techniques now declare `basis`; 1,634 are marked as inferred from
-      prose.
-- [x] Four tests that could not fail (rate-limit headers, nested archive,
-      deep DER nesting, signed-malicious category).
-- [x] `test_docs_match_code` matched only a route's stem, so `export.signed` and
-      `export.incident` were undocumented and unguarded.
-- [x] `docs/api.md` admin examples used cookie auth the API does not have.
-- [x] `SECURITY.md` declared rate limiting and multi-tenancy out of scope; both
-      ship.
+| Item | Decision | Why |
+|---|---|---|
+| **D1.4** Linux strace engine | **(b)** — report `ran=False` with the reason until the parser is fixed | A wrong "clean" is worse than an absent answer. ELF detonation goes through CAPE, so nothing depends on this path today. |
+| **D1.6** Strelka claim | **Remove the claim** | Strelka is a cluster (backend, coordinator, Redis, frontend). It does not fit two days, and a half-integration would not make the sentence true — it would make it complicated AND untrue. |
+| **D2.1** quarantine mount | **Fix the mount, not the documents** | `noexec,nosuid,nodev` over 1,362 live malware samples is a real control. Changing the documents would delete it from the design instead of adding it to the machine. |
 
 ---
 
-# Day 1 — things that state something untrue
+## Not attempted in two days, and said so
 
-The highest-value group. None of these crash; all of them make the product say
-something it cannot back, which is the one defect class this product cannot
-afford.
+These are real and they are cut, deliberately, because two days is two days:
 
-### D1.1 · critical · The detonation corpus cannot detect a scoring change
-**Where** `backend/tests/test_detonation_corpus.py:115`
-**What is wrong** The 93-sample corpus is asserted against `MIN_MALWARE_DETECTED
-= 69`, a floor so far below the actual result that no plausible regression
-trips it. Eight scoring comments cite "84 of 88" — a figure this harness does
-not produce. So every "measured against the corpus" claim in this repo rests on
-a test that would stay green through a large regression.
-**Fix** Pin the actual current number with a tolerance band (e.g. `assert 82 <=
-detected <= 88`) so both a regression AND an unexplained improvement fail. Then
-re-derive the "84 of 88" figure and correct the eight comments, or delete the
-figure from them.
-**Cost** half a day — the re-derivation is the work
-**Your call?** no
+* **Accessibility** (D3.5–D3.8, D3.10): focus lost on route change, no skip
+  link, `Callout` without `role="alert"`, `Tabs` claiming a radiogroup it does
+  not implement, the behaviour graph opaque to a screen reader. None is a
+  security or truthfulness defect. They should be a third day.
+* **Re-mapping ATT&CK off prose.** Measured twice: matching ids only costs
+  897–1,105 techniques on malicious samples, ignoring hedged titles costs 603,
+  against a bar of 28. The coverage genuinely rests on prose, so the claim now
+  publishes its footing instead. Doing it properly means a curated
+  id→technique table — a project, not a task.
+* **Calibrating the ELF dynamic tier.** Needs a benign Linux corpus that does
+  not exist. A test fails if anyone removes the guard without one.
+
+---
+
+# DAY 1 — the attack surface
+
+Ordered by what an attacker reaches first.
+
+## 1A · What the service executes
+
+### 1A.1 · The quarantine is not mounted the way the design says
+**Where** `docker-compose.yml:37`, and the live volume
+**Measured** 1,362 live samples on a volume mounted `rw,relatime`. Three files
+in the repo state `noexec,nosuid,nodev`. The kernel is not refusing execution,
+and the documents say it is.
+**Fix** Mount with the flags. Verify with `findmnt` on the live host. If the
+flags break the container's writes, that is a finding of its own — report it,
+do not quietly revert to the documents.
+**Cost** 1–2 hours including a container restart
 - [ ] done
 
-### D1.2 · critical · "Why this score" prints a formula that cannot produce the score
-**Where** `frontend/src/pages/JobDetail.tsx:519`, `frontend/src/lib/types.ts:213`
-**What is wrong** 18 of the 400 most recent jobs carry `contents_floor` — a
-container raised to the score of the worst file inside it — and the UI renders
-`rule × 0.6 + ai × 0.4` beside a gauge that does not equal it. The field that
-reconciles them is in the payload and has no name in the TypeScript type, so it
-was never rendered.
-**Fix** Add `contents_floor` to `ScoreBreakdown`, and render one line under the
-formula: the computed score, the descendant that raised it, and why.
-**Cost** 1-2 hours
-**Your call?** no
-- [ ] done
-
-### D1.3 · high · The trust-anchor tool tells the operator to delete a valid anchor
-**Where** `tools/verify_anchor_provenance.py:36`
-**What is wrong** Run exactly as documented, it exits 1 and instructs removal of
-an anchor the product records as vendor-confirmed. Either the tool or the
-record is wrong, and an operator following the instruction weakens the trust
-store.
-**Fix** Reproduce, decide which side is wrong, fix that side. Do not "make the
-tool pass".
-**Cost** 2-3 hours
-**Your call?** no
-- [ ] done
-
-### D1.4 · high · The native Linux strace parser matches nothing it asks for
+### 1A.2 · The Linux strace engine issues a clean bill of health from a parse that produced nothing
 **Where** `worker/engines/native_linux.py:305`
-**What is wrong** The parser cannot match a single line of the trace format it
-requests, then reports "No malicious behaviour observed" — a clean bill of
-health from a parse that produced nothing.
-**Fix** Two honest options, and this is the decision: (a) fix the parser against
-a real captured trace, or (b) make the engine report `ran=False` with the reason
-until it is fixed, so it stops issuing verdicts. **My recommendation is (b)
-first, (a) later** — ELF detonation goes through CAPE now, so this path is not
-load-bearing, and a wrong "clean" is worse than an absent answer.
-**Cost** (b) 1 hour · (a) 1 day
-**Your call?** **yes** — (a) or (b)
+**Measured** The parser matches no line of the trace format it asks strace to
+produce, then reports "No malicious behaviour observed".
+**Fix (decided: option b)** Return `ran=False` with a reason naming the parser
+gap, so the tier reports "did not run" instead of "found nothing". Add a test
+that fails if it ever returns `ran=True` without having matched a line.
+**Cost** 1 hour
 - [ ] done
 
-### D1.5 · medium · The Engines page contradicts the deployment
-**Where** `frontend/src/pages/Integrations.tsx:62`
-**What is wrong** It tells the operator CAPEv2 is unconfigured, blocked, and
-needs sovereign mode relaxed — on a deployment where CAPEv2 has detonated 844
-samples.
-**Fix** Read the same capability descriptor the backend serves rather than
-inferring state in the component.
+### 1A.3 · A NUL byte from a sample makes the whole table un-castable
+**Where** `backend/app/engine/pipeline.py:77`
+**Measured** A NUL reaching a JSON column breaks every `::jsonb` query across
+`sandbox_jobs` — including the ones this audit runs. Sample-controlled.
+**Fix** Strip NULs in `_sanitise` on the way in; backfill affected rows.
 **Cost** 2 hours
-**Your call?** no
 - [ ] done
 
-### D1.6 · medium · `docs/sandbox-matrix.md` claims Strelka scanning that no code performs
-**Where** `docs/sandbox-matrix.md:41` and the `/api/capabilities` descriptor
-**Fix** Remove the claim from both, or implement it. Removing is correct unless
-you want the feature.
-**Cost** 30 minutes
-**Your call?** **yes** — remove, or build it?
+## 1B · What the service trusts
+
+### 1B.1 · The dynamic ingest accepts a report for a job in any status
+**Where** `backend/app/api/dynamic.py:585`
+**Measured** It also clears `job.error` unconditionally, on an invariant nothing
+enforces. This is the endpoint that writes behaviour into a signed verdict.
+**Fix** Accept only for a job the queue actually offered; clear `error` only on
+a report that succeeded.
+**Cost** 2 hours
 - [ ] done
 
-### D1.7 · medium · The model's per-feature bars encode the wrong quantity
+### 1B.2 · The infrastructure scrub is a blind substring replacement
+**Where** `backend/app/engine/report.py:148`
+**Measured** A worker name occurring inside ordinary report text is replaced
+there too, corrupting the signed evidence.
+**Fix** Whole-token replacement; never inside a hash or a path.
+**Cost** 2 hours
+- [ ] done
+
+### 1B.3 · The trust-anchor tool tells the operator to weaken the trust store
+**Where** `tools/verify_anchor_provenance.py:36`
+**Measured** Run exactly as documented it exits 1 and instructs removal of an
+anchor the product records as vendor-confirmed.
+**Fix** Reproduce, decide which side is wrong, fix that side. Do not make the
+tool pass.
+**Cost** 2–3 hours
+- [ ] done
+
+## 1C · What the service records about who did it
+
+### 1C.1 · The largest mutation to a verdict records no source address
+**Where** `backend/app/api/dynamic.py:683`
+**Measured** 5,483 audit rows from dynamic ingest have no source IP.
+**Fix** Pass `client_ip(request)`, as every other mutating endpoint does.
+**Cost** 1 hour
+- [ ] done
+
+### 1C.2 · 61% of chain-of-custody addresses are the Docker bridge
+**Where** `DEPLOY.md:64`, and the request path
+**Measured** Requests arrive via docker0, so the audit trail records
+`172.17.0.1` instead of the caller. Now that TLS terminates in front, this is
+fixable — and doing it wrong opens a spoofing hole, so it is a Day 1 item.
+**Fix** Trust `X-Forwarded-For` **only** from a configured trusted-proxy list,
+never blanket. Add a test that an untrusted source cannot spoof it.
+**Cost** half a day
+- [ ] done
+
+### 1C.3 · `GET /api/jobs` echoes an offset it ignored
+**Where** `backend/app/api/sandbox.py:407`
+**Fix** Reject cursor+offset with a 400. Clearer than silently picking one.
+**Cost** 1 hour
+- [ ] done
+
+## 1D · Whatever the live pentest confirms
+
+Inserted here as it lands, ahead of everything above it if it is worse.
+
+- [ ] triaged
+
+**Day 1 gate**
+* full suite green, no new skips
+* `findmnt` shows the quarantine flags on the live host
+* the audit chain verifies end to end (`entries_checked`, `ok`, `anchored`)
+* a spoofed `X-Forwarded-For` from an untrusted source does not reach the audit
+  trail — tested, not assumed
+
+---
+
+# DAY 2 — the claims, and the guard that is supposed to hold them
+
+## 2A · The guard is broken, so fix it first
+
+Everything in 2B is "the product says something it cannot back". There is no
+point fixing those while the tests that are supposed to catch them cannot fail.
+
+### 2A.1 · The detonation corpus cannot detect a scoring change
+**Where** `backend/tests/test_detonation_corpus.py:115`
+**Measured** 93 samples asserted against `MIN_MALWARE_DETECTED = 69`, a floor
+far below the actual result — no plausible regression trips it. Eight scoring
+comments cite "84 of 88", a figure this harness does not produce. Every
+"measured against the corpus" claim in the repo rests on this.
+**Fix** Pin the real number with a tolerance band so a regression AND an
+unexplained improvement both fail. Re-derive "84 of 88" or delete it from the
+eight comments.
+**Cost** half a day — the re-derivation is the work
+- [ ] done
+
+### 2A.2 · Seven of eight ISO regression tests never run in the shipped image
+**Where** `backend/tests/test_an_iso_is_media_not_a_dropper.py:44`
+**Fix** Build the ISO in-process rather than adding a tool the product does not
+ship. A test that needs a binary the image lacks is testing a different machine.
+**Cost** half a day
+- [ ] done
+
+### 2A.3 · Four more tests that cannot fail
+**Where** `test_the_palette_is_legible.py:53` (mine — renaming the light-theme
+selector leaves it green while measuring the dark palette twice),
+`test_a_library_is_not_a_dropper.py:209` (sees 7 of the 13 file types it
+declares) and `:137` (a dead helper), `test_worker_loop.py:161`,
+`test_the_queue_is_not_a_page.py:349`, `test_the_chain_is_anchored_to_a_key.py:331`
+**Fix** Assert the premise, then the behaviour. Same treatment as the four
+already done.
+**Cost** 3 hours
+- [ ] done
+
+## 2B · Things the product states that it cannot back
+
+### 2B.1 · "Why this score" prints a formula that cannot produce the score
+**Where** `frontend/src/pages/JobDetail.tsx:519`, `frontend/src/lib/types.ts:213`
+**Measured** 18 of the 400 most recent jobs carry `contents_floor` — a container
+raised to its worst member's score — and the UI renders `rule × 0.6 + ai × 0.4`
+beside a gauge that does not equal it.
+**Fix** Add `contents_floor` to the type; render one line naming the descendant
+that raised it.
+**Cost** 1–2 hours
+- [ ] done
+
+### 2B.2 · 38 of 1,633 jobs' model score cannot be reproduced by hand
+**Where** `backend/app/engine/scoring.py:757`
+**Fix** Find the divergence and either publish what is missing or correct
+`MODEL_PROVENANCE`'s promise.
+**Cost** half a day
+- [ ] done
+
+### 2B.3 · The Engines page contradicts the deployment
+**Where** `frontend/src/pages/Integrations.tsx:62`
+**Measured** It says CAPEv2 is unconfigured, blocked and needs sovereign mode
+relaxed — on a deployment where CAPEv2 has detonated 844 samples.
+**Fix** Read the capability descriptor the backend serves; stop inferring state
+in the component.
+**Cost** 2 hours
+- [ ] done
+
+### 2B.4 · The model's per-feature bars encode the wrong quantity
 **Where** `frontend/src/pages/JobDetail.tsx:646`
-**What is wrong** Bar length is the feature VALUE, not its contribution, so the
+**Measured** Bar length is the feature value, not the contribution, so the
 longest bar sits under the smallest number.
 **Fix** Length from `contribution`, sign-aware.
 **Cost** 1 hour
-**Your call?** no
 - [ ] done
 
-### D1.8 · low · 38 of 1,633 jobs' model score cannot be reproduced by hand
-**Where** `backend/app/engine/scoring.py:757`
-**What is wrong** `MODEL_PROVENANCE` promises the published feature values
-reproduce the model half. For 38 jobs they do not.
-**Fix** Find the divergence (rounding, a feature dropped from the published
-list, or a clamp applied after publication) and either publish what is missing
-or correct the promise.
-**Cost** half a day
-**Your call?** no
-- [ ] done
-
-**Day 1 gate:** full suite green, corpus numbers recorded in the commit, and the
-three UI items verified on the live deployment.
-
----
-
-# Day 2 — the API contract, the chain of custody, and the quarantine
-
-### D2.1 · medium · The quarantine is not mounted the way three files say it is
-**Where** `docker-compose.yml:37`
-**What is wrong** 1,362 live samples sit on a volume mounted `rw,relatime` —
-not `noexec,nosuid,nodev` — while three files in the repo state that it is. The
-kernel is not refusing execution, and the documents say it would.
-**Fix** Mount with the flags, verify with `findmnt`, and re-run the suite. If
-the flags break the container's writes, change the documents instead — but one
-of the two must move.
-**Cost** 1-2 hours (plus a container restart on the live host)
-**Your call?** no
-- [ ] done
-
-### D2.2 · medium · The dynamic ingest writes no source address to the chain
-**Where** `backend/app/api/dynamic.py:683`
-**What is wrong** The largest mutation the product makes to a verdict — a worker
-posting behaviour — records no source address. 5,483 live audit rows have none.
-**Fix** Pass `client_ip(request)` into the audit call, as every other mutating
-endpoint does.
-**Cost** 1 hour
-**Your call?** no
-- [ ] done
-
-### D2.3 · medium · 61% of chain-of-custody addresses are the Docker bridge
-**Where** `DEPLOY.md:64`
-**What is wrong** Requests arrive through the docker0 gateway, so the audit
-trail records `172.17.0.1` instead of the caller. Now that TLS terminates in
-front, this is fixable properly.
-**Fix** Trust `X-Forwarded-For` from the proxy only (a configured trusted-proxy
-list, never a blanket trust), and record the real client. Add a test that an
-untrusted source cannot spoof it.
-**Cost** half a day
-**Your call?** no
-- [ ] done
-
-### D2.4 · medium · `POST /api/dynamic/report/{id}` accepts a report for a job in any status
-**Where** `backend/app/api/dynamic.py:585`
-**What is wrong** It also clears `job.error` unconditionally, on an invariant
-nothing enforces.
-**Fix** Accept only for jobs the queue actually offered; clear `error` only when
-the report succeeded.
-**Cost** 2 hours
-**Your call?** no
-- [ ] done
-
-### D2.5 · medium · `GET /api/jobs` echoes an offset it ignored
-**Where** `backend/app/api/sandbox.py:407`
-**What is wrong** With a cursor present, `offset` is ignored — and then returned
-as the page's position, so a client that reads it pages wrongly.
-**Fix** Reject the combination with a 400, or return the true position. Rejecting
-is clearer.
-**Cost** 1 hour
-**Your call?** no
-- [ ] done
-
-### D2.6 · medium · `docs/api.md` misdescribes the sovereignty endpoint's auth
-**Where** `docs/api.md:256`
-**Fix** Correct to the auth the endpoint actually requires.
-**Cost** 15 minutes
-**Your call?** no
-- [ ] done
-
-### D2.7 · low · A NUL byte from a sample makes the whole table un-castable to jsonb
-**Where** `backend/app/engine/pipeline.py:77`
-**What is wrong** A NUL reaching a JSON column breaks every `::jsonb` query
-across `sandbox_jobs` — including the ones this audit runs.
-**Fix** Strip NULs in `_sanitise` on the way in. Backfill the affected rows.
-**Cost** 2 hours
-**Your call?** no
-- [ ] done
-
-### D2.8 · low · The infrastructure scrub is a blind substring replacement
-**Where** `backend/app/engine/report.py:148`
-**What is wrong** A worker name that occurs inside ordinary report text is
-replaced there too, corrupting the signed evidence.
-**Fix** Replace whole tokens, not substrings; never inside a hash or a path.
-**Cost** 2 hours
-**Your call?** no
-- [ ] done
-
-### D2.9 · low · `types.ts` requires a field `/api/capabilities` never sends
-**Where** `frontend/src/lib/types.ts:323`
-**Fix** Make `recent` optional, or send it.
-**Cost** 15 minutes
-**Your call?** no
-- [ ] done
-
-**Day 2 gate:** suite green, and the audit chain verified end to end on the live
-host (`entries_checked`, `ok`, `anchored`).
-
----
-
-# Day 3 — the test suite, accessibility, and the documents
-
-### D3.1 · high · Seven of eight ISO regression tests never run in the shipped image
-**Where** `backend/tests/test_an_iso_is_media_not_a_dropper.py:44`
-**What is wrong** They skip on a missing dependency the product image does not
-carry, so the ISO regression is unguarded in the only environment that matters.
-**Fix** Either add the dependency to the image or rewrite the fixtures to build
-the ISO in-process. **Rewriting is better** — a test that needs a tool the
-product does not ship is testing a different machine.
-**Cost** half a day
-**Your call?** no
-- [ ] done
-
-### D3.2 · medium · The new contrast test can go green while measuring the wrong theme
-**Where** `backend/tests/test_the_palette_is_legible.py:53`
-**What is wrong** Mine. Renaming the light-theme selector leaves it 44/44 green
-while measuring the dark palette twice.
-**Fix** Assert the light block was found and differs from the dark one before
-using it.
-**Cost** 30 minutes
-**Your call?** no
-- [ ] done
-
-### D3.3 · medium · The invisible-character sweep sees 7 of the 13 file types it declares
-**Where** `backend/tests/test_a_library_is_not_a_dropper.py:209`
-**Fix** Widen the root to the repo, not `backend/`.
-**Cost** 30 minutes
-**Your call?** no
-- [ ] done
-
-### D3.4 · low · Three more tests that cannot fail
-**Where** `test_worker_loop.py:161`, `test_the_queue_is_not_a_page.py:349`,
-`test_the_chain_is_anchored_to_a_key.py:331`, plus a dead `_classify` helper in
-`test_a_library_is_not_a_dropper.py:137`
-**Fix** Same treatment as the four already done: assert the premise, then the
-behaviour.
-**Cost** 2 hours
-**Your call?** no
-- [ ] done
-
-### D3.5 · medium · Accessibility: focus, and a skip link
-**Where** `frontend/src/components/Layout.tsx:131`
-**What is wrong** SPA navigation drops focus to `document.body`, and there is no
-way past the eight rail controls for a keyboard user.
-**Fix** Move focus to the page heading on route change; add a skip link.
-**Cost** 2 hours
-**Your call?** no
-- [ ] done
-
-### D3.6 · low · Errors are silent to assistive technology
-**Where** `frontend/src/components/ui.tsx:575` (six call sites)
-**Fix** `role="alert"` on `Callout` when it carries a failure.
-**Cost** 1 hour
-**Your call?** no
-- [ ] done
-
-### D3.7 · low · The behaviour graph hides every event from assistive technology
-**Where** `frontend/src/components/BehaviorGraph.tsx:44`
-**Fix** Keep `role="img"` but supply a real description, or expose the events as
-a visually-hidden list.
-**Cost** 1 hour
-**Your call?** no
-- [ ] done
-
-### D3.8 · low · `Tabs` claims a radiogroup it does not implement
-**Where** `frontend/src/components/ui.tsx:691`
-**Fix** Add arrow-key navigation and a roving tabindex, or drop the roles.
-**Cost** 1 hour
-**Your call?** no
-- [ ] done
-
-### D3.9 · medium · A failed job has no re-analyse control
+### 2B.5 · A failed job has no re-analyse control
 **Where** `frontend/src/pages/JobDetail.tsx:173`
-**What is wrong** The failure callout tells the analyst to use a control that is
-not rendered for a failed job.
-**Fix** Render it, or change the sentence.
+**Fix** Render it, or change the sentence that tells the analyst to use it.
 **Cost** 1 hour
-**Your call?** no
 - [ ] done
 
-### D3.10 · low · Two dashboard numbers count different populations
-**Where** `frontend/src/pages/Dashboard.tsx:141`, `:188`
-**What is wrong** "By file type" counts a different set than the donut beside
-it, and its "N more not shown" implies the wrong total. The "Needs attention"
-definition lives only in a `title` tooltip on a non-interactive div.
-**Fix** One population for both charts; move the definition into visible text.
-**Cost** 2 hours
-**Your call?** no
+### 2B.6 · `docs/sandbox-matrix.md` claims Strelka scanning no code performs
+**Where** `docs/sandbox-matrix.md:41`, the `/api/capabilities` descriptor
+**Fix (decided)** Remove the claim from both.
+**Cost** 30 minutes
 - [ ] done
 
-### D3.11 · medium · Documentation that describes a different product
-**Where** `worker/README.md:81`, `DEPLOY.md:57`, `infra/detonation-host/README.md:52`,
-`backend/app/engine/trust_anchors.py:206`, `render.yaml:23`, `README.md:69,80,202`
-**What is wrong** Stale detonatable-family tables; a script that no longer keeps
-`max_sample_size` in step with `MAX_SAMPLE_MB`; a runbook that stops at step 07
+### 2B.7 · `docs/api.md` misdescribes the sovereignty endpoint's auth
+**Where** `docs/api.md:256`
+**Cost** 15 minutes
+- [ ] done
+
+### 2B.8 · Documentation describing a different product
+**Where** `worker/README.md:81`, `DEPLOY.md:57`,
+`infra/detonation-host/README.md:52`, `backend/app/engine/trust_anchors.py:206`,
+`render.yaml:23`, `README.md:69,80,202`
+**What** Stale detonatable-family tables; a script that no longer keeps
+`max_sample_size` in step with `MAX_SAMPLE_MB`; a runbook stopping at step 07
 while four scripts exist; `CYCLO_TRUST_ANCHORS` documented nowhere;
-`ANTHROPIC_API_KEY` presented as enabling a feature `config.py` says is
-impossible; a test command that suppresses its own summary; a manual-development
-block that is not runnable on a POSIX shell; `/api/docs` described as reachable
-from a browser when no browser path can authenticate to it.
+`ANTHROPIC_API_KEY` presented as enabling a feature `config.py` calls
+impossible; a test command that suppresses its own summary; a
+manual-development block not runnable on a POSIX shell; `/api/docs` described
+as browser-reachable when no browser path can authenticate to it.
 **Fix** One pass, one commit, each corrected against the code.
 **Cost** half a day
-**Your call?** no
 - [ ] done
 
-### D3.12 · low · Two comments that misstate their own arithmetic
+### 2B.9 · Two comments that misstate their own arithmetic
 **Where** `backend/app/engine/scoring.py:71`, `backend/app/api/sandbox.py:60`
-**What is wrong** A comment attributes 43 of a band's 46.9 points to a group
-whose collapse actually moves it 1.6; a staleness constant is justified by a
-"two minute" detonation ceiling that is really 600 seconds.
-**Fix** Re-derive both, correct the comments.
+**What** 43 of a band's 46.9 points attributed to a group whose collapse moves
+it 1.6; a staleness constant justified by a "two minute" detonation ceiling
+that is really 600 seconds.
 **Cost** 1 hour
-**Your call?** no
 - [ ] done
 
-**Day 3 gate:** suite green with no new skips, frontend builds, and a keyboard
-pass over the four main screens.
+### 2B.10 · `types.ts` requires a field `/api/capabilities` never sends
+**Where** `frontend/src/lib/types.ts:323`
+**Cost** 15 minutes
+- [ ] done
 
----
-
-## Deliberately not on the list
-
-Recorded so nobody re-opens them without the numbers.
-
-**Re-mapping ATT&CK off prose.** The rule table matches signal ids AND prose
-titles, and 1,634 assertions rest on prose alone. Two repairs were measured:
-
-| candidate | techniques lost on MALICIOUS samples |
-|---|---|
-| match signal ids only | 897–1,105 |
-| ignore hedged titles | 603 |
-| the bar this codebase set | 28 |
-
-The coverage genuinely rests on prose — `office.vba_present` maps to T1204.002
-through the word "macro" in its sentence, and that mapping is right. So the
-claim stays and its footing is published instead. **Doing this properly means
-building a curated id→technique table**, which is a project, not a fix. Worth
-scheduling separately if ATT&CK fidelity becomes a selling point.
-
-**Calibrating the ELF dynamic tier.** It is deliberately uncalibrated: every
-`capev2.*` signal on an ELF sample is excluded from the score, the capabilities,
-the threat name and the ATT&CK map, and the report says so. Removing the guard
-needs a benign Linux corpus first, and there is a test that fails if anyone
-tries without one.
+**Day 2 gate**
+* full suite green, no new skips, and the corpus test now fails if the score
+  moves — proven by deliberately breaking it once and watching it go red
+* frontend builds clean
+* one job re-analysed end to end and its score reproduced by hand from the
+  published breakdown
 
 ---
 
 ## Your notes
 
-Anything you want changed, reprioritised, or dropped — write it here.
+Anything to reprioritise, drop, or do differently — here.
 
 <!--
-  e.g. "D1.4: take option (a), the Linux engine matters for the demo"
-       "D2.1: skip, the volume flags break our backup script"
+  e.g. "1C.2: we sit behind Cloudflare too, take that into account"
+       "2B.8: skip README, I will rewrite it myself"
 -->
