@@ -1,4 +1,4 @@
-import type { HTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
+import type { HTMLAttributes, InputHTMLAttributes, KeyboardEvent, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react'
 import { useId } from 'react'
 import { CircleAlert, Loader2, RefreshCw } from 'lucide-react'
 
@@ -571,8 +571,20 @@ export function Callout({
     warning: 'text-warning',
     danger: 'text-danger',
   }
+  // A CALLOUT THAT APPEARS AFTER AN ACTION IS AN ANNOUNCEMENT.
+  //
+  // Every dynamically-rendered error in this product is a `Callout`, and it had
+  // no role at all -- so a wrong archive password, a 409 on re-analyse and a
+  // failed export were silent to assistive technology in six places. The user
+  // pressed a button, nothing was spoken, and the only feedback was a colour.
+  //
+  // `alert` for the two tones that report a failure, because they interrupt;
+  // `status` for the rest, which are context rather than a problem and should
+  // wait for a pause. `aria-live` is implied by both, and is not set as well:
+  // doubling them makes some screen readers read the region twice.
+  const role = tone === 'danger' || tone === 'warning' ? 'alert' : 'status'
   return (
-    <div className={cx('rounded-control border p-3', tones[tone])}>
+    <div role={role} className={cx('rounded-control border p-3', tones[tone])}>
       {(title || actions) && (
         <div className="mb-1.5 flex items-center justify-between gap-3">
           <span className={cx('label flex items-center gap-1.5', heads[tone])}>
@@ -688,10 +700,42 @@ export function Tabs<T extends string>({
   onChange: (key: T) => void
   fill?: boolean
 }) {
+  // DECLARING A ROLE IS A PROMISE ABOUT THE KEYBOARD.
+  //
+  // `radiogroup`/`radio` tells a screen-reader user that arrow keys move
+  // between the options and that Tab leaves the group. Neither was implemented:
+  // every button was tabbable and the arrows did nothing, so the interface
+  // announced one contract and honoured another -- worse than claiming no role
+  // at all, because the user acts on what they were told.
+  //
+  // A roving tabindex is the other half: only the selected option is in the tab
+  // order, which is what makes "Tab leaves the group" true.
+  const move = (event: KeyboardEvent<HTMLDivElement>) => {
+    const keys = ['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End']
+    if (!keys.includes(event.key)) return
+    event.preventDefault()
+    const index = tabs.findIndex((t) => t.key === value)
+    const last = tabs.length - 1
+    let next = index
+    if (event.key === 'Home') next = 0
+    else if (event.key === 'End') next = last
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') next = index + 1 > last ? 0 : index + 1
+    else next = index - 1 < 0 ? last : index - 1
+    const target = tabs[next]
+    if (!target) return
+    onChange(target.key)
+    // Selection follows focus in a radiogroup, so the newly-checked control has
+    // to actually receive it or the next arrow press starts from the old one.
+    const group = event.currentTarget
+    const buttons = group.querySelectorAll<HTMLButtonElement>('button[role="radio"]')
+    buttons[next]?.focus()
+  }
+
   return (
     <div
       role="radiogroup"
       aria-label={label}
+      onKeyDown={move}
       className={cx('inline-flex gap-1 rounded-control border border-hair bg-panel p-1', fill && 'flex w-full')}
     >
       {tabs.map((t) => (
@@ -700,6 +744,7 @@ export function Tabs<T extends string>({
           type="button"
           role="radio"
           aria-checked={value === t.key}
+          tabIndex={value === t.key ? 0 : -1}
           onClick={() => onChange(t.key)}
           className={cx(
             'rounded-chip px-3 py-1.5 text-sm font-medium transition-colors',

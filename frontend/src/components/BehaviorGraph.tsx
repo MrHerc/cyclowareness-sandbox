@@ -44,7 +44,26 @@ export function BehaviorGraph({ events }: { events: TimelineEvent[] }) {
 
   return (
     <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${width} ${height}`} className="w-full min-w-[560px]" role="img" aria-label="Behaviour timeline">
+      {/* THE CHART IS THE PICTURE; THE LIST IS THE DATA.
+          `role="img"` collapses everything inside an SVG to its label, so the
+          whole timeline announced as two words -- "Behaviour timeline" -- and
+          every event in it was unreachable. The events are what an analyst
+          actually needs, so they are also rendered as an ordered list that is
+          visually hidden and fully readable, and the chart keeps its label. */}
+      <ol className="sr-only">
+        {sorted.map((e, i) => (
+          <li key={i}>
+            {`${isTime ? `${e.t_ms} milliseconds` : `step ${e.t_ms}`}: ${e.kind}, ${e.detail}`}
+            {e.origin === 'guest' ? ' (the guest, not the sample)' : ''}
+          </li>
+        ))}
+      </ol>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="w-full min-w-[560px]"
+        role="img"
+        aria-label={`Behaviour timeline: ${sorted.length} event${sorted.length === 1 ? '' : 's'} across ${kinds.length} categor${kinds.length === 1 ? 'y' : 'ies'}. The same events are listed below this chart.`}
+      >
         {/* lane guides + labels */}
         {kinds.map((kind, i) => {
           const y = padT + i * rowH + rowH / 2

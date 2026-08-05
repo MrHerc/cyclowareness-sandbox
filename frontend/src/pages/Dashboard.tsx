@@ -180,19 +180,29 @@ export function Dashboard() {
           value={attention}
           tone={attention ? 'warning' : 'neutral'}
           caption="flagged"
-          // Not only the flagged ones: the API also counts a completed job that
-          // scored at or above the attention floor without reaching a verdict.
-          // Excluding it would hide the "could not classify, looks bad" case —
-          // so the caption is short and the full rule is on hover, rather than
-          // the rule being dropped to make the caption short.
+          // The rule used to live ONLY in this `title`, on a non-interactive
+          // div: unreachable by keyboard, unannounced by a screen reader, and
+          // invisible to anyone not hovering a mouse over exactly that tile. It
+          // is a visible sentence under the grid now; the tooltip stays for the
+          // pointer user who is already there.
           hint="Flagged by the engine, or completed above the attention floor without reaching a verdict"
           i={2}
         />
         <StatTile label="Analysing now" value={running} tone={running ? 'brand' : 'neutral'} caption="in the queue" i={3} />
       </div>
 
+      {/* The one figure above whose meaning is not its label. Visible rather
+          than hovered, because a definition only a mouse can reach is one most
+          readers never see. */}
+      <p className="text-xs -mt-2 text-c3">
+        <span className="font-medium text-c2">Needs attention</span> counts completed
+        samples the engine called malicious or suspicious, plus any that scored at or
+        above the attention floor without reaching a verdict at all — the
+        &ldquo;could not classify, looks bad&rdquo; case.
+      </p>
+
       <div className="grid gap-6 lg:grid-cols-2">
-        <Panel title="Verdict distribution" subtitle={`Average score ${avg.toFixed(0)} across ${total} sample${total === 1 ? '' : 's'}`} className="rise-in" >
+        <Panel title="Verdict distribution" subtitle={`${total} completed sample${total === 1 ? '' : 's'}, average score ${avg.toFixed(0)}`} className="rise-in" >
           <VerdictDonut slices={slices} total={total} />
         </Panel>
 
@@ -201,9 +211,14 @@ export function Dashboard() {
         <Panel
           title="By file type"
           subtitle={
+            // NAMES ITS POPULATION. This counts EVERY job, including those still
+            // in flight; the donut beside it counts completed jobs by verdict.
+            // Both are right on their own and a reader took them for the same
+            // set, because neither said which it was -- so the two panels
+            // appeared to disagree about how many samples exist.
             familiesHidden > 0
-              ? `What is being submitted — top ${FAMILY_BARS} of ${data.families.length}, ${familiesHiddenCount} more sample${familiesHiddenCount === 1 ? '' : 's'} not shown`
-              : 'What is being submitted'
+              ? `All ${data.total} submitted samples, in flight or completed — top ${FAMILY_BARS} of ${data.families.length} types, ${familiesHiddenCount} sample${familiesHiddenCount === 1 ? '' : 's'} not shown`
+              : `All ${data.total} submitted samples, in flight or completed`
           }
           className="rise-in"
         >

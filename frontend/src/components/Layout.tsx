@@ -1,4 +1,5 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useEffect, useRef } from 'react'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Cpu, LayoutDashboard, ListChecks, LogOut, Moon, SlidersHorizontal, Sun, Upload } from 'lucide-react'
 import { Brand } from './Brand'
 import { cx } from './ui'
@@ -40,6 +41,24 @@ export function Layout() {
   const { theme, toggle } = useTheme()
   const caps = useCapabilities()
   const navigate = useNavigate()
+  const location = useLocation()
+  const main = useRef<HTMLElement>(null)
+
+  // A ROUTE CHANGE IS A PAGE CHANGE, AND NOBODY WAS TOLD.
+  //
+  // In a multi-page site the browser moves focus and announces the new
+  // document. A SPA does neither: React swapped the content and focus stayed on
+  // whatever link was clicked -- or fell to `document.body` -- so a screen
+  // reader kept reading the old page and a keyboard user's next Tab started
+  // from the navigation again, every time, on every navigation.
+  //
+  // Focus moves to the main region, which is `tabIndex={-1}` so it can receive
+  // focus without entering the tab order. `preventScroll` because the router
+  // has already put the page where it belongs and stealing the scroll position
+  // would undo it.
+  useEffect(() => {
+    main.current?.focus({ preventScroll: true })
+  }, [location.pathname])
 
   const signOut = () => {
     // `logout` now reaches the server before it clears the session, so it is
@@ -50,6 +69,17 @@ export function Layout() {
 
   return (
     <div className="min-h-screen sm:pl-[84px]">
+      {/* EIGHT CONTROLS BEFORE THE CONTENT, ON EVERY PAGE. The rail carries five
+          destinations plus the theme and sign-out buttons, and a keyboard user
+          had to walk all of them to reach what they came for -- again after
+          every navigation. Visually hidden until focused, which is the one
+          place `sr-only` must not be permanent. */}
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-control focus:border focus:border-brand focus:bg-panel focus:px-3 focus:py-2 focus:text-sm focus:text-c1"
+      >
+        Skip to main content
+      </a>
       {/* ---- the rail (>= sm) ------------------------------------------- */}
       <aside
         className="fixed inset-y-0 left-0 z-30 hidden w-[84px] flex-col items-center gap-1 border-r border-hair bg-panel/70 px-3 py-4 backdrop-blur sm:flex"
@@ -130,7 +160,12 @@ export function Layout() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-1 sm:px-8 sm:pb-12">
+      <main
+        ref={main}
+        id="main"
+        tabIndex={-1}
+        className="mx-auto max-w-6xl px-4 pb-24 pt-1 outline-none sm:px-8 sm:pb-12"
+      >
         <Outlet />
       </main>
 
