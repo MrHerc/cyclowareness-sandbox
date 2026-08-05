@@ -32,6 +32,7 @@ Known residuals, stated plainly rather than papered over:
 from __future__ import annotations
 
 import ipaddress
+import time
 import socket
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -43,6 +44,19 @@ from .storage import MAX_SAMPLE_BYTES, SampleTooLarge, store_stream, StoredSampl
 TIMEOUT_SECONDS = 30.0
 MAX_REDIRECTS = 3
 RETRIES = 3
+
+#: The WALL CLOCK for one submission, across every retry and every hop.
+#:
+#: `TIMEOUT_SECONDS` bounds a single socket operation, and nothing bounded their
+#: product: 3 retries x (1 + 3 redirect hops) x 30s is 360 seconds of a server
+#: thread held by one request. The runner is a four-worker pool behind a 40-slot
+#: threadpool, so one credential issuing 20 requests a minute -- inside the
+#: submission rate limit -- keeps roughly 30 of those slots occupied
+#: continuously, and this deployment ships both an analyst account and API keys.
+#:
+#: 45 seconds is comfortably more than any real download needs (the sample
+#: ceiling is 32 MB) and far less than a caller can weaponise.
+TOTAL_BUDGET_SECONDS = 45.0
 
 ALLOWED_SCHEMES = {"http", "https"}
 
@@ -211,8 +225,14 @@ def fetch(url: str, *, max_bytes: int = MAX_SAMPLE_BYTES) -> Fetched:
     """
     current = url
     last_error: Exception | None = None
+    deadline = time.monotonic() + TOTAL_BUDGET_SECONDS
 
     for attempt in range(RETRIES):
+        if time.monotonic() >= deadline:
+            raise FetchFailed(
+                f"fetch budget of {TOTAL_BUDGET_SECONDS:.0f}s exhausted after "
+                f"{attempt} attempt(s)"
+            ) from last_error
         try:
             with httpx.Client(
                 follow_redirects=False,
@@ -220,6 +240,14 @@ def fetch(url: str, *, max_bytes: int = MAX_SAMPLE_BYTES) -> Fetched:
                 headers={"User-Agent": "Cyclowareness-Sandbox/1.0 (+security analysis)"},
             ) as client:
                 for _hop in range(MAX_REDIRECTS + 1):
+                    # Checked per hop as well as per attempt: a chain of slow
+                    # redirects is the cheap way to hold a thread without any
+                    # single operation ever timing out.
+                    if time.monotonic() >= deadline:
+                        raise FetchFailed(
+                            f"fetch budget of {TOTAL_BUDGET_SECONDS:.0f}s exhausted "
+                            "while following redirects"
+                        )
                     host, addresses = _validate(current)
                     request = _pinned_request(client, current, host, addresses[0])
 

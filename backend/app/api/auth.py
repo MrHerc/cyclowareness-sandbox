@@ -6,7 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from .. import audit
-from ..auth import issue_token, verify_login
+from ..auth import Identity, issue_token, require_analyst, revoke_sessions, verify_login
 from ..config import Settings, get_settings
 from ..remote import client_ip
 from ..schemas import LoginRequest, LoginResponse
@@ -55,3 +55,34 @@ def login(
         detail={"expires_at": exp},
     )
     return LoginResponse(token=token, expires_at=exp, subject=payload.username)
+
+
+@router.post("/logout", status_code=204)
+def logout(request: Request, identity: Identity = Depends(require_analyst)):
+    """End every session for this subject, server-side.
+
+    Logging out cleared `localStorage` and nothing else, so a token that had
+    already left the browser -- copied into a shared curl command, read out of a
+    DOM bug, left on an unlocked workstation -- stayed valid for its full twelve
+    hours with nothing able to stop it. This product renders strings lifted out
+    of live malware, so that was the wrong answer to have ready.
+
+    It revokes EVERY session for the subject, not just the presented one. There
+    is a single analyst account, so "log me out" and "log out everything I am"
+    are the same intent, and the narrower reading would leave a stolen token
+    alive while the person who noticed thinks they have acted.
+
+    Recorded in the chain of custody: an analyst ending a session is a fact an
+    auditor reconstructing a timeline needs, and it is the one action that
+    explains why a token stopped working.
+    """
+    epoch = revoke_sessions(identity.subject)
+    audit.record(
+        action=audit.AuditAction.LOGOUT,
+        actor=identity.subject[:64],
+        actor_method=identity.method,
+        tenant=identity.tenant,
+        source_ip=client_ip(request),
+        detail={"sessions_revoked_through_epoch": epoch},
+    )
+    return None

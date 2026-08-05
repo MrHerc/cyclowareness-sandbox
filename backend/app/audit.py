@@ -99,6 +99,9 @@ class AuditAction:
 
     LOGIN_SUCCESS = "login.success"
     LOGIN_FAILURE = "login.failure"
+    #: An analyst ending their sessions. The one action that explains why a
+    #: token stopped working before its expiry.
+    LOGOUT = "login.logout"
     SAMPLE_SUBMITTED = "sample.submitted"
     ARCHIVE_PASSWORD_SUPPLIED = "sample.archive_password_supplied"
     REANALYSIS_REQUESTED = "sample.reanalysis_requested"
@@ -617,6 +620,27 @@ class AuditCheckpoint(Base):
     signature: Mapped[str] = mapped_column(Text, nullable=False)
     key_id: Mapped[str] = mapped_column(String(128), nullable=False)
 
+    #: SHA-256 over every event's `(id, tenant_id)` up to `head_id`.
+    #:
+    #: THE ONE MUTATION THE CHAIN CANNOT SEE. `tenant_id` sits outside
+    #: `_canonical` on purpose -- the form is frozen, and adding a field would
+    #: make every event written before tenancy fail verification -- so an UPDATE
+    #: moving an event into another tenant's history left every hash intact.
+    #: `record()` now writes a `_tenant` copy inside the hashed detail, but that
+    #: only covers rows written since: 14,122 of 14,145 live rows predate it.
+    #:
+    #: Backfilling `_tenant` into those rows would change their `detail`, and
+    #: therefore their `entry_hash`, and therefore every hash after them -- a
+    #: wholesale rewrite of the audit trail, which is the exact act the chain
+    #: exists to make impossible. So nothing is rewritten. The attribution is
+    #: SIGNED where it stands: a digest over the mapping as it is now, inside a
+    #: checkpoint an attacker cannot reproduce without the Ed25519 key.
+    #:
+    #: Nullable, and omitted from `_checkpoint_canonical` when absent, so every
+    #: checkpoint written before this column existed still verifies byte for
+    #: byte.
+    attribution_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
 
 def _checkpoint_canonical(
     *,
@@ -625,6 +649,7 @@ def _checkpoint_canonical(
     head_hash: str,
     event_count: int,
     prev_checkpoint_hash: str,
+    attribution_digest: str | None = None,
 ) -> bytes:
     """The exact bytes a checkpoint_hash covers.
 
@@ -632,17 +657,92 @@ def _checkpoint_canonical(
     whitespace, reproducible by a third party holding nothing but the table and
     this function.
     """
-    return json.dumps(
-        {
-            "created_at": _iso(created_at),
-            "head_id": head_id,
-            "head_hash": head_hash,
-            "event_count": event_count,
-            "prev_checkpoint_hash": prev_checkpoint_hash,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    body = {
+        "created_at": _iso(created_at),
+        "head_id": head_id,
+        "head_hash": head_hash,
+        "event_count": event_count,
+        "prev_checkpoint_hash": prev_checkpoint_hash,
+    }
+    # PRESENT-ONLY, so the form stays frozen for everything already written.
+    # Adding a key unconditionally would change the bytes every existing
+    # checkpoint hashed, and they would all read as forged -- the same trap
+    # `_canonical` carries a note about one level down.
+    if attribution_digest:
+        body["attribution_digest"] = attribution_digest
+    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+#: Field and record separators for the attribution digest. Written as escapes,
+#: never as literal bytes: `test_the_source_has_no_invisible_control_characters`
+#: refuses a control character in the source, and it is right to -- an invisible
+#: byte in a hash input is unreviewable.
+_UNIT_SEP = chr(0x1F)
+_RECORD_SEP = chr(0x1E)
+
+
+def attribution_digest(db: Session, head_id: int) -> str:
+    """SHA-256 over `(id, tenant_id)` for every event up to `head_id`.
+
+    Streamed in id order so the value is reproducible by anyone holding the
+    table and this function, and so a table of any size costs one pass and no
+    memory. The separator is a byte that cannot occur in either field, which is
+    what stops `(1, "a:b")` and `(1, "a"), (":b")` colliding.
+    """
+    sha = hashlib.sha256()
+    rows = db.execute(
+        select(AuditEvent.id, AuditEvent.tenant_id)
+        .where(AuditEvent.id <= head_id)
+        .order_by(AuditEvent.id)
+    )
+    for event_id, tenant in rows:
+        sha.update(f"{int(event_id)}{_UNIT_SEP}{tenant or ''}{_RECORD_SEP}".encode("utf-8"))
+    return sha.hexdigest()
+
+
+def verify_attribution(db: Session) -> dict[str, Any]:
+    """Has any event been moved into another tenant since it was last signed?
+
+    Compares the live `(id, tenant_id)` mapping against the newest checkpoint
+    that carries a digest. `covered` is the honest half of the answer: events
+    written after that checkpoint are not spoken for by it, and saying so is the
+    difference between "verified" and "verified as far as it goes".
+    """
+    row = db.execute(
+        select(AuditCheckpoint.head_id, AuditCheckpoint.attribution_digest, AuditCheckpoint.id)
+        .where(AuditCheckpoint.attribution_digest.is_not(None))
+        .order_by(AuditCheckpoint.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return {
+            "checked": False,
+            "reason": (
+                "no checkpoint carries an attribution digest yet; the next one "
+                "written will cover every event up to that point"
+            ),
+        }
+    head_id, signed, checkpoint_id = int(row[0]), row[1], int(row[2])
+    live = attribution_digest(db, head_id)
+    total = int(db.execute(select(func.count(AuditEvent.id))).scalar_one() or 0)
+    covered = int(
+        db.execute(
+            select(func.count(AuditEvent.id)).where(AuditEvent.id <= head_id)
+        ).scalar_one()
+        or 0
+    )
+    return {
+        "checked": True,
+        "ok": live == signed,
+        "covered_events": covered,
+        "uncovered_events": max(0, total - covered),
+        "checkpoint_id": checkpoint_id,
+        "reason": None if live == signed else (
+            "an event's tenant_id no longer matches the mapping signed at "
+            f"checkpoint {checkpoint_id}: at least one event has been "
+            "re-attributed to a different tenant"
+        ),
+    }
 
 
 def _checkpoint_tail(db: Session) -> str:
@@ -686,6 +786,7 @@ def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:
 
     created = utcnow()
     prev = _checkpoint_tail(db)
+    attribution = attribution_digest(db, head_id)
     digest = hashlib.sha256(
         _checkpoint_canonical(
             created_at=created,
@@ -693,6 +794,7 @@ def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:
             head_hash=head_hash,
             event_count=count,
             prev_checkpoint_hash=prev,
+            attribution_digest=attribution,
         )
     ).hexdigest()
 
@@ -704,6 +806,7 @@ def checkpoint(db: Session, *, settings=None) -> dict[str, Any]:
         event_count=count,
         prev_checkpoint_hash=prev,
         checkpoint_hash=digest,
+        attribution_digest=attribution,
         signature=attestation.sign(digest.encode("ascii"), private_key),
         key_id=attestation.key_id(public_key),
     )
@@ -787,6 +890,13 @@ def verify_checkpoints(db: Session, *, settings=None) -> dict[str, Any]:
                 head_hash=row.head_hash,
                 event_count=row.event_count,
                 prev_checkpoint_hash=row.prev_checkpoint_hash,
+                # Passed from the row, so a checkpoint written before the column
+                # existed hashes exactly as it did then (the canonical form omits
+                # an absent digest) and a newer one covers the attribution too.
+                # Reading it back is also what makes the digest tamper-evident:
+                # editing the column changes this hash, which breaks the
+                # signature over it.
+                attribution_digest=row.attribution_digest,
             )
         ).hexdigest()
         if recomputed != row.checkpoint_hash:

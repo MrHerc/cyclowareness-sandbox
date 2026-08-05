@@ -128,6 +128,16 @@ def verify(
     result["anchored"] = bool(result["anchor"].get("anchored"))
     if not result["anchored"] and result["anchor"].get("reason"):
         result["anchor_reason"] = result["anchor"]["reason"]
+    # WHO OWNS WHICH EVENT, checked against the last signed statement of it.
+    #
+    # `tenant_unprotected` above counts rows whose tenant is not inside their own
+    # hashed detail -- 14,122 of 14,145 here, because they predate that copy.
+    # This is what covers them instead: the mapping was signed into a checkpoint
+    # rather than written into the rows, so it can be verified without the chain
+    # ever having been rewritten. Read the two together: one says how many rows
+    # the per-row check misses, the other says whether the signed mapping still
+    # holds for them.
+    result["attribution"] = audit.verify_attribution(db)
     return result
 
 

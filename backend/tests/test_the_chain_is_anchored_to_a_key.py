@@ -230,6 +230,13 @@ def test_a_forged_checkpoint_cannot_be_signed(chain, signed) -> None:
             head_hash=row.head_hash,
             event_count=row.event_count,
             prev_checkpoint_hash=row.prev_checkpoint_hash,
+            # The attacker here has to be as capable as a real one: they read the
+            # code, so they repair the hash over ALL of the canonical form. With
+            # `attribution_digest` omitted the hash check caught them first and
+            # the test stopped exercising the thing it is named after -- the
+            # signature is what they cannot produce, and that has to be the step
+            # that refuses them.
+            attribution_digest=row.attribution_digest,
         )
     ).hexdigest()
     chain.commit()

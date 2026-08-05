@@ -39,6 +39,24 @@ curl -X POST http://localhost:8000/api/auth/login \
   -d '{"username":"analyst","password":"analyst"}'
 ```
 
+### `POST /api/auth/logout`
+Auth: required. Ends **every** session for the authenticated subject and returns
+`204`.
+
+The token is stateless, so this is what makes revocation possible at all:
+logging out used to clear the browser's `localStorage` and nothing else, leaving
+a token that had already left the browser valid for its full TTL. It bumps a
+per-subject epoch that every later `_verify_token` compares against.
+
+Every session, not just the presented one — there is a single analyst account,
+so "log me out" and "log out everything I am" are the same intent, and the
+narrower reading would leave a stolen token alive while the person who noticed
+believes they have acted. Recorded in the chain of custody as `login.logout`.
+
+```bash
+curl -X POST http://localhost:8000/api/auth/logout   -H "Authorization: Bearer $TOKEN"
+```
+
 ---
 
 ## Analysis

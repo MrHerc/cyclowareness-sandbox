@@ -59,6 +59,21 @@ _EVIDENCE_TIME_COLUMNS = {
     "tenant_id", "sample_deleted_at", "impact", "verdict", "mitre",
 }
 
+#: The revision that signed which tenant owns which audit event.
+#:
+#: Its marker lives on `audit_checkpoints`, not `sandbox_jobs`, so markers are
+#: table-qualified from here on: a bare name still means `sandbox_jobs`, and
+#: `table.column` means what it says. The ladder had only ever needed one table
+#: and would have silently skipped this rung otherwise -- a `create_all()`
+#: database already has the column, and stamping it lower sends 0009 into a
+#: duplicate-column ALTER.
+ATTRIBUTION_REVISION = "0009_attribution_digest"
+_ATTRIBUTION_COLUMNS = {
+    "audit_checkpoints.attribution_digest",
+    "first_completed_at", "engine_manifest",
+    "tenant_id", "sample_deleted_at", "impact", "verdict", "mitre",
+}
+
 #: Newest revision first. A pre-Alembic database is stamped at the first entry
 #: whose marker columns are all present, then upgraded from there.
 #:
@@ -68,6 +83,7 @@ _EVIDENCE_TIME_COLUMNS = {
 #: the next migration re-adds a column that already exists, and the service
 #: fails to boot. Every migration that adds a column adds a rung here.
 _ADOPTION_LADDER: tuple[tuple[str, set[str]], ...] = (
+    (ATTRIBUTION_REVISION, _ATTRIBUTION_COLUMNS),
     (EVIDENCE_TIME_REVISION, _EVIDENCE_TIME_COLUMNS),
     (TENANT_REVISION, _TENANT_COLUMNS),
     (RETENTION_REVISION, _RETENTION_COLUMNS),
@@ -124,9 +140,16 @@ def _legacy_stamp_target(connection: Connection) -> str | None:
     tables = set(inspect(connection).get_table_names())
     if "alembic_version" in tables or "sandbox_jobs" not in tables:
         return None
-    columns = {c["name"] for c in inspect(connection).get_columns("sandbox_jobs")}
+    inspector = inspect(connection)
+    # A bare marker names a `sandbox_jobs` column; `table.column` names its own.
+    present = {c["name"] for c in inspector.get_columns("sandbox_jobs")}
+    for table in tables:
+        if table == "sandbox_jobs":
+            continue
+        for column in inspector.get_columns(table):
+            present.add(f"{table}.{column['name']}")
     for revision, markers in _ADOPTION_LADDER:
-        if markers <= columns:
+        if markers <= present:
             return revision
     return BASELINE_REVISION
 

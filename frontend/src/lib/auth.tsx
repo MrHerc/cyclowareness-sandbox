@@ -5,7 +5,8 @@ import type { Session } from './types'
 interface AuthContextValue {
   session: Session | null
   login: (username: string, password: string) => Promise<Session>
-  logout: () => void
+  /** Revokes server-side, then clears this browser. Await it before navigating. */
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
@@ -25,7 +26,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return s
   }, [])
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // TELL THE SERVER, THEN FORGET LOCALLY.
+    //
+    // This cleared localStorage and nothing else, so a token that had already
+    // left the browser stayed valid for its full twelve hours -- clicking log
+    // out ended the session on screen and nowhere else. `POST /api/auth/logout`
+    // bumps the subject's session epoch, which invalidates it server-side.
+    //
+    // The local half runs regardless. If the request fails the analyst still
+    // wanted to be logged out of this browser, and leaving them signed in
+    // because the network hiccuped is the worse of the two outcomes.
+    try {
+      await api.post('/api/auth/logout', {})
+    } catch {
+      // Already expired, already revoked, or offline. Nothing to recover.
+    }
     setSession(null)
     setSessionState(null)
   }, [])

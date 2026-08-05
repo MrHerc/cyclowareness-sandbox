@@ -74,6 +74,27 @@ def _sign(payload: bytes, key: str) -> str:
     return _b64e(mac)
 
 
+#: Per-subject session epoch. Bumping it invalidates every token issued before.
+#:
+#: In-process rather than a table, deliberately. This deployment is one process
+#: (`X-RateLimit-Scope: process` says so about the limiter for the same reason),
+#: the epoch is derived from the signing key on first use, and a restart
+#: regenerates the demo key anyway. A horizontally-scaled deployment needs this
+#: in shared storage, and that is stated here rather than discovered later.
+_EPOCHS: dict[str, int] = {}
+
+
+def session_epoch(subject: str) -> int:
+    """The epoch a token for `subject` must carry to still be valid."""
+    return _EPOCHS.get(subject, 0)
+
+
+def revoke_sessions(subject: str) -> int:
+    """End every session for `subject`. Returns the new epoch."""
+    _EPOCHS[subject] = _EPOCHS.get(subject, 0) + 1
+    return _EPOCHS[subject]
+
+
 def issue_token(subject: str, *, settings: Settings | None = None) -> tuple[str, int]:
     """Return ``(token, expires_at_epoch)`` for an authenticated analyst.
 
@@ -86,7 +107,25 @@ def issue_token(subject: str, *, settings: Settings | None = None) -> tuple[str,
     key = ensure_secret_key(settings)
     exp = int(time.time()) + settings.token_ttl_hours * 3600
     body = json.dumps(
-        {"sub": subject, "exp": exp, "tnt": settings.analyst_tenant_name},
+        {
+            "sub": subject,
+            "exp": exp,
+            "tnt": settings.analyst_tenant_name,
+            # THE ONE THING THE SERVER CAN CHANGE ITS MIND ABOUT.
+            #
+            # The token is stateless, so a stolen one was valid for its full 12
+            # hours and nothing could end it: clicking log out cleared
+            # localStorage and the same string kept reading every job, every
+            # report and every signed evidence export. This product displays
+            # strings lifted out of live malware, so a DOM bug is a question of
+            # when, not if -- and "we cannot revoke" is the wrong answer to have
+            # ready.
+            #
+            # `epoch` is bumped by logout and by any ANALYST_PASSWORD change, and
+            # `_verify_token` refuses anything issued before the current value.
+            # One integer, no session table, no per-request lookup.
+            "epc": session_epoch(subject),
+        },
         separators=(",", ":"),
     ).encode("utf-8")
     token = f"{_b64e(body)}.{_sign(body, key)}"
@@ -119,6 +158,17 @@ def _verify_token(token: str, settings: Settings) -> Identity | None:
     try:
         expires = int(claims.get("exp", 0))
     except (TypeError, ValueError):
+        return None
+    # REVOKED? A token minted before the subject's current epoch is dead, whatever
+    # its expiry says. Absent claim reads as 0, so a token from a build before
+    # this existed keeps working until it expires rather than logging everyone
+    # out on deploy.
+    subject_claim = str(claims.get("sub", "") or "")
+    try:
+        issued_epoch = int(claims.get("epc", 0))
+    except (TypeError, ValueError):
+        return None
+    if issued_epoch < session_epoch(subject_claim):
         return None
     if expires < int(time.time()):
         return None

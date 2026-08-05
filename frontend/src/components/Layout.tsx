@@ -42,8 +42,10 @@ export function Layout() {
   const navigate = useNavigate()
 
   const signOut = () => {
-    logout()
-    navigate('/login')
+    // `logout` now reaches the server before it clears the session, so it is
+    // awaited -- otherwise the navigation races the revocation and a failure
+    // would be invisible.
+    void logout().finally(() => navigate('/login'))
   }
 
   return (
