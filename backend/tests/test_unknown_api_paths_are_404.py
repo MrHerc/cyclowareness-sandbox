@@ -123,7 +123,9 @@ def test_it_does_not_shadow_a_route_that_exists(client, auth) -> None:
     """
     assert client.get("/api/jobs", headers=auth).status_code == 200
     assert client.get("/api/jobs").status_code == 401
-    assert client.get("/api/capabilities").status_code == 200
+    # The full descriptor needs a session now; the public half is what an
+    # unauthenticated caller may still reach.
+    assert client.get("/api/capabilities/public").status_code == 200
     # Not `in (200, 404)`. That is what this test exists to catch, and writing
     # the failure into the assertion permits it — `/api/health` is
     # render.yaml's healthCheckPath, so a 404 here is the deployment going

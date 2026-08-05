@@ -258,7 +258,7 @@ def test_url_submission_is_permitted_by_default_but_closable(client, auth, monke
 def test_capabilities_reports_sovereign_mode_and_the_refusal_count(client):
     with _env(SOVEREIGN_MODE="true", SOVEREIGN_ALLOW_URL_FETCH="true"):
         sovereignty.record("virustotal", reason="test refusal")
-        body = client.get("/api/capabilities").json()["sovereignty"]
+        body = client.get("/api/capabilities/public").json()["sovereignty"]
 
     assert body["enabled"] is True
     assert body["url_fetch_allowed"] is True
@@ -276,7 +276,7 @@ def test_capabilities_reports_sovereign_mode_and_the_refusal_count(client):
 
 def test_capabilities_states_the_off_posture_honestly(client):
     with _env(SOVEREIGN_MODE="false"):
-        body = client.get("/api/capabilities").json()["sovereignty"]
+        body = client.get("/api/capabilities/public").json()["sovereignty"]
     assert body["enabled"] is False
     assert "Sovereign mode: OFF" in body["statement"]
     assert all(d["allowed"] for d in body["destinations"])

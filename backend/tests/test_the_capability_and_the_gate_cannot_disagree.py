@@ -135,7 +135,15 @@ def test_the_capability_endpoint_publishes_the_reason(monkeypatch):
     from app.main import app
 
     with TestClient(app) as client:
-        body = client.get("/api/capabilities").json()
+        # A session from THIS app instance: the descriptor needs one now, and the
+        # outer `auth` fixture's token was minted by a different instance with a
+        # different signing key.
+        token = client.post(
+            "/api/auth/login", json={"username": "analyst", "password": "analyst"}
+        ).json()["token"]
+        body = client.get(
+            "/api/capabilities", headers={"Authorization": f"Bearer {token}"}
+        ).json()
 
     assert body["dynamic_worker"] is False
     assert body["dynamic_unavailable_reason"], (

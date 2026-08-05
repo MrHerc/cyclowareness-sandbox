@@ -144,7 +144,7 @@ def test_a_refused_change_leaves_the_deployment_working(client, auth) -> None:
     _put(client, auth, '{"rule_weight": NaN, "ai_weight": NaN}')
 
     assert client.get("/api/admin/weights", headers=auth).json() == before
-    assert client.get("/api/capabilities").status_code == 200
+    assert client.get("/api/capabilities/public").status_code == 200
     assert client.get("/api/jobs", headers=auth).status_code == 200
 
     public_id = _submit(client, auth, "dropper.ps1", DROPPER)

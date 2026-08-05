@@ -46,10 +46,38 @@ def _dig(payload, path):
 
 
 @pytest.fixture()
-def caps(client):
-    response = client.get("/api/capabilities")
+def caps(client, auth):
+    """The full descriptor, which now needs a session.
+
+    It was unauthenticated, and it is a map for getting a sample past this
+    deployment: the exact upload ceiling, the exact extension allowlist, the
+    analyzer inventory, the YARA rule count and which engines are configured.
+    The one fact the SPA needs before login -- `demo_mode` -- moved to
+    `/api/capabilities/public`.
+    """
+    response = client.get("/api/capabilities", headers=auth)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_the_full_descriptor_is_not_public(client) -> None:
+    """Unauthenticated, it must not hand out the analysis posture."""
+    assert client.get("/api/capabilities").status_code in (401, 403)
+
+
+def test_the_login_screen_can_still_read_what_it_needs(client) -> None:
+    """And the split must not break the pre-login banner, which is the reason
+    the endpoint was public in the first place."""
+    response = client.get("/api/capabilities/public")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body["demo_mode"], bool)
+    # The sovereignty posture stays public on purpose -- a buyer reads it before
+    # they have an account. What must NOT be here is the analysis posture.
+    assert "sovereignty" in body
+    for leaked in ("max_sample_mb", "supported_extensions", "static_analyzers",
+                   "yara", "integrations"):
+        assert leaked not in body, f"{leaked} is a map for getting a sample past us"
 
 
 @pytest.mark.parametrize("path,kind", RENDERED_SCALARS)

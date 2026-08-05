@@ -438,6 +438,7 @@ def _static_results(job: SandboxJob) -> list[AnalyzerResult]:
 def ingest_report(
     public_id: str,
     report: DynamicReportIn,
+    request: Request,
     db: Session = Depends(get_db),
     _worker: str = Depends(require_worker),
 ):
@@ -456,6 +457,22 @@ def ingest_report(
     ).scalar_one_or_none()
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    # ONLY FOR A JOB THE QUEUE COULD HAVE OFFERED.
+    #
+    # This accepted a report for a job in ANY status -- queued, running, failed,
+    # awaiting a password -- on an invariant nothing enforced, and it is the
+    # endpoint that writes behaviour into a signed verdict. `COMPLETED` is what
+    # `_needs_dynamic` requires before a job is ever handed out, so this is the
+    # same predicate read from the other side.
+    if job.status != JobStatus.COMPLETED:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"This job is {job.status}; the queue only offers completed jobs "
+                "for detonation, so a report for it was never asked for."
+            ),
+        )
 
     # READ THE "BEFORE" BEFORE ANYTHING IS WRITTEN.
     #
@@ -700,6 +717,11 @@ def ingest_report(
         actor=f"worker:{report.worker}"[:128],
         actor_method="worker",
         tenant=job.tenant_id,
+        # WHERE IT CAME FROM. 5,483 rows from this action carried no source
+        # address at all -- on the one mutation that can turn a clean verdict
+        # into a malicious one, the trail recorded that behaviour was ingested
+        # and not by which machine.
+        source_ip=client_ip(request),
         object_type="sample",
         object_id=job.public_id,
         detail={

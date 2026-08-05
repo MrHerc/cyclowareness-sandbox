@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import text
 
 from .. import metrics, retention, sovereignty
-from ..auth import _secure_equals, require_admin, require_analyst
+from ..auth import Identity, _secure_equals, require_admin, require_analyst
 from ..config import get_settings
 from .dynamic_state import dynamic_state
 from ..db import session_scope
@@ -86,8 +86,43 @@ def health(response: Response):
     }
 
 
+@router.get("/api/capabilities/public")
+def capabilities_public():
+    """The two facts the login screen needs, and nothing else.
+
+    THE FULL DESCRIPTOR WAS UNAUTHENTICATED, and it is a map for getting a
+    sample past this deployment: the exact upload ceiling (submit one byte more
+    and nothing is analysed), the exact extension allowlist, the analyzer
+    inventory, which engines are configured, the YARA rule count, and the
+    sovereignty posture -- all to anyone who can reach port 8443.
+
+    Splitting it rather than authenticating it wholesale, because the SPA reads
+    `demo_mode` BEFORE anyone has logged in: the login screen prints the demo
+    credentials from it. That one flag is the entire unauthenticated need.
+    """
+    settings = get_settings()
+    return {
+        "service": "cyclowareness-sandbox",
+        "demo_mode": settings.is_demo,
+        # THE SOVEREIGNTY POSTURE STAYS PUBLIC, deliberately, and this endpoint
+        # exists partly to keep it that way. The full descriptor's own comment
+        # records why: "an auditor asked to accept 'your files never leave the
+        # building' can be shown the switch, the exhaustive list of destinations
+        # it governs, and the number of times it fired" -- before they have an
+        # account. Authenticating the whole descriptor would have quietly taken
+        # that away while fixing something else.
+        #
+        # The refusal LIST is still not here. Each entry carries what was
+        # refused -- a submitted URL, a sample's SHA-256 -- so the proof that
+        # nothing left would itself be a disclosure. `sovereignty.status()`
+        # publishes the tally, not the entries.
+        "sovereignty": sovereignty.status(),
+        "retention": retention.policy(),
+    }
+
+
 @router.get("/api/capabilities")
-def capabilities():
+def capabilities(_identity: Identity = Depends(require_analyst)):
     settings = get_settings()
     _dynamic_available, _dynamic_reason = dynamic_state(settings)
     from ..engine import analyzers

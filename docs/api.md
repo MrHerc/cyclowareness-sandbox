@@ -14,7 +14,13 @@ Analyst-facing routes accept **either** credential:
 
 Worker-facing routes (`/api/dynamic/*`) use a separate shared secret:
 `X-Worker-Token: <DYNAMIC_WORKER_TOKEN>`. Public routes (`/api/health`,
-`/api/capabilities`, `/metrics`) need no auth.
+`/api/capabilities/public`, `/metrics`) need no auth.
+
+`GET /api/capabilities` — the FULL descriptor — requires a credential. Read
+together, its fields are a map for getting a sample past the deployment: the
+exact upload ceiling, the exact extension allowlist, and which analyzers are not
+running today. The sovereignty posture a buyer reads before they have an account
+stayed public, on `/api/capabilities/public`.
 
 Implementation: [`backend/app/auth.py`](../backend/app/auth.py).
 
@@ -225,6 +231,35 @@ curl http://localhost:8000/api/jobs/<id>/export.incident -H "X-API-Key: demo-key
 ---
 
 ## Meta
+
+### `GET /api/capabilities/public`
+Auth: none. The two facts a browser needs before anyone has logged in: whether
+this is a demo build (the login screen prints the seeded credentials from it)
+and the sovereignty posture with its refusal tally.
+
+The posture is public deliberately — an auditor asked to accept "your files
+never leave the building" can read the switch, the destinations it governs and
+the number of times it fired without an account. The refusal *list* is not here:
+each entry carries what was refused (a submitted URL, a sample's SHA-256), so
+the proof would itself be a disclosure.
+
+```bash
+curl http://localhost:8000/api/capabilities/public
+```
+
+### `GET /api/capabilities`
+Auth: analyst session or API key. The full descriptor: the upload ceiling, the
+extension allowlist, the static analyzers and which of them are unavailable, the
+YARA rule count, the dynamic tier's state and reason, the configured
+integrations, and whether the quarantine is mounted `noexec`.
+
+It requires a credential because, read together, those fields are a map for
+getting a sample past this deployment — the exact size to exceed, the exact
+extension to avoid, and which analyzers are not running today.
+
+```bash
+curl http://localhost:8000/api/capabilities -H "X-API-Key: demo-key"
+```
 
 ### `GET /api/health`
 Auth: none. `GET` and `HEAD`. Performs one database round-trip.

@@ -38,8 +38,26 @@ def json_safe(value: Any) -> Any:
         return repr(value)
     if isinstance(value, int) and abs(value) > _FLOAT_MAX:
         return str(value)
+    # A NUL INSIDE A JSON COLUMN POISONS EVERY QUERY OVER THE TABLE.
+    #
+    # `db_text` strips NULs on the way into TEXT columns because psycopg refuses
+    # them outright. The JSON columns take a different route: PostgreSQL stores
+    # a NUL inside a `json` value happily, and then EVERY `::jsonb` cast over
+    # `sandbox_jobs` fails -- "unsupported Unicode escape sequence" -- because
+    # `jsonb` has no representation for it. One sample-controlled byte, in a
+    # filename or a YARA rule name or a signal detail, and the whole table stops
+    # answering the queries the API, the retention sweep and this audit run.
+    #
+    # Replaced with the escaped text rather than dropped, for the same reason
+    # `inf` is rendered rather than discarded: the observation that the sample
+    # contained a NUL is itself worth keeping.
+    if isinstance(value, str):
+        return value.replace("\x00", "\\u0000") if "\x00" in value else value
     if isinstance(value, dict):
-        return {k: json_safe(v) for k, v in value.items()}
+        return {
+            (k.replace("\x00", "\\u0000") if isinstance(k, str) else k): json_safe(v)
+            for k, v in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [json_safe(v) for v in value]
     return value

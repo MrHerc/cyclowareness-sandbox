@@ -34,7 +34,12 @@ from ..engine import incident as incident_mod
 from ..engine import report as report_mod
 from ..engine.fetcher import FetchFailed, UnsafeURL, fetch
 from ..engine.models import Feedback, JobSource, JobStatus, SandboxJob
-from ..engine.storage import EmptySample, SampleTooLarge, store_stream
+from ..engine.storage import (
+    EmptySample,
+    QuarantineFull,
+    SampleTooLarge,
+    store_stream,
+)
 from ..runner import submit_analysis
 from ..schemas import (
     MAX_OFFSET,
@@ -191,6 +196,11 @@ async def analyze(
     except SampleTooLarge as exc:
         metrics.upload_rejects_total.labels(reason="too_large").inc()
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except QuarantineFull as exc:
+        # 507, not 500: an operator resolves this, and a 5xx that reads as a bug
+        # sends them looking in the wrong place.
+        metrics.upload_rejects_total.labels(reason="storage_full").inc()
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
     except EmptySample as exc:
         metrics.upload_rejects_total.labels(reason="empty").inc()
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -246,6 +256,9 @@ def analyze_url(
     except SampleTooLarge as exc:
         metrics.fetch_failures_total.labels(reason="too_large").inc()
         raise HTTPException(status_code=413, detail=str(exc)) from exc
+    except QuarantineFull as exc:
+        metrics.fetch_failures_total.labels(reason="storage_full").inc()
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
     except FetchFailed as exc:
         metrics.fetch_failures_total.labels(reason="failed").inc()
         raise HTTPException(status_code=502, detail=str(exc)) from exc
@@ -373,6 +386,23 @@ def list_jobs(
     total = db.execute(
         select(func.count()).select_from(SandboxJob).where(*conditions)
     ).scalar_one()
+
+    # TWO WAYS TO SAY WHERE THE PAGE STARTS, AND ONE OF THEM WAS IGNORED.
+    #
+    # With a cursor present, `offset` was skipped by the query below and then
+    # RETURNED IN THE RESPONSE as the page's position -- so a client that paged
+    # by reading `offset` back walked a sequence the server never used. Refusing
+    # the combination is clearer than picking a winner silently: the caller
+    # meant one of them and gets told which one to send.
+    if cursor and offset:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Send either `cursor` or `offset`, not both. With a cursor the "
+                "offset is ignored, and echoing it back as the page position "
+                "would misreport where this page starts."
+            ),
+        )
 
     query = select(SandboxJob).where(*conditions)
     if cursor:

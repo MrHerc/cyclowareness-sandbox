@@ -107,7 +107,7 @@ def test_an_unauthenticated_caller_certainly_cannot(client) -> None:
 
 def test_the_public_tally_is_still_public(client) -> None:
     """The COUNT is the auditable claim and stays unauthenticated on purpose."""
-    response = client.get("/api/capabilities")
+    response = client.get("/api/capabilities/public")
     assert response.status_code == 200
     sovereignty = response.json()["sovereignty"]
     assert "recent" not in sovereignty, "the detail must not leak through here"

@@ -43,6 +43,38 @@ class EmptySample(ValueError):
         super().__init__("Sample is empty")
 
 
+#: Free space below which submissions are refused.
+#:
+#: The quarantine shares the host's data filesystem with PostgreSQL and Docker,
+#: so running it dry is not a storage problem, it is an outage. 2 GiB is enough
+#: headroom for the database to keep writing while an operator responds, and it
+#: is far above the per-sample ceiling so a legitimate upload is never the thing
+#: that crosses it.
+MIN_FREE_BYTES = 2 * 1024 * 1024 * 1024
+
+
+class QuarantineFull(RuntimeError):
+    """The disk holding the quarantine has no headroom left."""
+
+    def __init__(self, free: int, required: int) -> None:
+        super().__init__(
+            f"Quarantine storage is nearly full: {free // (1024 * 1024)} MB free, "
+            f"{required // (1024 * 1024)} MB required. New submissions are refused "
+            "until space is reclaimed — configure SAMPLE_RETENTION_DAYS or free the "
+            "volume. Analysis already stored is unaffected."
+        )
+        self.free = free
+        self.required = required
+
+
+def _free_bytes(path) -> int | None:
+    """Free bytes on the filesystem holding `path`, or None if it cannot be read."""
+    try:
+        return shutil.disk_usage(path).free
+    except OSError:
+        return None
+
+
 @dataclass(frozen=True)
 class StoredSample:
     path: str
@@ -127,6 +159,24 @@ def store_stream(stream: BinaryIO, *, max_bytes: int = MAX_SAMPLE_BYTES) -> Stor
     and so an interrupted upload cannot leave debris outside the quarantine.
     """
     root = quarantine_root()
+
+    # NOTHING BOUNDED THE QUARANTINE IN AGGREGATE.
+    #
+    # `max_bytes` caps ONE sample. Retention is opt-in and off by default, and no
+    # free-space check existed anywhere, so a single submit-only API key -- the
+    # credential the design treats as the low-privilege one, pasted into CI
+    # pipelines and SIEM connectors -- could fill the host's only data filesystem
+    # in single-digit hours, taking PostgreSQL and Docker down with it.
+    #
+    # A FLOOR RATHER THAN A CEILING. A configured byte quota would be one more
+    # number to keep in step with the disk; what actually matters is whether the
+    # machine can still write, so submissions are refused while less than
+    # `MIN_FREE_BYTES` remains. 507 (Insufficient Storage) rather than 500,
+    # because this is a condition an operator resolves, not a bug.
+    free = _free_bytes(root)
+    if free is not None and free < MIN_FREE_BYTES:
+        raise QuarantineFull(free, MIN_FREE_BYTES)
+
     sha, md5 = hashlib.sha256(), hashlib.md5()
     size = 0
 
